@@ -25,5 +25,13 @@
   "camera.capture": "Zrób zdjęcie",
   "camera.cancel": "Anuluj",
   "camera.unavailable": "Aparat niedostępny.",
-  "audio.unavailable": "Brak dźwięku, ponawiam"
+  "audio.unavailable": "Brak dźwięku, ponawiam",
+  "config.title": "Ustawienia",
+  "config.audio": "Urządzenia audio",
+  "config.output": "Wyjście",
+  "config.input": "Wejście",
+  "config.auto": "Automatyczne (domyślne systemowe)",
+  "config.active": "Aktywne:",
+  "config.fallback": "zastępcze",
+  "profiles.settings": "Ustawienia"
 }
