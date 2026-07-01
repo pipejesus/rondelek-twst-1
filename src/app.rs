@@ -232,8 +232,14 @@ impl App {
                     }
                 }
                 None => {
-                    self.playback = None;
-                    errors.push("speaker: none".to_string());
+                    // Transient enumeration failure: keep a healthy stream
+                    // rather than dropping audio for ~1s. Only tear down if
+                    // the stream is already dead (or absent).
+                    let alive = self.playback.as_ref().map(|p| p.is_alive()).unwrap_or(false);
+                    if !alive {
+                        self.playback = None;
+                        errors.push("speaker: none".to_string());
+                    }
                 }
             }
         }
@@ -270,8 +276,14 @@ impl App {
                     }
                 }
                 None => {
-                    self.capture = None;
-                    errors.push("microphone: none".to_string());
+                    // Transient enumeration failure: keep a healthy stream
+                    // rather than dropping audio for ~1s. Only tear down if
+                    // the stream is already dead (or absent).
+                    let alive = self.capture.as_ref().map(|c| c.is_alive()).unwrap_or(false);
+                    if !alive {
+                        self.capture = None;
+                        errors.push("microphone: none".to_string());
+                    }
                 }
             }
         }

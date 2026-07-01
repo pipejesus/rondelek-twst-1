@@ -66,6 +66,9 @@ impl Playback {
                                 mixed /= active as f32;
                             }
                             let value = mixed.clamp(-1.0, 1.0);
+                            // Every channel in the frame gets the same mixed
+                            // value, so playback speed/pitch stays independent
+                            // of the output device's channel count.
                             for sample in frame.iter_mut() {
                                 *sample = value;
                             }

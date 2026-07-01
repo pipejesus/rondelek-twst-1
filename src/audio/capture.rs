@@ -47,6 +47,8 @@ impl Capture {
                 config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     if let Ok(mut buf) = buf_clone.lock() {
+                        // Multi-channel frames are folded to mono; the
+                        // visualizer/recorder only ever see one sample per frame.
                         for frame in data.chunks(channels) {
                             if buf.len() > 32768 {
                                 let _ = buf.pop_front();
