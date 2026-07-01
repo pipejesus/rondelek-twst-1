@@ -10,8 +10,8 @@ use crate::i18n::{self, EUROPEAN_LANGS, I18n};
 use crate::profile::{self, Profile, SessionInfo};
 use crate::session::Session;
 use crate::ui::{
-    DevPanel, Pad, PadMode, Renderer, Visualizer, compute_layout, draw_keycap, draw_kid_face,
-    gloss_overlay,
+    ConfigPanel, DevPanel, Pad, PadMode, Renderer, Visualizer, compute_layout, draw_keycap,
+    draw_kid_face, gloss_overlay,
 };
 
 /// Index of the REC control pad within `self.pads` (after the sample pads).
@@ -41,6 +41,7 @@ pub struct App {
     theme: Theme,
     visualizer: Visualizer,
     dev_panel: DevPanel,
+    config_panel: ConfigPanel,
     settings: Settings,
     settings_path: PathBuf,
     i18n: I18n,
@@ -141,6 +142,7 @@ impl App {
             theme,
             visualizer: Visualizer::new(capture_rate),
             dev_panel: DevPanel::new(),
+            config_panel: ConfigPanel::new(),
             settings,
             settings_path,
             i18n,
@@ -616,6 +618,20 @@ impl App {
             .show(&ctx, |ui| {
                 self.language_picker(ui);
             });
+
+        // Settings entry (opens the F12 panel), anchored top-left.
+        let settings_label = format!("⚙ {}", self.i18n.t("profiles.settings"));
+        let mut open_settings = false;
+        egui::Area::new(egui::Id::new("settings_entry"))
+            .anchor(Align2::LEFT_TOP, [16.0, 16.0])
+            .show(&ctx, |ui| {
+                if ui.button(settings_label).clicked() {
+                    open_settings = true;
+                }
+            });
+        if open_settings {
+            self.config_panel.visible = true;
+        }
 
         // Preload avatar textures for the current filter so cards can read them.
         let query = self.profile_search.to_lowercase();
@@ -1139,6 +1155,10 @@ impl eframe::App for App {
         ui.ctx().request_repaint();
         self.frame_count += 1;
 
+        if ui.input(|i| i.key_pressed(Key::F12)) {
+            self.config_panel.toggle();
+        }
+
         if ui.input(|i| i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(Key::S)) {
             let path = self.screenshot_path();
             self.request_screenshot(ui.ctx(), path);
@@ -1154,6 +1174,10 @@ impl eframe::App for App {
             AppScreen::NewProfile => self.draw_new_profile(ui),
             AppScreen::Sessions => self.draw_sessions(ui),
             AppScreen::Session => self.draw_session(ui),
+        }
+
+        if self.config_panel.show(ui.ctx(), &mut self.settings, &self.i18n) {
+            self.save_settings();
         }
 
         self.save_pending_screenshot(ui.ctx());
