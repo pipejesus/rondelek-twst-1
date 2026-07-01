@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -72,14 +72,6 @@ impl Capture {
             alive,
             current_device,
         })
-    }
-
-    /// Convenience: open the current system default input device.
-    pub fn new() -> Result<Self> {
-        let device = cpal::default_host()
-            .default_input_device()
-            .context("No input audio device found")?;
-        Self::open(&device)
     }
 
     /// False once cpal has reported a stream error (e.g. device disconnected).

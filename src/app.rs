@@ -2,7 +2,7 @@ use egui::{Align2, Color32, Key, Pos2, Rect, Sense, Ui, Vec2};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::audio::{Capture, Playback, Sample};
+use crate::audio::{Capture, Playback, Sample, device};
 use crate::config::{
     self, NUM_SAMPLES, PadKind, REC_PAD, ROUNDING_PAD, SAMPLE_PADS, Settings, Theme,
 };
@@ -190,44 +190,94 @@ impl App {
 
     // ---- audio ----------------------------------------------------------
 
-    fn init_audio(&mut self, dt: f32) {
-        if self.capture.is_some() && self.playback.is_some() {
-            return;
-        }
+    /// Per-frame audio watchdog (throttled ~1s). For each direction, work out
+    /// the target device (Auto → system default; Pinned → that device, or the
+    /// default as a fallback) and rebuild the stream when it is missing, dead,
+    /// or pointed at the wrong device. This recovers from disconnects and
+    /// system-default changes, and reclaims a pinned device when it returns.
+    fn maintain_audio(&mut self, dt: f32) {
         if self.audio_retry_timer > 0.0 {
             self.audio_retry_timer -= dt;
             return;
         }
-        self.audio_retry_timer = 2.0;
+        self.audio_retry_timer = 1.0;
 
         let mut errors = Vec::new();
-        if self.capture.is_none() {
-            match Capture::new() {
-                Ok(cap) => {
-                    self.capture_rate = cap.sample_rate();
-                    if self.visualizer.sample_rate() != cap.sample_rate() {
-                        self.visualizer = Visualizer::new(cap.sample_rate());
+
+        // ---- output ----
+        {
+            let pref = device::DevicePref::from_setting(&self.settings.output_device);
+            let available = device::list_output_devices();
+            let default = device::default_output_name();
+            match device::choose_target(&pref, &available, default.as_deref()) {
+                Some(target) => {
+                    let current = self.playback.as_ref().map(|p| p.current_device());
+                    let alive = self.playback.as_ref().map(|p| p.is_alive()).unwrap_or(false);
+                    if device::needs_rebuild(current, alive, &target.name) {
+                        match device::output_device_by_name(&target.name) {
+                            Some(dev) => match Playback::open(&dev) {
+                                Ok(pb) => self.playback = Some(pb),
+                                Err(e) => {
+                                    self.playback = None;
+                                    errors.push(format!("speaker: {e}"));
+                                }
+                            },
+                            None => {
+                                self.playback = None;
+                                errors.push(format!("speaker: {} unavailable", target.name));
+                            }
+                        }
                     }
-                    self.capture = Some(cap);
                 }
-                Err(e) => errors.push(format!("microphone: {e}")),
+                None => {
+                    self.playback = None;
+                    errors.push("speaker: none".to_string());
+                }
             }
         }
-        if self.playback.is_none() {
-            match Playback::new() {
-                Ok(pb) => self.playback = Some(pb),
-                Err(e) => errors.push(format!("speaker: {e}")),
+
+        // ---- input ----
+        {
+            let pref = device::DevicePref::from_setting(&self.settings.input_device);
+            let available = device::list_input_devices();
+            let default = device::default_input_name();
+            match device::choose_target(&pref, &available, default.as_deref()) {
+                Some(target) => {
+                    let current = self.capture.as_ref().map(|c| c.current_device());
+                    let alive = self.capture.as_ref().map(|c| c.is_alive()).unwrap_or(false);
+                    if device::needs_rebuild(current, alive, &target.name) {
+                        match device::input_device_by_name(&target.name) {
+                            Some(dev) => match Capture::open(&dev) {
+                                Ok(cap) => {
+                                    self.capture_rate = cap.sample_rate();
+                                    if self.visualizer.sample_rate() != cap.sample_rate() {
+                                        self.visualizer = Visualizer::new(cap.sample_rate());
+                                    }
+                                    self.capture = Some(cap);
+                                }
+                                Err(e) => {
+                                    self.capture = None;
+                                    errors.push(format!("microphone: {e}"));
+                                }
+                            },
+                            None => {
+                                self.capture = None;
+                                errors.push(format!("microphone: {} unavailable", target.name));
+                            }
+                        }
+                    }
+                }
+                None => {
+                    self.capture = None;
+                    errors.push("microphone: none".to_string());
+                }
             }
         }
 
         self.audio_status = if errors.is_empty() {
             String::new()
         } else {
-            format!(
-                "{} ({})",
-                self.i18n.t("audio.unavailable"),
-                errors.join("; ")
-            )
+            format!("{} ({})", self.i18n.t("audio.unavailable"), errors.join("; "))
         };
     }
 
@@ -925,7 +975,7 @@ impl App {
 
     fn draw_session(&mut self, ui: &mut Ui) {
         let dt = ui.input(|i| i.unstable_dt);
-        self.init_audio(dt);
+        self.maintain_audio(dt);
         self.drain_capture();
 
         let pointer_pos = ui.input(|i| i.pointer.hover_pos());

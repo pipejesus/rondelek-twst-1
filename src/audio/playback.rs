@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -91,14 +91,6 @@ impl Playback {
             alive,
             current_device,
         })
-    }
-
-    /// Convenience: open the current system default output device.
-    pub fn new() -> Result<Self> {
-        let device = cpal::default_host()
-            .default_output_device()
-            .context("No output audio device found")?;
-        Self::open(&device)
     }
 
     /// False once cpal has reported a stream error (e.g. device disconnected).
