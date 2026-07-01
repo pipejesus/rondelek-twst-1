@@ -1,0 +1,29 @@
+# --- Rust build artifacts ---
+/target/
+**/*.rs.bk
+
+# NOTE: Cargo.lock is intentionally COMMITTED.
+# `rondelek` is a binary/application (not a library), so the lockfile is
+# checked in to guarantee reproducible builds and CI releases (`--locked`).
+
+# --- Machine-generated / per-clone tooling state ---
+# CodeGraph index (SQLite db, daemon socket, logs) — rebuilt locally.
+/.codegraph/
+# "remember" plugin session memory — local scratch, not shared.
+/.remember/
+
+# --- Claude Code (keep shared config, ignore machine-local bits) ---
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/*.local.json
+
+# --- Editor / IDE ---
+/.idea/
+/.zed/
+/.vscode/
+*.swp
+*~
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db

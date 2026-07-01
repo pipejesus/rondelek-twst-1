@@ -1,0 +1,111 @@
+name: Release
+
+# Fires when you push a version tag, e.g.:
+#   git tag v0.1.0 && git push origin v0.1.0
+# Each matrix job builds a binary and attaches it to the GitHub Release
+# for that tag (the release is created automatically if it doesn't exist).
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Needed so the workflow can create the Release and upload assets.
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14        # Apple Silicon runner
+            target: aarch64-apple-darwin
+          - os: macos-13        # Intel runner
+            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          # egui/eframe (X11), cpal (ALSA), rfd (GTK), nokhwa (v4l), udev.
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libasound2-dev \
+            libudev-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libv4l-dev
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          STAGE="rondelek-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir "$STAGE"
+          cp "target/${{ matrix.target }}/release/rondelek" "$STAGE/"
+          cp README.* LICENSE* "$STAGE/" 2>/dev/null || true
+          tar -czf "$STAGE.tar.gz" "$STAGE"
+          echo "ASSET=$STAGE.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "rondelek-$env:GITHUB_REF_NAME-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/rondelek.exe" $stage
+          Compress-Archive -Path "$stage/*" -DestinationPath "$stage.zip"
+          "ASSET=$stage.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ASSET }}
+          generate_release_notes: true
+
+  # --------------------------------------------------------------------------
+  # Android build — STUB. The crate already has `cfg(not(target_os="android"))`
+  # branches, so an Android target is planned. This job is intentionally
+  # disabled until the toolchain is wired up.
+  #
+  # To flesh out later:
+  #   1. Change `if: false` to `if: always()` (or a tag condition).
+  #   2. Set up the Android NDK + a Rust android target (aarch64-linux-android).
+  #   3. Use cargo-ndk / cargo-apk to produce an .apk/.aab.
+  #   4. Add a signing keystore via repo secrets and sign the artifact.
+  #   5. Upload it with softprops/action-gh-release like the desktop jobs.
+  # --------------------------------------------------------------------------
+  android:
+    name: android (stub — disabled)
+    runs-on: ubuntu-latest
+    if: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Placeholder
+        run: |
+          echo "Android release is not wired up yet — see the comment block in release.yml."
+          exit 1

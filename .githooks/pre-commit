@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#
+# pre-commit — runs before a commit is recorded.
+# Activate (once, per clone) with:
+#   git config core.hooksPath .githooks
+#
+set -euo pipefail
+
+# Formatting gate — fast, keeps the tree consistent.
+if ! cargo fmt --all -- --check; then
+  echo "✖ Formatting issues. Run 'cargo fmt --all' and re-stage your changes." >&2
+  exit 1
+fi
+
+# TODO (return later): enable the lint gate below once the tree is clippy-clean.
+# cargo clippy --all-targets --all-features -- -D warnings
