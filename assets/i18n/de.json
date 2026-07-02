@@ -25,5 +25,13 @@
   "camera.capture": "Aufnehmen",
   "camera.cancel": "Abbrechen",
   "camera.unavailable": "Kamera nicht verfügbar.",
-  "audio.unavailable": "Kein Audio, neuer Versuch"
+  "audio.unavailable": "Kein Audio, neuer Versuch",
+  "config.title": "Einstellungen",
+  "config.audio": "Audiogeräte",
+  "config.output": "Ausgabe",
+  "config.input": "Eingang",
+  "config.auto": "Automatisch (Systemstandard)",
+  "config.active": "Aktiv:",
+  "config.fallback": "Ersatz",
+  "profiles.settings": "Einstellungen"
 }

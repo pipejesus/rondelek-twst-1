@@ -1,20 +1,25 @@
 use anyhow::{Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub struct Capture {
     stream: Option<cpal::Stream>,
     buffer: Arc<Mutex<VecDeque<f32>>>,
     sample_rate: u32,
+    alive: Arc<AtomicBool>,
+    current_device: String,
 }
 
 impl Capture {
-    pub fn new() -> Result<Self> {
-        let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .context("No input audio device found")?;
+    /// Build an input stream on `device`, folding multi-channel frames to mono.
+    pub fn open(device: &cpal::Device) -> Result<Self> {
+        let current_device = device
+            .description()
+            .ok()
+            .map(|d| d.name().to_string())
+            .unwrap_or_default();
 
         let supported = device
             .default_input_config()
@@ -26,15 +31,15 @@ impl Capture {
         let buffer = Arc::new(Mutex::new(VecDeque::with_capacity(8192)));
         let buf_clone = Arc::clone(&buffer);
 
+        let alive = Arc::new(AtomicBool::new(true));
+        let alive_cb = Arc::clone(&alive);
+
         let config = cpal::StreamConfig {
             channels,
             sample_rate: supported.sample_rate(),
             buffer_size: cpal::BufferSize::Default,
         };
 
-        // The device may capture in stereo (or more). The rest of the app works
-        // with a single mono stream, so fold each interleaved frame down to one
-        // sample by averaging its channels before buffering.
         let channels = channels.max(1) as usize;
 
         let stream = device
@@ -42,6 +47,8 @@ impl Capture {
                 config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     if let Ok(mut buf) = buf_clone.lock() {
+                        // Multi-channel frames are folded to mono; the
+                        // visualizer/recorder only ever see one sample per frame.
                         for frame in data.chunks(channels) {
                             if buf.len() > 32768 {
                                 let _ = buf.pop_front();
@@ -50,7 +57,10 @@ impl Capture {
                         }
                     }
                 },
-                |err| eprintln!("Capture error: {err}"),
+                move |err| {
+                    alive_cb.store(false, Ordering::Relaxed);
+                    eprintln!("Capture error: {err}");
+                },
                 None,
             )
             .context("Failed to build input stream")?;
@@ -61,7 +71,19 @@ impl Capture {
             stream: Some(stream),
             buffer,
             sample_rate,
+            alive,
+            current_device,
         })
+    }
+
+    /// False once cpal has reported a stream error (e.g. device disconnected).
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
+    }
+
+    /// Name of the device this stream was built on.
+    pub fn current_device(&self) -> &str {
+        &self.current_device
     }
 
     pub fn drain(&mut self) -> Vec<f32> {

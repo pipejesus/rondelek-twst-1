@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// A mono clip being played back, with a per-frame read cursor.
@@ -10,14 +11,19 @@ pub struct Playback {
     stream: Option<cpal::Stream>,
     sources: Sources,
     sample_rate: u32,
+    alive: Arc<AtomicBool>,
+    current_device: String,
 }
 
 impl Playback {
-    pub fn new() -> Result<Self> {
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .context("No output audio device found")?;
+    /// Build an output stream on `device`. The stream's error callback flips an
+    /// `alive` flag so the watchdog can detect a disconnected device.
+    pub fn open(device: &cpal::Device) -> Result<Self> {
+        let current_device = device
+            .description()
+            .ok()
+            .map(|d| d.name().to_string())
+            .unwrap_or_default();
 
         let supported = device
             .default_output_config()
@@ -28,6 +34,9 @@ impl Playback {
 
         let sources: Sources = Arc::new(Mutex::new(Vec::new()));
         let src_clone = Arc::clone(&sources);
+
+        let alive = Arc::new(AtomicBool::new(true));
+        let alive_cb = Arc::clone(&alive);
 
         let config = cpal::StreamConfig {
             channels: channels as u16,
@@ -40,10 +49,6 @@ impl Playback {
                 config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     if let Ok(mut src) = src_clone.lock() {
-                        // Process one output frame (one sample per channel) at a
-                        // time. Each mono source advances exactly once per frame
-                        // and its value is written to every channel, so playback
-                        // speed is independent of the output channel count.
                         for frame in data.chunks_mut(channels) {
                             let mut mixed: f32 = 0.0;
                             let mut active = 0;
@@ -61,6 +66,9 @@ impl Playback {
                                 mixed /= active as f32;
                             }
                             let value = mixed.clamp(-1.0, 1.0);
+                            // Every channel in the frame gets the same mixed
+                            // value, so playback speed/pitch stays independent
+                            // of the output device's channel count.
                             for sample in frame.iter_mut() {
                                 *sample = value;
                             }
@@ -69,7 +77,10 @@ impl Playback {
                         data.fill(0.0);
                     }
                 },
-                |err| eprintln!("Playback error: {err}"),
+                move |err| {
+                    alive_cb.store(false, Ordering::Relaxed);
+                    eprintln!("Playback error: {err}");
+                },
                 None,
             )
             .context("Failed to build output stream")?;
@@ -80,7 +91,19 @@ impl Playback {
             stream: Some(stream),
             sources,
             sample_rate,
+            alive,
+            current_device,
         })
+    }
+
+    /// False once cpal has reported a stream error (e.g. device disconnected).
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Relaxed)
+    }
+
+    /// Name of the device this stream was built on.
+    pub fn current_device(&self) -> &str {
+        &self.current_device
     }
 
     /// Queue a mono clip for playback, resampling from `src_rate` to the output

@@ -25,5 +25,13 @@
   "camera.capture": "Scatta",
   "camera.cancel": "Annulla",
   "camera.unavailable": "Fotocamera non disponibile.",
-  "audio.unavailable": "Audio non disponibile, nuovo tentativo"
+  "audio.unavailable": "Audio non disponibile, nuovo tentativo",
+  "config.title": "Impostazioni",
+  "config.audio": "Dispositivi audio",
+  "config.output": "Uscita",
+  "config.input": "Ingresso",
+  "config.auto": "Auto (predefinito di sistema)",
+  "config.active": "Attivo:",
+  "config.fallback": "ripiego",
+  "profiles.settings": "Impostazioni"
 }

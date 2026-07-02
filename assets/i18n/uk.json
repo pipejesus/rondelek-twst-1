@@ -25,5 +25,13 @@
   "camera.capture": "Зняти",
   "camera.cancel": "Скасувати",
   "camera.unavailable": "Камера недоступна.",
-  "audio.unavailable": "Аудіо недоступне, повтор"
+  "audio.unavailable": "Аудіо недоступне, повтор",
+  "config.title": "Налаштування",
+  "config.audio": "Аудіопристрої",
+  "config.output": "Вихід",
+  "config.input": "Вхід",
+  "config.auto": "Авто (системний за замовчуванням)",
+  "config.active": "Активний:",
+  "config.fallback": "резервний",
+  "profiles.settings": "Налаштування"
 }

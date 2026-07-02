@@ -17,6 +17,12 @@ pub struct Settings {
     /// UI language code. Defaults to the detected system language on first run.
     #[serde(default = "default_language")]
     pub language: String,
+    /// Pinned input device name; None = follow system default.
+    #[serde(default)]
+    pub input_device: Option<String>,
+    /// Pinned output device name; None = follow system default.
+    #[serde(default)]
+    pub output_device: Option<String>,
 }
 
 impl Default for Settings {
@@ -29,6 +35,8 @@ impl Default for Settings {
             visualizer_num_bars: 36,
             show_dev_panel: false,
             language: default_language(),
+            input_device: None,
+            output_device: None,
         }
     }
 }
@@ -72,4 +80,36 @@ impl Settings {
 fn settings_path() -> PathBuf {
     let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("rondelek").join("settings.json")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_device_fields_default_to_none() {
+        // A settings JSON written before this feature existed.
+        let json = r#"{
+            "volume": 0.8,
+            "dark_mode": false,
+            "visualizer_smoothing": 0.7,
+            "visualizer_decay": 0.4,
+            "visualizer_num_bars": 36,
+            "show_dev_panel": false,
+            "language": "en"
+        }"#;
+        let s: Settings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.input_device, None);
+        assert_eq!(s.output_device, None);
+    }
+
+    #[test]
+    fn device_fields_round_trip() {
+        let mut s = Settings::default();
+        s.output_device = Some("Speakers".to_string());
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.output_device, Some("Speakers".to_string()));
+        assert_eq!(back.input_device, None);
+    }
 }
