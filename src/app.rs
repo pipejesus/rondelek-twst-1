@@ -617,13 +617,23 @@ impl App {
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(&ctx, |ui| {
-                if let Some(t) = &tex {
-                    ui.add(egui::Image::from_texture(egui::load::SizedTexture::new(
-                        t.id(),
-                        egui::vec2(320.0, 240.0),
-                    )));
-                } else {
-                    ui.label(self.i18n.t("camera.unavailable"));
+                match (&tex, &frame) {
+                    (Some(t), Some((_, w, h))) => {
+                        // Fit the native frame into the preview box without
+                        // stretching, then overlay the centred square crop guide.
+                        let (fw, fh) = (*w as f32, *h as f32);
+                        let scale = (400.0 / fw).min(300.0 / fh);
+                        let disp = egui::vec2(fw * scale, fh * scale);
+                        let (rect, _) = ui.allocate_exact_size(disp, Sense::hover());
+                        let p = ui.painter();
+                        p.image(t.id(), rect, uv_full(), Color32::WHITE);
+                        let side = rect.width().min(rect.height());
+                        let sq = Rect::from_center_size(rect.center(), egui::vec2(side, side));
+                        draw_crop_guide(p, sq);
+                    }
+                    _ => {
+                        ui.label(self.i18n.t("camera.unavailable"));
+                    }
                 }
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -897,7 +907,12 @@ impl App {
                 .filter(|_| self.form_mode == FormMode::Edit)
                 .and_then(|p| p.avatar_path()),
         };
-        let avatar_tex = preview_path.and_then(|p| self.texture_from_path(&ctx, &p));
+        // Load the preview texture and remember its pixel size so the preview can
+        // centre-crop (cover) instead of stretching a non-square source.
+        let avatar_tex = preview_path.as_ref().and_then(|p| {
+            self.texture_from_path(&ctx, p)
+                .map(|id| (id, self.tex_cache.get(p).map_or([1, 1], |t| t.size())))
+        });
 
         let mut do_upload = false;
         let mut do_camera = false;
@@ -922,9 +937,9 @@ impl App {
             // Avatar preview.
             let (rect, _) = ui.allocate_exact_size(egui::vec2(140.0, 140.0), Sense::hover());
             let p = ui.painter();
-            if let Some(id) = avatar_tex {
+            if let Some((id, size)) = avatar_tex {
                 p.rect_filled(rect, 14.0, self.theme.panel_fg);
-                p.image(id, rect.shrink(4.0), uv_full(), Color32::WHITE);
+                p.image(id, rect.shrink(4.0), cover_uv(size), Color32::WHITE);
                 gloss_overlay(p, rect.shrink(4.0), 12.0);
             } else {
                 p.rect_filled(rect, 14.0, self.theme.pad_play_bg);
@@ -1311,6 +1326,59 @@ fn uv_full() -> Rect {
     Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0))
 }
 
+/// UV rect that samples the centred square of a `size` texture — the equivalent
+/// of CSS `object-fit: cover` into a square target. Drawing a non-square image
+/// into a square rect with this UV centre-crops instead of stretching, matching
+/// what `Profile::set_avatar` stores. Square textures yield the full [0,1] UV.
+fn cover_uv(size: [usize; 2]) -> Rect {
+    let (w, h) = (size[0] as f32, size[1] as f32);
+    if w <= 0.0 || h <= 0.0 {
+        return uv_full();
+    }
+    let side = w.min(h);
+    let ux = (w - side) / 2.0 / w;
+    let uy = (h - side) / 2.0 / h;
+    Rect::from_min_max(Pos2::new(ux, uy), Pos2::new(1.0 - ux, 1.0 - uy))
+}
+
+/// Camera crop guide: a faint full-square outline plus four rounded corner
+/// brackets, marking the centred region that becomes the avatar (matching the
+/// centre-crop applied on save).
+fn draw_crop_guide(p: &egui::Painter, sq: Rect) {
+    let faint = Color32::from_rgba_unmultiplied(255, 255, 255, 70);
+    p.rect_stroke(
+        sq,
+        egui::CornerRadius::same(8),
+        egui::Stroke::new(1.0, faint),
+        egui::StrokeKind::Inside,
+    );
+
+    let bracket = Color32::WHITE;
+    let len = (sq.width() * 0.16).clamp(14.0, 40.0);
+    let t = 3.0;
+    let stroke = egui::Stroke::new(t, bracket);
+    let corners = [
+        (sq.left_top(), egui::vec2(1.0, 0.0), egui::vec2(0.0, 1.0)),
+        (sq.right_top(), egui::vec2(-1.0, 0.0), egui::vec2(0.0, 1.0)),
+        (
+            sq.left_bottom(),
+            egui::vec2(1.0, 0.0),
+            egui::vec2(0.0, -1.0),
+        ),
+        (
+            sq.right_bottom(),
+            egui::vec2(-1.0, 0.0),
+            egui::vec2(0.0, -1.0),
+        ),
+    ];
+    for (c, dx, dy) in corners {
+        p.line_segment([c, c + dx * len], stroke);
+        p.line_segment([c, c + dy * len], stroke);
+        // Round the joint by capping it with a small filled dot.
+        p.circle_filled(c, t * 0.5, bracket);
+    }
+}
+
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         ui.ctx().request_repaint();
@@ -1358,5 +1426,41 @@ impl eframe::App for App {
         if let Some(ref mut pb) = self.playback {
             pb.stop();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cover_uv_square_is_full() {
+        let uv = cover_uv([256, 256]);
+        assert_eq!(uv.min, Pos2::new(0.0, 0.0));
+        assert_eq!(uv.max, Pos2::new(1.0, 1.0));
+    }
+
+    #[test]
+    fn cover_uv_landscape_crops_horizontally() {
+        // 600x200: keep the centred 200-wide square → u in [1/3, 2/3], full v.
+        let uv = cover_uv([600, 200]);
+        assert!((uv.min.x - 1.0 / 3.0).abs() < 1e-6);
+        assert!((uv.max.x - 2.0 / 3.0).abs() < 1e-6);
+        assert_eq!(uv.min.y, 0.0);
+        assert_eq!(uv.max.y, 1.0);
+    }
+
+    #[test]
+    fn cover_uv_portrait_crops_vertically() {
+        let uv = cover_uv([200, 600]);
+        assert_eq!(uv.min.x, 0.0);
+        assert_eq!(uv.max.x, 1.0);
+        assert!((uv.min.y - 1.0 / 3.0).abs() < 1e-6);
+        assert!((uv.max.y - 2.0 / 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cover_uv_degenerate_is_full() {
+        assert_eq!(cover_uv([0, 0]), uv_full());
     }
 }
