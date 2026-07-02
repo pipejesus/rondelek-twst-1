@@ -28,6 +28,12 @@ impl DevPanel {
                         .text("Smoothing"),
                 );
                 ui.add(egui::Slider::new(&mut settings.visualizer_decay, 0.01..=1.0).text("Decay"));
+                ui.add(
+                    egui::Slider::new(&mut settings.visualizer_floor_db, -80.0..=-24.0)
+                        .text("Floor (dB)")
+                        .suffix(" dB"),
+                )
+                .on_hover_text("Lower = more sensitive = more movement");
                 let mut bars = settings.visualizer_num_bars as f64;
                 if ui
                     .add(egui::Slider::new(&mut bars, 16.0..=256.0).text("Bars"))

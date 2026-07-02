@@ -6,6 +6,12 @@ fn default_language() -> String {
     crate::i18n::detect_system_lang()
 }
 
+/// Lower dB floor of the visualizer's display window (display-only; never touches
+/// the recorded signal). Lower = more sensitive = more movement.
+fn default_visualizer_floor_db() -> f32 {
+    -60.0
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
     pub volume: f32,
@@ -13,6 +19,10 @@ pub struct Settings {
     pub visualizer_smoothing: f32,
     pub visualizer_decay: f32,
     pub visualizer_num_bars: usize,
+    /// Lower edge (dB) of the visualizer's display window; the response is
+    /// logarithmic between this floor and a fixed ceiling. Display-only.
+    #[serde(default = "default_visualizer_floor_db")]
+    pub visualizer_floor_db: f32,
     pub show_dev_panel: bool,
     /// UI language code. Defaults to the detected system language on first run.
     #[serde(default = "default_language")]
@@ -33,6 +43,7 @@ impl Default for Settings {
             visualizer_smoothing: 0.7,
             visualizer_decay: 0.4,
             visualizer_num_bars: 36,
+            visualizer_floor_db: default_visualizer_floor_db(),
             show_dev_panel: false,
             language: default_language(),
             input_device: None,
@@ -101,6 +112,8 @@ mod tests {
         let s: Settings = serde_json::from_str(json).unwrap();
         assert_eq!(s.input_device, None);
         assert_eq!(s.output_device, None);
+        // Field added later must fall back to its default, not fail the parse.
+        assert_eq!(s.visualizer_floor_db, default_visualizer_floor_db());
     }
 
     #[test]

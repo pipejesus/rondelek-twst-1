@@ -58,8 +58,10 @@ impl Visualizer {
         fft.process(&mut self.fft_scratch);
 
         for i in 0..self.magnitudes.len() {
-            let c = self.fft_scratch[i];
-            self.magnitudes[i] = (c.norm() / self.fft_size as f32).sqrt();
+            // Linear amplitude per bin; the dB mapping below turns this into a
+            // perceptual (log) height. (Was a sqrt() curve with a fixed ×4 gain,
+            // which crushed normal speech into the bottom few rows.)
+            self.magnitudes[i] = self.fft_scratch[i].norm() / self.fft_size as f32;
         }
 
         let num_bars = num_bars.min(self.magnitudes.len());
@@ -74,7 +76,7 @@ impl Visualizer {
             let end_idx = start_idx + bins_per_bar;
             let avg: f32 =
                 self.magnitudes[start_idx..end_idx].iter().sum::<f32>() / bins_per_bar as f32;
-            let scaled = (avg * 4.0).min(1.0);
+            let scaled = level_from_magnitude(avg, settings.visualizer_floor_db);
             let decay = settings.visualizer_decay;
             let smoothing = settings.visualizer_smoothing;
 
@@ -151,6 +153,21 @@ impl Visualizer {
     }
 }
 
+/// Upper edge (dB) of the display window. Sounds at or above this fill the
+/// column; the floor is user-tunable (dev panel). A window rather than a hard
+/// gain means loud input tops out gracefully instead of clipping the display,
+/// while normal speech still lands in the lively middle.
+const CEIL_DB: f32 = -12.0;
+
+/// Map a linear amplitude to a `0.0..=1.0` display height on a decibel scale
+/// between `floor_db` and [`CEIL_DB`]. Silence → 0, loud → 1. Display-only.
+fn level_from_magnitude(avg: f32, floor_db: f32) -> f32 {
+    let db = 20.0 * (avg + 1e-9).log10();
+    // Guard the window so a misconfigured floor can never divide by ~zero.
+    let span = (CEIL_DB - floor_db).max(1.0);
+    ((db - floor_db) / span).clamp(0.0, 1.0)
+}
+
 fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     Color32::from_rgb(
@@ -158,4 +175,53 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
         (a.g() as f32 + (b.g() as f32 - a.g() as f32) * t) as u8,
         (a.b() as f32 + (b.b() as f32 - a.b() as f32) * t) as u8,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn silence_is_empty() {
+        assert_eq!(level_from_magnitude(0.0, -60.0), 0.0);
+    }
+
+    #[test]
+    fn at_ceiling_is_full() {
+        // Amplitude whose dB equals CEIL_DB should map to the top.
+        let amp = 10f32.powf(CEIL_DB / 20.0);
+        assert!((level_from_magnitude(amp, -60.0) - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn at_floor_is_zero() {
+        let floor = -60.0;
+        let amp = 10f32.powf(floor / 20.0);
+        assert!(level_from_magnitude(amp, floor).abs() < 1e-4);
+    }
+
+    #[test]
+    fn midwindow_is_mid_height() {
+        // Halfway (in dB) between floor and ceiling → ~0.5.
+        let floor = -60.0;
+        let mid_db = (floor + CEIL_DB) / 2.0;
+        let amp = 10f32.powf(mid_db / 20.0);
+        assert!((level_from_magnitude(amp, floor) - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn lower_floor_gives_more_movement() {
+        // Same quiet input reads higher with a lower (more sensitive) floor.
+        let quiet = 0.001;
+        let sensitive = level_from_magnitude(quiet, -75.0);
+        let flat = level_from_magnitude(quiet, -45.0);
+        assert!(sensitive > flat);
+    }
+
+    #[test]
+    fn degenerate_floor_above_ceiling_is_safe() {
+        // Must not panic or divide by ~zero if a config sets floor above ceiling.
+        let v = level_from_magnitude(0.5, 0.0);
+        assert!((0.0..=1.0).contains(&v));
+    }
 }
