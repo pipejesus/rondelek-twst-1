@@ -171,6 +171,26 @@ impl Profile {
         self.save_manifest()
     }
 
+    /// Update the display name (sanitised) and persist. The on-disk folder name
+    /// is intentionally left unchanged — the manifest is the source of truth for
+    /// the display name.
+    pub fn set_name(&mut self, raw: &str) -> Result<()> {
+        self.manifest.name = sanitize_name(raw);
+        self.save_manifest()
+    }
+
+    /// Remove the stored avatar (file + manifest field), reverting to the default
+    /// face. A no-op if no avatar is set.
+    pub fn clear_avatar(&mut self) -> Result<()> {
+        if let Some(file) = self.manifest.avatar.take() {
+            let path = self.dir.join(file);
+            if path.exists() {
+                std::fs::remove_file(&path).context("Failed to remove avatar file")?;
+            }
+        }
+        self.save_manifest()
+    }
+
     fn sessions_dir(&self) -> PathBuf {
         self.dir.join(SESSIONS_DIR)
     }
@@ -291,5 +311,72 @@ mod tests {
         assert_eq!(sessions[0].uid, session.manifest.uid);
 
         std::fs::remove_dir_all(&profile.dir).ok();
+    }
+
+    #[test]
+    fn set_name_preserves_identity() {
+        let mut profile = Profile::create("Old Name", None).unwrap();
+        let uid = profile.manifest.uid.clone();
+        let created = profile.manifest.created;
+        let dir = profile.dir.clone();
+
+        profile.set_name("New Name").unwrap();
+
+        // Reload from disk to confirm persistence and that identity is intact.
+        let reloaded = Profile::load(dir.clone()).unwrap();
+        assert_eq!(reloaded.name(), "New Name");
+        assert_eq!(reloaded.manifest.uid, uid);
+        assert_eq!(reloaded.manifest.created, created);
+        assert!(dir.join("sessions").is_dir());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn clear_avatar_removes_file_and_field() {
+        let src = std::env::temp_dir().join(format!("rondelek_avc_{}.png", now_secs()));
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([10, 20, 30, 255]))
+            .save(&src)
+            .unwrap();
+
+        let mut profile = Profile::create("Avatar Kid", Some(&src)).unwrap();
+        let dir = profile.dir.clone();
+        let avatar_path = profile.avatar_path().expect("avatar should be set");
+        assert!(avatar_path.exists());
+
+        profile.clear_avatar().unwrap();
+        assert!(profile.manifest.avatar.is_none());
+        assert!(!avatar_path.exists());
+
+        let reloaded = Profile::load(dir.clone()).unwrap();
+        assert!(reloaded.manifest.avatar.is_none());
+
+        std::fs::remove_file(&src).ok();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn set_avatar_replaces_existing() {
+        let src_a = std::env::temp_dir().join(format!("rondelek_ava_{}.png", now_secs()));
+        let src_b = std::env::temp_dir().join(format!("rondelek_avb_{}.png", now_secs()));
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
+            .save(&src_a)
+            .unwrap();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([9, 8, 7, 255]))
+            .save(&src_b)
+            .unwrap();
+
+        let mut profile = Profile::create("Swap Kid", Some(&src_a)).unwrap();
+        let dir = profile.dir.clone();
+        assert!(profile.avatar_path().unwrap().exists());
+
+        profile.set_avatar(&src_b).unwrap();
+        let reloaded = Profile::load(dir.clone()).unwrap();
+        assert_eq!(reloaded.manifest.avatar.as_deref(), Some(AVATAR_FILE));
+        assert!(reloaded.avatar_path().unwrap().exists());
+
+        std::fs::remove_file(&src_a).ok();
+        std::fs::remove_file(&src_b).ok();
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
