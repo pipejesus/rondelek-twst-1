@@ -203,6 +203,10 @@ impl App {
         if std::env::var("RONDELEK_SCREEN").as_deref() == Ok("newprofile") {
             app.begin_new_profile();
         }
+        // Edit form for the profile selected via RONDELEK_PROFILE above.
+        if std::env::var("RONDELEK_SCREEN").as_deref() == Ok("editprofile") {
+            app.begin_edit_profile();
+        }
         if let Ok(path) = std::env::var("RONDELEK_SESSION") {
             app.open_session_dir(PathBuf::from(path));
         }
@@ -1094,7 +1098,7 @@ impl App {
                 if ui
                     .add_sized(
                         [200.0, 32.0],
-                        egui::Button::new(format!("✎ {}", self.i18n.t("sessions.edit"))),
+                        egui::Button::new(self.i18n.t("sessions.edit")),
                     )
                     .clicked()
                 {
