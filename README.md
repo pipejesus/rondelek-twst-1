@@ -1,0 +1,199 @@
+# Rondelek TWST-1
+
+> A playful audio sampler for children with hearing implants — record short
+> sounds onto pads and play them back, turning speech and hearing practice into a
+> game.
+
+<p align="center">
+  <img src="docs/images/sampler.png" alt="The Rondelek TWST-1 sampler: an amber dot-matrix display above a 4×3 grid of keycap pads" width="420">
+</p>
+
+Rondelek is a small, self-contained desktop app written in **Rust** with
+[`egui`](https://github.com/emilk/egui). One install serves many children: each
+child gets a **profile**, and each practice run is a **session** of recordings
+saved to disk. No accounts, no network, no database — just folders you own.
+
+---
+
+## Quick start
+
+If you've never touched Rust before, this is all you need.
+
+### 1. Install Rust
+
+Rust is installed with **`rustup`**, the official toolchain manager. Grab it from
+[rustup.rs](https://rustup.rs) (on macOS/Linux it's one command):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Then restart your terminal and check it works:
+
+```bash
+rustc --version   # should print 1.85 or newer (this project uses Rust edition 2024)
+```
+
+### 2. Get the code
+
+```bash
+git clone <this-repo-url> rondelek
+cd rondelek
+```
+
+### 3. Run it
+
+```bash
+cargo run --release
+```
+
+The first build compiles every dependency and takes a few minutes — that's
+normal, and it's cached afterwards. The app window opens straight to the profile
+picker.
+
+> ### ⚡ Always use `--release` — especially for the webcam
+>
+> `cargo run` (without a flag) makes a **debug** build: fast to compile, but the
+> image and audio code runs *unoptimized*. The webcam preview is the dramatic
+> case — decoding and scaling each frame costs:
+>
+> | Build | Per frame | Live preview |
+> |-------|-----------|--------------|
+> | `cargo run` (debug) | ~1300 ms | **~1 fps** (painfully laggy) |
+> | `cargo run --release` | ~38 ms | **~26 fps** (smooth) |
+>
+> That's a ~34× difference. If the camera feels like a slideshow, you're almost
+> certainly on a debug build. **Develop with `--release`.**
+
+---
+
+## Building a standalone binary
+
+To produce an optimized executable you can copy and run anywhere:
+
+```bash
+cargo build --release
+```
+
+The binary lands at **`target/release/rondelek`** (`rondelek.exe` on Windows).
+Fonts, translations, and flag images are embedded in it, so it's a single
+self-contained file.
+
+---
+
+## Platform notes
+
+Rondelek's primary platform is **macOS**; Linux and Windows are supported too.
+
+### macOS
+Nothing extra to install — audio (CoreAudio) and camera (AVFoundation) are
+built in. The **first** time you use *Take photo*, macOS asks for camera
+permission. If you decline, the app just shows "Camera unavailable" and
+everything else keeps working. (You can re-enable it later under *System
+Settings → Privacy & Security → Camera*.)
+
+### Linux
+You'll need a few system development packages for audio, file dialogs, the
+window/GL surface, and the webcam. On Debian/Ubuntu:
+
+```bash
+sudo apt install build-essential pkg-config \
+  libasound2-dev libgtk-3-dev libx11-dev libxcb1-dev libv4l-dev
+```
+
+Package names vary by distro — if a build fails, the compiler error usually
+names the missing library.
+
+### Windows
+Install the **MSVC C++ Build Tools** (the "Desktop development with C++"
+workload from the Visual Studio Installer), then `rustup` and `cargo` work as
+above. Audio and camera use the built-in Windows APIs.
+
+### Android
+Not yet — the app targets Android in the long run, but webcam capture there is
+still stubbed out (see `TODO.md`).
+
+---
+
+## Everyday development
+
+```bash
+cargo run --release          # build and run (see the release note above)
+cargo test                   # run the test suite
+cargo fmt --all              # auto-format the code
+cargo clippy --all-targets   # lint for common mistakes
+```
+
+**Git hooks (optional but recommended).** The repo ships a formatting gate that
+runs before each commit. Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+**Translations must stay in sync.** `assets/i18n/en.json` is the source of truth;
+every seeded locale (`pl, de, fr, es, it, uk`) must carry the same keys. A test
+(`cargo test`) fails if they drift. See `AGENTS.md` for the full contributor rule.
+
+---
+
+## Controls
+
+| Input | Action |
+|-------|--------|
+| `1 2 3 4` / `Q W E R` / `A S D F` | trigger the 12 sample pads |
+| `Space` | toggle **REC** mode |
+| *(REC mode)* hold a pad | record while held; release or `Esc` to stop |
+| *(play mode)* tap a pad | play its sample |
+| `F12` | Settings (audio device selection) |
+| `Ctrl+Shift+T` | toggle light / dark |
+| `Ctrl+Shift+D` | developer panel |
+| `Ctrl+Shift+S` | save a screenshot |
+
+---
+
+## Handy environment variables
+
+Useful for testing, demos, and screenshots — they jump straight to a screen and
+(optionally) capture a frame:
+
+| Variable | Effect |
+|----------|--------|
+| `RONDELEK_LANG=de` | start in a specific language |
+| `RONDELEK_SIZE=640x760` | set the initial window size |
+| `RONDELEK_PROFILE=<dir>` | open a profile's Sessions screen |
+| `RONDELEK_SESSION=<dir>` | jump straight into a session (the sampler) |
+| `RONDELEK_SCREEN=newprofile` \| `editprofile` | open the create / edit profile form |
+| `RONDELEK_SHOT=<file.png>` | render a few frames, save a screenshot, and exit |
+
+Example — capture the sampler screen and quit:
+
+```bash
+RONDELEK_SESSION="$HOME/Library/Application Support/rondelek/profiles/<id>/sessions/<ts>" \
+RONDELEK_SHOT=out.png cargo run --release
+```
+
+---
+
+## How it works (the short version)
+
+- **Profiles → sessions**, stored as plain folders under your OS data directory
+  (`…/rondelek/profiles/<slug>-<id>/`), each with a small JSON manifest and, for
+  a profile, an optional square `avatar.png`.
+- **Screens:** *Profiles* → *Profile form* (name + photo) → *Sessions* → the
+  *Sampler*.
+- **Audio is mono end-to-end**, captured at the device rate and resampled on
+  playback so pitch stays correct.
+- **The visualizer** is a CPU-rendered amber dot-matrix (no GPU shader — maximally
+  portable).
+
+For the full architecture, module map, and design notes, see
+[`AGENTS.md`](AGENTS.md).
+
+---
+
+## License
+
+MIT — see the `license` field in `Cargo.toml`. The bundled Space Grotesk font is
+under the SIL Open Font License (`assets/fonts/`), and the picker flags are
+public domain.
