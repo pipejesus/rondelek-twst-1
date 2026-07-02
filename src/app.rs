@@ -25,12 +25,30 @@ const ORANGE: Color32 = Color32::from_rgb(0xFF, 0x6A, 0x1A);
 enum AppScreen {
     /// Pick or create a child profile (+ language picker).
     Profiles,
-    /// Create a new profile (name + avatar).
-    NewProfile,
+    /// Create or edit a child profile (name + avatar).
+    ProfileForm,
     /// A profile's sessions: resume a past one or start fresh.
     Sessions,
     /// The sampler.
     Session,
+}
+
+/// Whether the profile form is creating a new profile or editing an existing one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FormMode {
+    Create,
+    Edit,
+}
+
+/// The avatar decision captured by the profile form.
+#[derive(Clone, Debug)]
+enum AvatarChoice {
+    /// Create: no avatar yet. Edit: keep the profile's existing avatar.
+    Keep,
+    /// A freshly picked or captured image to import on submit.
+    New(PathBuf),
+    /// Edit: clear the avatar back to the default face on submit.
+    Remove,
 }
 
 pub struct App {
@@ -53,9 +71,10 @@ pub struct App {
     profile_sessions: Vec<SessionInfo>,
     session: Option<Session>,
 
-    // New-profile form state.
+    // Profile form state (shared by create + edit).
+    form_mode: FormMode,
     form_name: String,
-    form_avatar_src: Option<PathBuf>,
+    form_avatar: AvatarChoice,
     form_error: Option<String>,
     camera: Option<crate::camera::CameraSession>,
 
@@ -152,8 +171,9 @@ impl App {
             current_profile: None,
             profile_sessions: Vec::new(),
             session: None,
+            form_mode: FormMode::Create,
             form_name: String::new(),
-            form_avatar_src: None,
+            form_avatar: AvatarChoice::Keep,
             form_error: None,
             camera: None,
             tex_cache: HashMap::new(),
@@ -214,7 +234,11 @@ impl App {
             match device::choose_target(&pref, &available, default.as_deref()) {
                 Some(target) => {
                     let current = self.playback.as_ref().map(|p| p.current_device());
-                    let alive = self.playback.as_ref().map(|p| p.is_alive()).unwrap_or(false);
+                    let alive = self
+                        .playback
+                        .as_ref()
+                        .map(|p| p.is_alive())
+                        .unwrap_or(false);
                     if device::needs_rebuild(current, alive, &target.name) {
                         match device::output_device_by_name(&target.name) {
                             Some(dev) => match Playback::open(&dev) {
@@ -235,7 +259,11 @@ impl App {
                     // Transient enumeration failure: keep a healthy stream
                     // rather than dropping audio for ~1s. Only tear down if
                     // the stream is already dead (or absent).
-                    let alive = self.playback.as_ref().map(|p| p.is_alive()).unwrap_or(false);
+                    let alive = self
+                        .playback
+                        .as_ref()
+                        .map(|p| p.is_alive())
+                        .unwrap_or(false);
                     if !alive {
                         self.playback = None;
                         errors.push("speaker: none".to_string());
@@ -291,7 +319,11 @@ impl App {
         self.audio_status = if errors.is_empty() {
             String::new()
         } else {
-            format!("{} ({})", self.i18n.t("audio.unavailable"), errors.join("; "))
+            format!(
+                "{} ({})",
+                self.i18n.t("audio.unavailable"),
+                errors.join("; ")
+            )
         };
     }
 
@@ -424,10 +456,23 @@ impl App {
     }
 
     fn begin_new_profile(&mut self) {
+        self.form_mode = FormMode::Create;
         self.form_name.clear();
-        self.form_avatar_src = None;
+        self.form_avatar = AvatarChoice::Keep;
         self.form_error = None;
-        self.screen = AppScreen::NewProfile;
+        self.screen = AppScreen::ProfileForm;
+    }
+
+    /// Enter the form pre-filled with the current profile's data for editing.
+    fn begin_edit_profile(&mut self) {
+        let Some(profile) = self.current_profile.as_ref() else {
+            return;
+        };
+        self.form_mode = FormMode::Edit;
+        self.form_name = profile.name().to_string();
+        self.form_avatar = AvatarChoice::Keep;
+        self.form_error = None;
+        self.screen = AppScreen::ProfileForm;
     }
 
     fn upload_avatar_dialog(&mut self) {
@@ -435,23 +480,61 @@ impl App {
             .add_filter("Image", &["png", "jpg", "jpeg", "webp"])
             .pick_file()
         {
-            self.form_avatar_src = Some(path);
+            self.form_avatar = AvatarChoice::New(path);
         }
     }
 
-    fn create_profile_from_form(&mut self) {
+    /// Submit the profile form: create a new profile or apply edits to the
+    /// current one, depending on `form_mode`.
+    fn submit_profile_form(&mut self) {
         let name = profile::sanitize_name(&self.form_name);
         if name.is_empty() {
             self.form_error = Some(self.i18n.t("form.name_required").to_string());
             return;
         }
-        let avatar = self.form_avatar_src.clone();
-        match Profile::create(&self.form_name, avatar.as_deref()) {
-            Ok(profile) => {
-                self.refresh_profiles();
-                self.select_profile(profile);
+        match self.form_mode {
+            FormMode::Create => {
+                let avatar = match &self.form_avatar {
+                    AvatarChoice::New(p) => Some(p.clone()),
+                    _ => None,
+                };
+                match Profile::create(&self.form_name, avatar.as_deref()) {
+                    Ok(profile) => {
+                        self.refresh_profiles();
+                        self.select_profile(profile);
+                    }
+                    Err(e) => self.form_error = Some(format!("{e}")),
+                }
             }
-            Err(e) => self.form_error = Some(format!("{e}")),
+            FormMode::Edit => {
+                let Some(mut profile) = self.current_profile.take() else {
+                    self.screen = AppScreen::Profiles;
+                    return;
+                };
+                // Evict any cached texture for this avatar path before rewriting
+                // it, so the new image (or default face) renders after save.
+                if let Some(path) = profile.avatar_path() {
+                    self.tex_cache.remove(&path);
+                }
+                let result =
+                    profile
+                        .set_name(&self.form_name)
+                        .and_then(|()| match &self.form_avatar {
+                            AvatarChoice::New(p) => profile.set_avatar(p),
+                            AvatarChoice::Remove => profile.clear_avatar(),
+                            AvatarChoice::Keep => Ok(()),
+                        });
+                match result {
+                    Ok(()) => {
+                        self.refresh_profiles();
+                        self.select_profile(profile);
+                    }
+                    Err(e) => {
+                        self.form_error = Some(format!("{e}"));
+                        self.current_profile = Some(profile);
+                    }
+                }
+            }
         }
     }
 
@@ -562,7 +645,7 @@ impl App {
         if capture {
             if let Some((rgba, w, h)) = &frame {
                 match crate::camera::save_frame_png(rgba, *w, *h) {
-                    Ok(path) => self.form_avatar_src = Some(path),
+                    Ok(path) => self.form_avatar = AvatarChoice::New(path),
                     Err(e) => self.form_error = Some(format!("{e}")),
                 }
             }
@@ -792,25 +875,40 @@ impl App {
         }
     }
 
-    fn draw_new_profile(&mut self, ui: &mut Ui) {
+    fn draw_profile_form(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
         let ctx = ui.ctx().clone();
 
-        let avatar_tex = self
-            .form_avatar_src
-            .clone()
-            .and_then(|p| self.texture_from_path(&ctx, &p));
+        // Resolve which image the preview should show:
+        //  - New(p)  → the freshly chosen image
+        //  - Remove  → none (default face)
+        //  - Keep    → Edit: the profile's existing avatar; Create: none
+        let preview_path = match &self.form_avatar {
+            AvatarChoice::New(p) => Some(p.clone()),
+            AvatarChoice::Remove => None,
+            AvatarChoice::Keep => self
+                .current_profile
+                .as_ref()
+                .filter(|_| self.form_mode == FormMode::Edit)
+                .and_then(|p| p.avatar_path()),
+        };
+        let avatar_tex = preview_path.and_then(|p| self.texture_from_path(&ctx, &p));
 
         let mut do_upload = false;
         let mut do_camera = false;
-        let mut do_create = false;
+        let mut do_remove_photo = false;
+        let mut do_submit = false;
         let mut do_cancel = false;
 
         ui.vertical_centered(|ui| {
             ui.add_space((full.height() * 0.10).min(72.0));
+            let title_key = match self.form_mode {
+                FormMode::Create => "form.title",
+                FormMode::Edit => "form.edit_title",
+            };
             ui.label(
-                egui::RichText::new(self.i18n.t("form.title"))
+                egui::RichText::new(self.i18n.t(title_key))
                     .color(self.theme.text_primary)
                     .size(24.0)
                     .strong(),
@@ -850,6 +948,28 @@ impl App {
                 },
             );
 
+            // Edit mode: allow clearing the photo back to the default face,
+            // shown only when there is actually a photo to remove.
+            let has_photo = matches!(self.form_avatar, AvatarChoice::New(_))
+                || (self.form_mode == FormMode::Edit
+                    && matches!(self.form_avatar, AvatarChoice::Keep)
+                    && self
+                        .current_profile
+                        .as_ref()
+                        .is_some_and(|p| p.avatar_path().is_some()));
+            if self.form_mode == FormMode::Edit && has_photo {
+                ui.add_space(8.0);
+                if ui
+                    .add_sized(
+                        [298.0, 32.0],
+                        egui::Button::new(self.i18n.t("form.remove_photo")),
+                    )
+                    .clicked()
+                {
+                    do_remove_photo = true;
+                }
+            }
+
             ui.add_space(16.0);
             ui.add(
                 egui::TextEdit::singleline(&mut self.form_name)
@@ -873,12 +993,16 @@ impl App {
                     {
                         do_cancel = true;
                     }
-                    let create = egui::Button::new(
-                        egui::RichText::new(self.i18n.t("form.create")).color(Color32::WHITE),
+                    let submit_key = match self.form_mode {
+                        FormMode::Create => "form.create",
+                        FormMode::Edit => "form.save",
+                    };
+                    let submit = egui::Button::new(
+                        egui::RichText::new(self.i18n.t(submit_key)).color(Color32::WHITE),
                     )
                     .fill(ORANGE);
-                    if ui.add_sized([145.0, 40.0], create).clicked() {
-                        do_create = true;
+                    if ui.add_sized([145.0, 40.0], submit).clicked() {
+                        do_submit = true;
                     }
                 },
             );
@@ -893,11 +1017,19 @@ impl App {
         if do_camera {
             self.open_camera();
         }
-        if do_cancel {
-            self.screen = AppScreen::Profiles;
+        if do_remove_photo {
+            self.form_avatar = AvatarChoice::Remove;
         }
-        if do_create {
-            self.create_profile_from_form();
+        if do_cancel {
+            // Create returns to the profile list; edit returns to the profile's
+            // sessions screen (the profile is still selected).
+            self.screen = match self.form_mode {
+                FormMode::Create => AppScreen::Profiles,
+                FormMode::Edit => AppScreen::Sessions,
+            };
+        }
+        if do_submit {
+            self.submit_profile_form();
         }
     }
 
@@ -918,6 +1050,7 @@ impl App {
             .unwrap_or_default();
 
         let mut back = false;
+        let mut edit_profile = false;
         let mut new_session = false;
         let mut open_idx: Option<usize> = None;
 
@@ -957,6 +1090,16 @@ impl App {
                         .size(22.0)
                         .strong(),
                 );
+                ui.add_space(10.0);
+                if ui
+                    .add_sized(
+                        [200.0, 32.0],
+                        egui::Button::new(format!("✎ {}", self.i18n.t("sessions.edit"))),
+                    )
+                    .clicked()
+                {
+                    edit_profile = true;
+                }
                 ui.add_space(16.0);
 
                 let new_btn = egui::Button::new(
@@ -992,6 +1135,8 @@ impl App {
 
         if back {
             self.go_to_profiles();
+        } else if edit_profile {
+            self.begin_edit_profile();
         } else if new_session {
             self.start_new_session();
         } else if let Some(i) = open_idx {
@@ -1183,12 +1328,15 @@ impl eframe::App for App {
 
         match self.screen {
             AppScreen::Profiles => self.draw_profiles(ui),
-            AppScreen::NewProfile => self.draw_new_profile(ui),
+            AppScreen::ProfileForm => self.draw_profile_form(ui),
             AppScreen::Sessions => self.draw_sessions(ui),
             AppScreen::Session => self.draw_session(ui),
         }
 
-        if self.config_panel.show(ui.ctx(), &mut self.settings, &self.i18n) {
+        if self
+            .config_panel
+            .show(ui.ctx(), &mut self.settings, &self.i18n)
+        {
             self.save_settings();
         }
 
