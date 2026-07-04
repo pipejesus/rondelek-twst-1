@@ -3,18 +3,46 @@ use crate::util::lerp;
 use egui::{Color32, Painter, Pos2, Rect};
 use rustfft::{FftPlanner, num_complex::Complex};
 
-pub struct Visualizer {
+/// One frame's audio from both taps. The two streams can run at different sample
+/// rates (capture device vs output device), so each carries its own. Either may
+/// be empty (no mic, or nothing playing).
+pub struct AudioFrame<'a> {
+    pub input: &'a [f32],
+    pub playback: &'a [f32],
+    // Sample rates are part of the interface for visualizers that need a time or
+    // frequency axis (e.g. a waveform scope); the spectrum is bin-based and
+    // ignores them, so they read as unused until such a visualizer exists.
+    #[allow(dead_code)]
+    pub input_rate: u32,
+    #[allow(dead_code)]
+    pub playback_rate: u32,
+}
+
+/// A swappable audio visualizer. Implementations receive both taps each frame
+/// and choose what to render; the app owns one behind a `Box<dyn Visualizer>`,
+/// so new styles (waveform, VU meter, …) can be dropped in later.
+pub trait Visualizer {
+    /// Ingest the latest audio. Called only on frames with new samples.
+    fn update(&mut self, frame: &AudioFrame, settings: &Settings);
+    /// Render the current state into `rect`.
+    fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, settings: &Settings);
+    /// Fill with a representative pattern for screenshots (no live audio needed).
+    /// Default is a no-op; visualizers that can, override it.
+    fn demo_fill(&mut self, _num_bars: usize) {}
+}
+
+/// The default visualizer: a retro dot-matrix FFT spectrum.
+pub struct SpectrumVisualizer {
     fft_buffer: Vec<Complex<f32>>,
     fft_scratch: Vec<Complex<f32>>,
     window: Vec<f32>,
     magnitudes: Vec<f32>,
     smoothed: Vec<f32>,
     fft_size: usize,
-    sample_rate: u32,
 }
 
-impl Visualizer {
-    pub fn new(sample_rate: u32) -> Self {
+impl SpectrumVisualizer {
+    pub fn new() -> Self {
         let fft_size = 1024;
         let window: Vec<f32> = (0..fft_size)
             .map(|i| {
@@ -30,11 +58,10 @@ impl Visualizer {
             magnitudes: vec![0.0; fft_size / 2],
             smoothed: vec![0.0; 256],
             fft_size,
-            sample_rate,
         }
     }
 
-    pub fn process_samples(&mut self, samples: &[f32], settings: &Settings) {
+    fn process(&mut self, samples: &[f32], settings: &Settings) {
         let num_bars = settings.visualizer_num_bars;
         if num_bars > self.smoothed.len() {
             self.smoothed.resize(num_bars, 0.0);
@@ -89,10 +116,25 @@ impl Visualizer {
             }
         }
     }
+}
+
+impl Default for SpectrumVisualizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Visualizer for SpectrumVisualizer {
+    /// Feed whichever tap is louder this frame — the mic while recording, the
+    /// playback monitor while a clip plays — so the display follows the sound.
+    fn update(&mut self, frame: &AudioFrame, settings: &Settings) {
+        let source = louder_window(frame.input, frame.playback, self.fft_size);
+        self.process(source, settings);
+    }
 
     /// Render the spectrum as a retro dot-matrix display: a grid of round dots
     /// that light from the bottom up per column, EP-133 LCD style.
-    pub fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, settings: &Settings) {
+    fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, settings: &Settings) {
         let cols = settings.visualizer_num_bars.min(self.smoothed.len());
         if cols == 0 || rect.width() <= 4.0 || rect.height() <= 4.0 {
             return;
@@ -137,13 +179,9 @@ impl Visualizer {
         }
     }
 
-    pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
-    }
-
     /// Fill the bars with a representative arch pattern. Used only by the
     /// screenshot harness so captures show the screen alive without a live mic.
-    pub fn demo_fill(&mut self, num_bars: usize) {
+    fn demo_fill(&mut self, num_bars: usize) {
         if num_bars > self.smoothed.len() {
             self.smoothed.resize(num_bars, 0.0);
         }
@@ -160,6 +198,21 @@ impl Visualizer {
 /// gain means loud input tops out gracefully instead of clipping the display,
 /// while normal speech still lands in the lively middle.
 const CEIL_DB: f32 = -12.0;
+
+/// Pick whichever tap carries more energy over its last `n` samples. This makes
+/// the spectrum follow the microphone while recording and the playback monitor
+/// while a clip plays, with no coupling to the UI mode. Ties favour the mic.
+fn louder_window<'a>(input: &'a [f32], playback: &'a [f32], n: usize) -> &'a [f32] {
+    let energy = |s: &[f32]| {
+        let start = s.len().saturating_sub(n);
+        s[start..].iter().map(|x| x * x).sum::<f32>()
+    };
+    if energy(playback) > energy(input) {
+        playback
+    } else {
+        input
+    }
+}
 
 /// FFT-bin range `[start, end)` for bar `bar` of `num_bars`, log-spaced from bin
 /// 1 (bin 0 is DC and skipped) to `num_bins`. Because the bins map linearly to
@@ -288,7 +341,7 @@ mod tests {
         // the middle of a 128-bar display, not clump against the left edge the
         // way linear binning did.
         let sr = 44100;
-        let mut viz = Visualizer::new(sr);
+        let mut viz = SpectrumVisualizer::new();
         let settings = crate::config::Settings {
             visualizer_num_bars: 128,
             ..crate::config::Settings::default()
@@ -297,8 +350,14 @@ mod tests {
         let samples: Vec<f32> = (0..2048)
             .map(|i| 0.5 * (2.0 * std::f32::consts::PI * 500.0 * i as f32 / sr as f32).sin())
             .collect();
+        let frame = AudioFrame {
+            input: &samples,
+            input_rate: sr,
+            playback: &[],
+            playback_rate: 0,
+        };
         for _ in 0..40 {
-            viz.process_samples(&samples, &settings); // let the attack settle
+            viz.update(&frame, &settings); // let the attack settle
         }
 
         let bars = 128;
@@ -308,6 +367,26 @@ mod tests {
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
             .unwrap();
         assert!(peak > 0.3, "500 Hz tone barely registered (peak {peak})");
-        assert!(peak_bar > bars / 8, "peak at bar {peak_bar}/{bars} — clumped left");
+        assert!(
+            peak_bar > bars / 8,
+            "peak at bar {peak_bar}/{bars} — clumped left"
+        );
+    }
+
+    #[test]
+    fn louder_window_picks_the_stronger_tap() {
+        let n = 8;
+        let quiet = vec![0.01_f32; 16];
+        let loud = vec![0.5_f32; 16];
+        // Playback louder → playback wins; mic louder → mic wins.
+        assert_eq!(louder_window(&quiet, &loud, n).as_ptr(), loud.as_ptr());
+        assert_eq!(louder_window(&loud, &quiet, n).as_ptr(), loud.as_ptr());
+        // Silence on both → default to the mic (input).
+        let silent = vec![0.0_f32; 16];
+        assert_eq!(
+            louder_window(&quiet, &silent, n).as_ptr(),
+            quiet.as_ptr(),
+            "input should win when playback is silent"
+        );
     }
 }

@@ -1,15 +1,20 @@
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, StreamTrait};
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// A mono clip being played back, with a per-frame read cursor.
 type Source = (Vec<f32>, usize);
 type Sources = Arc<Mutex<Vec<Source>>>;
+/// Monitor tap: the mixed mono signal actually sent to the speakers, so a
+/// visualizer can respond to playback (not just the microphone).
+type Monitor = Arc<Mutex<VecDeque<f32>>>;
 
 pub struct Playback {
     stream: Option<cpal::Stream>,
     sources: Sources,
+    monitor: Monitor,
     sample_rate: u32,
     alive: Arc<AtomicBool>,
     current_device: String,
@@ -35,6 +40,9 @@ impl Playback {
         let sources: Sources = Arc::new(Mutex::new(Vec::new()));
         let src_clone = Arc::clone(&sources);
 
+        let monitor: Monitor = Arc::new(Mutex::new(VecDeque::with_capacity(8192)));
+        let monitor_cb = Arc::clone(&monitor);
+
         let alive = Arc::new(AtomicBool::new(true));
         let alive_cb = Arc::clone(&alive);
 
@@ -49,6 +57,7 @@ impl Playback {
                 config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     if let Ok(mut src) = src_clone.lock() {
+                        let mut mon = monitor_cb.lock().ok();
                         for frame in data.chunks_mut(channels) {
                             let mut mixed: f32 = 0.0;
                             let mut active = 0;
@@ -72,6 +81,18 @@ impl Playback {
                             for sample in frame.iter_mut() {
                                 *sample = value;
                             }
+                            // Tap the signal for the visualizer, but only while
+                            // something is actually playing — when idle we push
+                            // nothing, so the monitor stays empty and the mic
+                            // keeps driving the display.
+                            if active > 0
+                                && let Some(mon) = mon.as_deref_mut()
+                            {
+                                if mon.len() > 32768 {
+                                    mon.pop_front();
+                                }
+                                mon.push_back(value);
+                            }
                         }
                     } else {
                         data.fill(0.0);
@@ -90,10 +111,25 @@ impl Playback {
         Ok(Self {
             stream: Some(stream),
             sources,
+            monitor,
             sample_rate,
             alive,
             current_device,
         })
+    }
+
+    /// Drain the monitor tap — the mixed mono samples sent to the speakers since
+    /// the last call. Empty when nothing is playing. Runs at [`output_rate`].
+    pub fn drain_monitor(&mut self) -> Vec<f32> {
+        match self.monitor.lock() {
+            Ok(mut mon) => mon.drain(..).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Sample rate of the monitor tap (the output device rate).
+    pub fn output_rate(&self) -> u32 {
+        self.sample_rate
     }
 
     /// False once cpal has reported a stream error (e.g. device disconnected).

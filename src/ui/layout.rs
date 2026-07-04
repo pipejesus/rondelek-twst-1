@@ -42,12 +42,12 @@ pub fn compute(available: Rect) -> FaceLayout {
     // Header strip.
     let header = Rect::from_min_size(content.min, Vec2::new(content.width(), header_h));
 
-    // REC button: right-aligned within the header.
+    // REC button: a square keycap right-aligned in the header, matching the
+    // square "back" keycap on the left.
     let rec_h = header_h * 0.78;
-    let rec_w = (rec_h * 2.4).min(content.width() * 0.4);
     let rec = Rect::from_min_size(
-        Pos2::new(header.right() - rec_w, header.center().y - rec_h * 0.5),
-        Vec2::new(rec_w, rec_h),
+        Pos2::new(header.right() - rec_h, header.center().y - rec_h * 0.5),
+        Vec2::splat(rec_h),
     );
 
     // Back-to-profiles button: a square keycap at the header's left.

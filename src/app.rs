@@ -10,8 +10,8 @@ use crate::i18n::{self, EUROPEAN_LANGS, I18n};
 use crate::profile::{self, Profile, SessionInfo};
 use crate::session::Session;
 use crate::ui::{
-    ConfigPanel, DevPanel, Pad, PadMode, Renderer, Visualizer, compute_layout, draw_keycap,
-    draw_kid_face, gloss_overlay,
+    AudioFrame, ConfigPanel, DevPanel, Pad, PadMode, Renderer, SpectrumVisualizer, Visualizer,
+    compute_layout, draw_keycap, draw_kid_face, gloss_overlay,
 };
 
 /// Index of the REC control pad within `self.pads` (after the sample pads).
@@ -57,7 +57,7 @@ pub struct App {
     samples: Vec<Sample>,
     pads: Vec<Pad>,
     theme: Theme,
-    visualizer: Visualizer,
+    visualizer: Box<dyn Visualizer>,
     dev_panel: DevPanel,
     config_panel: ConfigPanel,
     settings: Settings,
@@ -86,6 +86,7 @@ pub struct App {
     recording_active: bool,
     recording_sample_idx: usize,
     accumulated_samples: Vec<f32>,
+    playback_monitor: Vec<f32>,
     capture_rate: u32,
     audio_status: String,
     audio_retry_timer: f32,
@@ -159,7 +160,7 @@ impl App {
             samples,
             pads,
             theme,
-            visualizer: Visualizer::new(capture_rate),
+            visualizer: Box::new(SpectrumVisualizer::new()),
             dev_panel: DevPanel::new(),
             config_panel: ConfigPanel::new(),
             settings,
@@ -182,6 +183,7 @@ impl App {
             recording_active: false,
             recording_sample_idx: 0,
             accumulated_samples: Vec::new(),
+            playback_monitor: Vec::new(),
             capture_rate,
             audio_status: String::new(),
             audio_retry_timer: 0.0,
@@ -290,9 +292,6 @@ impl App {
                             Some(dev) => match Capture::open(&dev) {
                                 Ok(cap) => {
                                     self.capture_rate = cap.sample_rate();
-                                    if self.visualizer.sample_rate() != cap.sample_rate() {
-                                        self.visualizer = Visualizer::new(cap.sample_rate());
-                                    }
                                     self.capture = Some(cap);
                                 }
                                 Err(e) => {
@@ -384,27 +383,48 @@ impl App {
         }
     }
 
+    /// Pump both audio taps into the active visualizer each frame: the mic
+    /// (`accumulated_samples`) and the playback monitor (`playback_monitor`).
+    /// Recording still writes the raw mic chunk to the sample buffer.
     fn drain_capture(&mut self) {
-        let chunk = match self.capture {
-            Some(ref mut cap) => cap.drain(),
-            None => return,
+        // --- microphone tap ---
+        let mic = self
+            .capture
+            .as_mut()
+            .map(Capture::drain)
+            .unwrap_or_default();
+        if !mic.is_empty() {
+            self.accumulated_samples.extend_from_slice(&mic);
+            trim_rolling(&mut self.accumulated_samples, self.capture_rate);
+            if self.recording_active && self.recording_sample_idx < self.samples.len() {
+                self.samples[self.recording_sample_idx]
+                    .buf
+                    .extend_from_slice(&mic);
+            }
+        }
+
+        // --- playback monitor tap (empty unless a clip is playing) ---
+        let (monitor, playback_rate) = match self.playback.as_mut() {
+            Some(pb) => (pb.drain_monitor(), pb.output_rate()),
+            None => (Vec::new(), self.capture_rate),
         };
-        if chunk.is_empty() {
+        if !monitor.is_empty() {
+            self.playback_monitor.extend_from_slice(&monitor);
+            trim_rolling(&mut self.playback_monitor, playback_rate);
+        }
+
+        // Refresh only on frames that brought new audio, so the decay/smoothing
+        // cadence follows the sound rather than the render frame rate.
+        if mic.is_empty() && monitor.is_empty() {
             return;
         }
-        self.accumulated_samples.extend_from_slice(&chunk);
-        let max_buf = (self.visualizer.sample_rate() as usize * 3).min(16384);
-        if self.accumulated_samples.len() > max_buf {
-            let excess = self.accumulated_samples.len() - max_buf;
-            self.accumulated_samples.drain(0..excess);
-        }
-        if self.recording_active && self.recording_sample_idx < self.samples.len() {
-            self.samples[self.recording_sample_idx]
-                .buf
-                .extend_from_slice(&chunk);
-        }
-        self.visualizer
-            .process_samples(&self.accumulated_samples, &self.settings);
+        let frame = AudioFrame {
+            input: &self.accumulated_samples,
+            input_rate: self.capture_rate,
+            playback: &self.playback_monitor,
+            playback_rate,
+        };
+        self.visualizer.update(&frame, &self.settings);
     }
 
     fn save_settings(&self) {
@@ -1324,6 +1344,16 @@ impl App {
 
 fn uv_full() -> Rect {
     Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0))
+}
+
+/// Keep a visualizer feed buffer to at most ~3 seconds (capped) so it only ever
+/// holds recent audio.
+fn trim_rolling(buf: &mut Vec<f32>, rate: u32) {
+    let max = (rate as usize * 3).min(16384);
+    if buf.len() > max {
+        let excess = buf.len() - max;
+        buf.drain(0..excess);
+    }
 }
 
 /// UV rect that samples the centred square of a `size` texture — the equivalent
