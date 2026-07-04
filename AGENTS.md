@@ -23,6 +23,17 @@ cargo fmt --check            # format check
   fallback for untranslated languages. There is a test (`i18n::tests`) that fails if
   keys drift — run `cargo test`.
 
+- **Keep the developer handbook current.** The `docs/` mdBook (published to GitHub
+  Pages) documents how the app is wired — audio routing, the visualizer, UI/layout,
+  the data model, and dependencies. **After any change to behaviour, wiring, data
+  layout, or dependencies, update the relevant page in `docs/src/` in the same
+  commit.** Reference code by symbol name, not line number. Map from area of change
+  to page: audio/streams → `audio.md`; visualizer/DSP → `visualizer.md`; screens,
+  layout, rendering, i18n → `ui.md` (and `architecture.md` for the state machine);
+  on-disk formats/settings → `data-model.md`; dependencies → `libraries.md`. New
+  page → add it to `docs/src/SUMMARY.md`. See `docs/src/contributing.md` to build
+  locally (`mdbook serve docs`).
+
 ## Project Structure
 
 ```

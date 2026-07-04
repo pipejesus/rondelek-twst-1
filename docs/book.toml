@@ -1,0 +1,22 @@
+[book]
+title = "Rondelek TWST-1 — Developer Handbook"
+authors = ["Rondelek contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/pipejesus/rondelek-twst-1"
+edit-url-template = "https://github.com/pipejesus/rondelek-twst-1/edit/develop/docs/{path}"
+
+# Mermaid diagram support. The JS assets are added by `mdbook-mermaid install docs`
+# (git-ignored, regenerated at build time); see contributing.md.
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[output.html.fold]
+enable = true
+level = 1
