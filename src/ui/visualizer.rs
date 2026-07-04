@@ -69,13 +69,15 @@ impl Visualizer {
             return;
         }
 
-        let bins_per_bar = self.magnitudes.len() / num_bars;
+        let num_bins = self.magnitudes.len();
 
         for bar in 0..num_bars {
-            let start_idx = bar * bins_per_bar;
-            let end_idx = start_idx + bins_per_bar;
-            let avg: f32 =
-                self.magnitudes[start_idx..end_idx].iter().sum::<f32>() / bins_per_bar as f32;
+            // Logarithmic frequency bands: low frequencies (where speech energy
+            // lives) spread across many bars instead of clumping into the first
+            // few, so the spectrum fills all bars at any bar count.
+            let (start_idx, end_idx) = bar_bin_range(bar, num_bars, num_bins);
+            let band = &self.magnitudes[start_idx..end_idx];
+            let avg: f32 = band.iter().sum::<f32>() / band.len() as f32;
             let scaled = level_from_magnitude(avg, settings.visualizer_floor_db);
             let decay = settings.visualizer_decay;
             let smoothing = settings.visualizer_smoothing;
@@ -159,6 +161,21 @@ impl Visualizer {
 /// while normal speech still lands in the lively middle.
 const CEIL_DB: f32 = -12.0;
 
+/// FFT-bin range `[start, end)` for bar `bar` of `num_bars`, log-spaced from bin
+/// 1 (bin 0 is DC and skipped) to `num_bins`. Because the bins map linearly to
+/// frequency, log-spacing the edges gives each bar a geometrically wider band —
+/// so the low, energy-dense end of the spectrum spreads across many bars and the
+/// display fills at any bar count. Every band holds at least one bin.
+fn bar_bin_range(bar: usize, num_bars: usize, num_bins: usize) -> (usize, usize) {
+    debug_assert!(num_bars >= 1 && num_bins >= 2);
+    let top = num_bins as f32;
+    // edge(0) = 1, edge(num_bars) = num_bins, geometric in between.
+    let edge = |b: usize| top.powf(b as f32 / num_bars as f32);
+    let start = (edge(bar) as usize).clamp(1, num_bins - 1);
+    let end = (edge(bar + 1) as usize).clamp(start + 1, num_bins);
+    (start, end)
+}
+
 /// Map a linear amplitude to a `0.0..=1.0` display height on a decibel scale
 /// between `floor_db` and [`CEIL_DB`]. Silence → 0, loud → 1. Display-only.
 fn level_from_magnitude(avg: f32, floor_db: f32) -> f32 {
@@ -223,5 +240,74 @@ mod tests {
         // Must not panic or divide by ~zero if a config sets floor above ceiling.
         let v = level_from_magnitude(0.5, 0.0);
         assert!((0.0..=1.0).contains(&v));
+    }
+
+    #[test]
+    fn bands_cover_full_range() {
+        let n = 512;
+        let bars = 36;
+        assert_eq!(bar_bin_range(0, bars, n).0, 1); // skips DC, starts at bin 1
+        assert_eq!(bar_bin_range(bars - 1, bars, n).1, n); // last band reaches the top
+    }
+
+    #[test]
+    fn bands_are_nonempty_and_nondecreasing() {
+        let n = 512;
+        for bars in [16usize, 36, 100, 256] {
+            let mut prev_start = 0;
+            for b in 0..bars {
+                let (lo, hi) = bar_bin_range(b, bars, n);
+                assert!(hi > lo, "empty band at {b}/{bars}");
+                assert!(lo < n && hi <= n, "out of range at {b}/{bars}");
+                assert!(lo >= prev_start, "start went backwards at {b}/{bars}");
+                prev_start = lo;
+            }
+        }
+    }
+
+    #[test]
+    fn active_fraction_is_bar_count_independent() {
+        // The bar whose band first reaches a fixed frequency bin should sit at
+        // roughly the same FRACTION of the display regardless of bar count —
+        // exactly the property the old linear binning lacked (there the fraction
+        // shrank as bars grew, so the spectrum clumped at the left).
+        let n = 512;
+        let target = 93; // ~4 kHz at 44.1 kHz / 1024-pt FFT — the speech ceiling
+        let frac = |bars: usize| {
+            (0..bars)
+                .find(|&b| bar_bin_range(b, bars, n).1 > target)
+                .unwrap() as f32
+                / bars as f32
+        };
+        assert!((frac(36) - frac(256)).abs() < 0.05);
+    }
+
+    #[test]
+    fn tone_lands_away_from_the_left_edge() {
+        // End-to-end: a 500 Hz tone (mid speech range) should light a bar near
+        // the middle of a 128-bar display, not clump against the left edge the
+        // way linear binning did.
+        let sr = 44100;
+        let mut viz = Visualizer::new(sr);
+        let settings = crate::config::Settings {
+            visualizer_num_bars: 128,
+            ..crate::config::Settings::default()
+        };
+
+        let samples: Vec<f32> = (0..2048)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * 500.0 * i as f32 / sr as f32).sin())
+            .collect();
+        for _ in 0..40 {
+            viz.process_samples(&samples, &settings); // let the attack settle
+        }
+
+        let bars = 128;
+        let (peak_bar, &peak) = viz.smoothed[..bars]
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .unwrap();
+        assert!(peak > 0.3, "500 Hz tone barely registered (peak {peak})");
+        assert!(peak_bar > bars / 8, "peak at bar {peak_bar}/{bars} — clumped left");
     }
 }
