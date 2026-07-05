@@ -101,26 +101,22 @@ pub fn default_input_name() -> Option<String> {
 
 pub fn output_device_by_name(name: &str) -> Option<cpal::Device> {
     let host = cpal::default_host();
-    host.output_devices()
-        .ok()?
-        .find(|d| {
-            d.description()
-                .ok()
-                .map(|desc| desc.name() == name)
-                .unwrap_or(false)
-        })
+    host.output_devices().ok()?.find(|d| {
+        d.description()
+            .ok()
+            .map(|desc| desc.name() == name)
+            .unwrap_or(false)
+    })
 }
 
 pub fn input_device_by_name(name: &str) -> Option<cpal::Device> {
     let host = cpal::default_host();
-    host.input_devices()
-        .ok()?
-        .find(|d| {
-            d.description()
-                .ok()
-                .map(|desc| desc.name() == name)
-                .unwrap_or(false)
-        })
+    host.input_devices().ok()?.find(|d| {
+        d.description()
+            .ok()
+            .map(|desc| desc.name() == name)
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(test)]
