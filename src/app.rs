@@ -11,7 +11,7 @@ use crate::profile::{self, Profile, SessionInfo};
 use crate::session::Session;
 use crate::ui::{
     AudioFrame, ConfigPanel, DevPanel, Pad, PadMode, Renderer, SpectrumVisualizer, Visualizer,
-    compute_layout, draw_keycap, draw_kid_face, gloss_overlay,
+    VowelVisualizer, compute_layout, draw_keycap, draw_kid_face, gloss_overlay,
 };
 
 /// Index of the REC control pad within `self.pads` (after the sample pads).
@@ -57,7 +57,8 @@ pub struct App {
     samples: Vec<Sample>,
     pads: Vec<Pad>,
     theme: Theme,
-    visualizer: Box<dyn Visualizer>,
+    visualizers: Vec<Box<dyn Visualizer>>,
+    active_visualizer: usize,
     dev_panel: DevPanel,
     config_panel: ConfigPanel,
     settings: Settings,
@@ -160,7 +161,12 @@ impl App {
             samples,
             pads,
             theme,
-            visualizer: Box::new(SpectrumVisualizer::new()),
+            visualizers: vec![
+                Box::new(SpectrumVisualizer::new()),
+                Box::new(VowelVisualizer::new()),
+            ],
+            // Clamp in case a newer config selected a visualizer we no longer have.
+            active_visualizer: settings.active_visualizer.min(1),
             dev_panel: DevPanel::new(),
             config_panel: ConfigPanel::new(),
             settings,
@@ -211,6 +217,11 @@ impl App {
         }
         if let Ok(path) = std::env::var("RONDELEK_SESSION") {
             app.open_session_dir(PathBuf::from(path));
+        }
+        if let Ok(v) = std::env::var("RONDELEK_VIZ")
+            && let Ok(i) = v.parse::<usize>()
+        {
+            app.active_visualizer = i.min(app.visualizers.len().saturating_sub(1));
         }
 
         app
@@ -430,7 +441,17 @@ impl App {
             playback: &self.playback_monitor,
             playback_rate,
         };
-        self.visualizer.update(&frame, &self.settings);
+        self.visualizers[self.active_visualizer].update(&frame, &self.settings);
+    }
+
+    /// Advance to the next visualizer, wrapping around, and remember the choice.
+    fn cycle_visualizer(&mut self) {
+        if self.visualizers.is_empty() {
+            return;
+        }
+        self.active_visualizer = (self.active_visualizer + 1) % self.visualizers.len();
+        self.settings.active_visualizer = self.active_visualizer;
+        self.save_settings();
     }
 
     fn save_settings(&self) {
@@ -1230,11 +1251,11 @@ impl App {
         let painter = ui.painter().clone();
         Renderer::draw_case(&painter, &layout, &self.theme);
 
+        let active = self.active_visualizer;
         if self.auto_shot.is_some() {
-            self.visualizer.demo_fill(self.settings.visualizer_num_bars);
+            self.visualizers[active].demo_fill(self.settings.visualizer_num_bars);
         }
-        self.visualizer
-            .draw(&painter, layout.screen, &self.theme, &self.settings);
+        self.visualizers[active].draw(&painter, layout.screen, &self.theme, &self.settings);
 
         // Pads (sample pads use the grid; REC uses the header-right rect).
         for (i, rect) in layout.pads.iter().enumerate() {
@@ -1305,6 +1326,19 @@ impl App {
             return;
         }
 
+        // Header: cycle-visualizer button (square, just left of REC).
+        let cycle_resp = ui.interact(layout.cycle, egui::Id::new("cycle_viz"), Sense::click());
+        let cap = draw_keycap(
+            &painter,
+            layout.cycle,
+            self.theme.pad_function_bg,
+            ROUNDING_PAD,
+        );
+        draw_viz_icon(&painter, cap, &self.theme);
+        if cycle_resp.clicked() {
+            self.cycle_visualizer();
+        }
+
         // Header: profile avatar, flush to the top edge, under gloss.
         let cap = draw_keycap(&painter, layout.avatar, self.theme.panel_fg, ROUNDING_PAD);
         if let Some(id) = avatar_id {
@@ -1350,6 +1384,23 @@ impl App {
 
 fn uv_full() -> Rect {
     Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0))
+}
+
+/// Paint a small ascending-bars glyph on the cycle-visualizer keycap.
+fn draw_viz_icon(painter: &egui::Painter, rect: Rect, theme: &Theme) {
+    let area = rect.shrink(rect.width() * 0.30);
+    let n = 4;
+    let gap = area.width() * 0.14;
+    let bar_w = (area.width() - gap * (n as f32 - 1.0)) / n as f32;
+    for i in 0..n {
+        let h = area.height() * (0.35 + 0.21 * i as f32);
+        let x = area.left() + i as f32 * (bar_w + gap);
+        let bar = Rect::from_min_max(
+            Pos2::new(x, area.bottom() - h),
+            Pos2::new(x + bar_w, area.bottom()),
+        );
+        painter.rect_filled(bar, egui::CornerRadius::same(1), theme.pad_function_fg);
+    }
 }
 
 /// Keep a visualizer feed buffer to at most ~3 seconds (capped) so it only ever

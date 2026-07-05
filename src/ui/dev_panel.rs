@@ -42,6 +42,23 @@ impl DevPanel {
                     settings.visualizer_num_bars = bars as usize;
                 }
                 ui.separator();
+                ui.heading("Vowel detector");
+                ui.add(
+                    egui::Slider::new(&mut settings.vowel_speaker_scale, 0.9..=1.8)
+                        .text("Speaker scale"),
+                )
+                .on_hover_text("Higher for children (shorter vocal tract = higher formants)");
+                ui.add(
+                    egui::Slider::new(&mut settings.vowel_voicing_threshold, 0.0..=0.05)
+                        .text("Voicing"),
+                )
+                .on_hover_text("RMS below this reads as silence");
+                ui.add(
+                    egui::Slider::new(&mut settings.vowel_smoothing, 0.0..=0.95)
+                        .text("Vowel smoothing"),
+                );
+
+                ui.separator();
                 ui.heading("Theme");
                 if ui
                     .button(if settings.dark_mode {

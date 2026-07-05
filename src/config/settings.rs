@@ -12,6 +12,16 @@ fn default_visualizer_floor_db() -> f32 {
     -60.0
 }
 
+fn default_vowel_voicing_threshold() -> f32 {
+    0.012
+}
+fn default_vowel_speaker_scale() -> f32 {
+    1.25
+}
+fn default_vowel_smoothing() -> f32 {
+    0.5
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
     pub volume: f32,
@@ -23,6 +33,18 @@ pub struct Settings {
     /// logarithmic between this floor and a fixed ceiling. Display-only.
     #[serde(default = "default_visualizer_floor_db")]
     pub visualizer_floor_db: f32,
+    /// Index of the active visualizer (cycled with the button next to REC).
+    #[serde(default)]
+    pub active_visualizer: usize,
+    /// Vowel detector: RMS below this reads as silence / unvoiced.
+    #[serde(default = "default_vowel_voicing_threshold")]
+    pub vowel_voicing_threshold: f32,
+    /// Vowel detector: scales adult formant prototypes to the speaker (~1.25 for kids).
+    #[serde(default = "default_vowel_speaker_scale")]
+    pub vowel_speaker_scale: f32,
+    /// Vowel visualizer: match-meter smoothing (0 = snappy, → 1 = sluggish).
+    #[serde(default = "default_vowel_smoothing")]
+    pub vowel_smoothing: f32,
     pub show_dev_panel: bool,
     /// UI language code. Defaults to the detected system language on first run.
     #[serde(default = "default_language")]
@@ -44,6 +66,10 @@ impl Default for Settings {
             visualizer_decay: 0.4,
             visualizer_num_bars: 36,
             visualizer_floor_db: default_visualizer_floor_db(),
+            active_visualizer: 0,
+            vowel_voicing_threshold: default_vowel_voicing_threshold(),
+            vowel_speaker_scale: default_vowel_speaker_scale(),
+            vowel_smoothing: default_vowel_smoothing(),
             show_dev_panel: false,
             language: default_language(),
             input_device: None,

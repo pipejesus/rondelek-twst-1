@@ -87,12 +87,60 @@ Open the dev panel with `Ctrl+Shift+D`. It exposes:
 
 These persist in the settings JSON (see [Data model](data-model.md)).
 
+## Cycling between visualizers
+
+The app owns a `Vec<Box<dyn Visualizer>>` plus an `active_visualizer` index. The
+**square button just left of REC** (`layout.cycle`) calls `App::cycle_visualizer`,
+which advances the index (wrapping around) and persists it to settings. Only the
+active visualizer is fed audio (`update`) and drawn each frame. Two ship today:
+the [spectrum](#the-spectrum-dsp-pipeline) and the [vowel meter](#vowel-detection).
+
+## Vowel detection
+
+`VowelVisualizer` (`ui/vowel_visualizer.rs`) is a developer/debug view that
+validates the vowel pipeline: it shows the detected Polish vowel as a large
+letter plus a match meter per vowel (**a e i o u y**), with the raw F1/F2 readout.
+A kid-facing view will later reuse the same detector.
+
+The detector lives in `audio/vowel.rs` and estimates **formants** — the vocal
+tract resonances that define a vowel — via Linear Predictive Coding:
+
+```mermaid
+flowchart LR
+    win[recent ~45 ms window] --> gate[voicing gate RMS]
+    gate --> dec[decimate to ~8 kHz + anti-alias]
+    dec --> pre[pre-emphasis + Hamming]
+    pre --> ac[autocorrelation]
+    ac --> lpc[Levinson-Durbin LPC]
+    lpc --> roots[polynomial roots Durand-Kerner]
+    roots --> form[formant poles F1 F2]
+    form --> cls[nearest Polish vowel]
+```
+
+Key choices:
+
+- **Root-finding, not envelope peaks.** Each conjugate pole pair is a resonance
+  (frequency from its angle, bandwidth from its radius). This cleanly separates
+  close formants such as `/a/`'s F1 and F2, which envelope peak-picking merges.
+- **~8 kHz analysis rate** keeps the LPC order low (~10), which keeps the root
+  finder well-conditioned; poles far from the unit circle are rejected.
+- **Child-leaning prototypes.** Adult reference formants scaled by a
+  `speaker_scale` (default 1.25); tune per voice in the dev panel.
+- **Library note.** `loqa-voice-dsp` was evaluated (recent, pure Rust) but a
+  compact in-tree estimator was chosen for zero extra dependencies and full
+  unit-test coverage (synthetic vowels). It is the drop-in upgrade path.
+
+Dev-panel controls (`Ctrl+Shift+D`): **Speaker scale**, **Voicing** threshold,
+**Vowel smoothing**. The detector is unit-tested by synthesising source-filter
+vowels at known formants and asserting the classification.
+
 ## Adding a new visualizer
 
 1. Create a struct implementing `Visualizer` (`update` + `draw`, optionally
    `demo_fill`).
 2. Consume whichever of `frame.input` / `frame.playback` you need — the rates are
    available for time/frequency-axis visualizers.
-3. Construct it in `App::new` as the boxed `visualizer` (or, later, add a picker).
+3. Add it to the `visualizers` vector in `App::new`; the cycle button picks it up
+   automatically.
 
 Because the app only knows the trait, nothing else has to change.

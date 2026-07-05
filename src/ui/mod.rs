@@ -4,6 +4,7 @@ pub mod layout;
 pub mod pad;
 pub mod renderer;
 pub mod visualizer;
+pub mod vowel_visualizer;
 pub mod widgets;
 
 pub use config_panel::ConfigPanel;
@@ -12,4 +13,5 @@ pub use layout::{FaceLayout, compute as compute_layout};
 pub use pad::{Pad, PadMode};
 pub use renderer::Renderer;
 pub use visualizer::{AudioFrame, SpectrumVisualizer, Visualizer};
+pub use vowel_visualizer::VowelVisualizer;
 pub use widgets::{draw_keycap, draw_kid_face, gloss_overlay};

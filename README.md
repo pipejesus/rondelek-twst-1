@@ -145,6 +145,7 @@ every seeded locale (`pl, de, fr, es, it, uk`) must carry the same keys. A test
 | `Space` | toggle **REC** mode |
 | *(REC mode)* hold a pad | record while held; release or `Esc` to stop |
 | *(play mode)* tap a pad | play its sample |
+| button left of REC | cycle the visualizer (spectrum ↔ vowel meter) |
 | `F12` | Settings (audio device selection) |
 | `Ctrl+Shift+T` | toggle light / dark |
 | `Ctrl+Shift+D` | developer panel |

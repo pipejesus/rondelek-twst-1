@@ -14,6 +14,8 @@ pub struct FaceLayout {
     pub screen: Rect,
     /// The REC toggle button (header right).
     pub rec: Rect,
+    /// The cycle-visualizer button (header right, just left of REC), square.
+    pub cycle: Rect,
     /// The "back to profiles" button (header left), square.
     pub back: Rect,
     /// Profile picture frame: square, centred, flush with the top of the case.
@@ -47,6 +49,13 @@ pub fn compute(available: Rect) -> FaceLayout {
     let rec_h = header_h * 0.78;
     let rec = Rect::from_min_size(
         Pos2::new(header.right() - rec_h, header.center().y - rec_h * 0.5),
+        Vec2::splat(rec_h),
+    );
+
+    // Cycle-visualizer button: a square keycap just left of REC.
+    let btn_gap = rec_h * 0.28;
+    let cycle = Rect::from_min_size(
+        Pos2::new(rec.left() - btn_gap - rec_h, rec.top()),
         Vec2::splat(rec_h),
     );
 
@@ -113,6 +122,7 @@ pub fn compute(available: Rect) -> FaceLayout {
         screen_bezel,
         screen,
         rec,
+        cycle,
         back,
         avatar,
         pads,
