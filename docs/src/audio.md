@@ -87,6 +87,13 @@ Key points:
   value is also pushed into a monitor `VecDeque`. When nothing is playing, nothing
   is pushed — so the monitor stays empty and the microphone keeps driving the
   display. `drain_monitor()` empties it each UI frame.
+- **Clearing on stop.** The app keeps a short rolling `playback_monitor` window to
+  feed the visualizer's FFT. As soon as `Playback::is_playing()` reports no queued
+  clips, `drain_capture` **clears** that window — otherwise a finished clip's tail
+  would stay frozen on the display and out-shout a quiet microphone (the tap only
+  ever gains *new* samples while playing, so it would never age out on its own).
+  `is_playing()` reads the `sources` queue, so it flips off the instant the last
+  clip is fully read — independent of frame rate or audio buffer size.
 
 ## Sample rates
 

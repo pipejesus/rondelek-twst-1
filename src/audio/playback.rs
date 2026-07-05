@@ -137,6 +137,14 @@ impl Playback {
         self.alive.load(Ordering::Relaxed)
     }
 
+    /// True while at least one clip is still queued in `sources`. The output
+    /// callback drops each clip as soon as it is fully read, so this goes false
+    /// the instant playback finishes — letting the UI clear the monitor tap
+    /// instead of leaving a finished clip's tail frozen on the visualizer.
+    pub fn is_playing(&self) -> bool {
+        self.sources.lock().map(|s| !s.is_empty()).unwrap_or(false)
+    }
+
     /// Name of the device this stream was built on.
     pub fn current_device(&self) -> &str {
         &self.current_device

@@ -403,19 +403,25 @@ impl App {
             }
         }
 
-        // --- playback monitor tap (empty unless a clip is playing) ---
+        // --- playback monitor tap ---
+        let playing = self.playback.as_ref().is_some_and(Playback::is_playing);
         let (monitor, playback_rate) = match self.playback.as_mut() {
             Some(pb) => (pb.drain_monitor(), pb.output_rate()),
             None => (Vec::new(), self.capture_rate),
         };
-        if !monitor.is_empty() {
+        if playing {
             self.playback_monitor.extend_from_slice(&monitor);
             trim_rolling(&mut self.playback_monitor, playback_rate);
+        } else if !self.playback_monitor.is_empty() {
+            // Playback has finished: drop the tap so the last clip's tail can't
+            // stay frozen on the display or out-shout a quiet microphone. The
+            // visualizer then releases the shape smoothly toward the live mic.
+            self.playback_monitor.clear();
         }
 
-        // Refresh only on frames that brought new audio, so the decay/smoothing
-        // cadence follows the sound rather than the render frame rate.
-        if mic.is_empty() && monitor.is_empty() {
+        // Refresh only on frames that brought new audio (or a just-cleared tap),
+        // so the decay/smoothing cadence follows the sound, not the frame rate.
+        if mic.is_empty() && self.playback_monitor.is_empty() {
             return;
         }
         let frame = AudioFrame {
