@@ -23,6 +23,8 @@
   "calibrate.title": "Kalibracja głosu",
   "calibrate.say": "Powiedz i przytrzymaj głoskę:",
   "calibrate.hold": "Trzymaj równo…",
+  "calibrate.start": "Start",
+  "calibrate.ready_hint": "Gdy gotowe, naciśnij Start i przytrzymaj głoskę",
   "calibrate.cancel": "Anuluj",
   "calibrate.retry": "Ponów",
   "sessions.none": "Brak sesji — rozpocznij nową.",

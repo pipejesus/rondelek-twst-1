@@ -23,6 +23,8 @@
   "calibrate.title": "Calibra voce",
   "calibrate.say": "Di' e tieni questo suono:",
   "calibrate.hold": "Tienilo stabile…",
+  "calibrate.start": "Avvia",
+  "calibrate.ready_hint": "Quando sei pronto, premi Avvia e tieni il suono",
   "calibrate.cancel": "Annulla",
   "calibrate.retry": "Riprova",
   "sessions.none": "Ancora nessuna sessione — iniziane una.",

@@ -23,6 +23,8 @@
   "calibrate.title": "Калібрування голосу",
   "calibrate.say": "Скажи й потримай цей звук:",
   "calibrate.hold": "Тримай рівно…",
+  "calibrate.start": "Почати",
+  "calibrate.ready_hint": "Коли готові, натисніть Почати й потримайте звук",
   "calibrate.cancel": "Скасувати",
   "calibrate.retry": "Повторити",
   "sessions.none": "Сесій ще немає — почніть нову.",

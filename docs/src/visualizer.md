@@ -160,9 +160,13 @@ reference targets into that scale (`vowel::normalize_from_corners`). So the `/y/
 target stays the *correct* central-high position — practice improves production
 rather than rewarding a mispronunciation.
 
-Flow (`app.rs`): `begin_calibration` → `draw_calibrate` pumps the mic through the
-detector and fills `CalibrationCapture` per corner (progress bar), auto-advancing
-when stable → `finish_calibration` writes `calibration.json` and calls
+Flow (`app.rs`): `begin_calibration` → `draw_calibrate` runs a two-phase loop per
+corner. In **Ready** it waits for the user to press **Start** (or Space); that
+flushes stale audio and enters **Listening**, where `CalibrationCapture` fills
+(progress bar). When enough stable voiced frames are gathered it records the
+corner and returns to **Ready** for the next vowel — so each sound has a clear,
+user-controlled start and can't be contaminated by the previous one. After the
+last corner, `finish_calibration` writes `calibration.json` and calls
 `apply_profile_calibration`, which pushes the targets to the visualizers via
 `Visualizer::set_calibration`. Uncalibrated profiles fall back to
 `default_prototypes(speaker_scale)`. Screenshot harness: `RONDELEK_SCREEN=calibrate`.

@@ -23,6 +23,8 @@
   "calibrate.title": "Calibrate voice",
   "calibrate.say": "Say and hold this sound:",
   "calibrate.hold": "Keep it steady…",
+  "calibrate.start": "Start",
+  "calibrate.ready_hint": "When ready, press Start and hold the sound",
   "calibrate.cancel": "Cancel",
   "calibrate.retry": "Retry",
   "sessions.none": "No sessions yet — start a new one.",

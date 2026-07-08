@@ -44,10 +44,20 @@ const CALIB_CORNERS: [vowel::Vowel; 3] = [vowel::Vowel::A, vowel::Vowel::I, vowe
 /// Voiced frames to collect per corner before it is accepted and we advance.
 const CALIB_TARGET: usize = 24;
 
+/// Whether we're waiting for the child to begin the current vowel, or actively
+/// capturing it. Capture only runs in `Listening`, so each vowel has a clear
+/// start the user controls (no auto-jumping mid-sound).
+#[derive(Clone, Copy, PartialEq)]
+enum CalibPhase {
+    Ready,
+    Listening,
+}
+
 /// State of the guided calibration flow.
 struct CalibrationState {
     /// Which corner we're on (index into [`CALIB_CORNERS`]).
     step: usize,
+    phase: CalibPhase,
     capture: CalibrationCapture,
     /// Corners captured so far, in `CALIB_CORNERS` order.
     corners: Vec<(f32, f32)>,
@@ -558,6 +568,7 @@ impl App {
         }
         self.calib = Some(CalibrationState {
             step: 0,
+            phase: CalibPhase::Ready,
             capture: CalibrationCapture::new(),
             corners: Vec::new(),
             live_formants: None,
@@ -592,8 +603,20 @@ impl App {
         self.screen = AppScreen::Sessions;
     }
 
-    /// Pull the mic and feed the current corner's capture; returns the live
-    /// formant estimate for display. Advances the step when a corner is captured.
+    /// Begin capturing the current vowel: flush stale audio (so the previous
+    /// vowel can't bleed in) and switch to the listening phase.
+    fn start_listening(&mut self) {
+        self.accumulated_samples.clear();
+        if let Some(state) = self.calib.as_mut() {
+            state.capture.clear();
+            state.phase = CalibPhase::Listening;
+        }
+    }
+
+    /// Pull the mic and, **only while listening**, feed the current corner's
+    /// capture. Returns the live formant estimate for display. When a corner is
+    /// captured it stops at the next `Ready` phase so the user starts the next
+    /// vowel deliberately (rather than auto-jumping mid-sound).
     fn pump_calibration(&mut self) -> Option<(f32, f32)> {
         let dt = 1.0 / 60.0;
         self.maintain_audio(dt);
@@ -606,6 +629,15 @@ impl App {
             self.accumulated_samples.extend_from_slice(&mic);
             trim_rolling(&mut self.accumulated_samples, self.capture_rate);
         }
+
+        let listening = matches!(
+            self.calib.as_ref().map(|s| s.phase),
+            Some(CalibPhase::Listening)
+        );
+        if !listening {
+            return None;
+        }
+
         let window =
             &self.accumulated_samples[self.accumulated_samples.len().saturating_sub(2048)..];
         let cfg = VowelConfig {
@@ -624,7 +656,12 @@ impl App {
                 state.corners.push(corner);
                 state.capture.clear();
                 state.step += 1;
-                finished = state.corners.len() == CALIB_CORNERS.len();
+                if state.corners.len() == CALIB_CORNERS.len() {
+                    finished = true;
+                } else {
+                    // Wait for the user to start the next vowel.
+                    state.phase = CalibPhase::Ready;
+                }
             }
         }
         if finished {
@@ -640,8 +677,12 @@ impl App {
         if self.screen != AppScreen::Calibrate {
             return;
         }
-        let (step, count) = match self.calib.as_ref() {
-            Some(s) => (s.step.min(CALIB_CORNERS.len() - 1), s.capture.count()),
+        let (step, count, phase) = match self.calib.as_ref() {
+            Some(s) => (
+                s.step.min(CALIB_CORNERS.len() - 1),
+                s.capture.count(),
+                s.phase,
+            ),
             None => {
                 self.screen = AppScreen::Sessions;
                 return;
@@ -653,8 +694,14 @@ impl App {
         let target = CALIB_CORNERS[step];
         let progress = (count as f32 / CALIB_TARGET as f32).clamp(0.0, 1.0);
 
+        let mut start = false;
         let mut cancel = false;
         let mut retry = false;
+
+        // Space starts the current sound when ready (handy for an adult helper).
+        if phase == CalibPhase::Ready && ui.input(|i| i.key_pressed(Key::Space)) {
+            start = true;
+        }
 
         ui.vertical_centered(|ui| {
             ui.add_space((full.height() * 0.10).min(64.0));
@@ -684,21 +731,42 @@ impl App {
                     .strong(),
             );
             ui.add_space(16.0);
-            ui.add_sized([300.0, 18.0], egui::ProgressBar::new(progress).fill(ORANGE));
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new(self.i18n.t("calibrate.hold"))
-                    .color(self.theme.text_secondary)
-                    .size(13.0),
-            );
-            if let Some((f1, f2)) = live {
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new(format!("F1 {f1:.0}  F2 {f2:.0} Hz"))
-                        .color(self.theme.text_secondary)
-                        .monospace(),
-                );
+
+            match phase {
+                CalibPhase::Ready => {
+                    let start_btn = egui::Button::new(
+                        egui::RichText::new(self.i18n.t("calibrate.start")).color(Color32::WHITE),
+                    )
+                    .fill(ORANGE);
+                    if ui.add_sized([220.0, 44.0], start_btn).clicked() {
+                        start = true;
+                    }
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new(self.i18n.t("calibrate.ready_hint"))
+                            .color(self.theme.text_secondary)
+                            .size(13.0),
+                    );
+                }
+                CalibPhase::Listening => {
+                    ui.add_sized([300.0, 18.0], egui::ProgressBar::new(progress).fill(ORANGE));
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new(self.i18n.t("calibrate.hold"))
+                            .color(self.theme.text_secondary)
+                            .size(13.0),
+                    );
+                    if let Some((f1, f2)) = live {
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(format!("F1 {f1:.0}  F2 {f2:.0} Hz"))
+                                .color(self.theme.text_secondary)
+                                .monospace(),
+                        );
+                    }
+                }
             }
+
             ui.add_space(24.0);
             ui.allocate_ui_with_layout(
                 egui::vec2(300.0, 40.0),
@@ -713,12 +781,13 @@ impl App {
                     {
                         cancel = true;
                     }
-                    if ui
-                        .add_sized(
-                            [145.0, 40.0],
-                            egui::Button::new(self.i18n.t("calibrate.retry")),
-                        )
-                        .clicked()
+                    if phase == CalibPhase::Listening
+                        && ui
+                            .add_sized(
+                                [145.0, 40.0],
+                                egui::Button::new(self.i18n.t("calibrate.retry")),
+                            )
+                            .clicked()
                     {
                         retry = true;
                     }
@@ -726,11 +795,18 @@ impl App {
             );
         });
 
-        if cancel {
+        if start {
+            self.start_listening();
+        } else if cancel {
             self.calib = None;
             self.screen = AppScreen::Sessions;
-        } else if retry && let Some(s) = self.calib.as_mut() {
-            s.capture.clear();
+        } else if retry {
+            // Discard this attempt and wait for the user to start it again.
+            self.accumulated_samples.clear();
+            if let Some(s) = self.calib.as_mut() {
+                s.capture.clear();
+                s.phase = CalibPhase::Ready;
+            }
         }
     }
 

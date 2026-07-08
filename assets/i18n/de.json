@@ -23,6 +23,8 @@
   "calibrate.title": "Stimme kalibrieren",
   "calibrate.say": "Sprich und halte diesen Laut:",
   "calibrate.hold": "Ruhig halten…",
+  "calibrate.start": "Start",
+  "calibrate.ready_hint": "Wenn bereit, Start drücken und den Laut halten",
   "calibrate.cancel": "Abbrechen",
   "calibrate.retry": "Wiederholen",
   "sessions.none": "Noch keine Sitzungen — starte eine neue.",
