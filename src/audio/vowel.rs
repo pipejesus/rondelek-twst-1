@@ -20,6 +20,7 @@
 //! meter today, a playful kid view later) can share it.
 
 use rustfft::num_complex::Complex;
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
 /// The Polish oral vowels we classify, in a fixed order (indices line up with
@@ -64,20 +65,158 @@ impl Vowel {
     }
 }
 
-/// Tunable detector parameters (exposed in the dev panel; see `Settings`).
+/// Per-vowel (F1, F2) target set in Hz, indexed like [`VOWELS`]. Either the
+/// scaled reference set ([`default_prototypes`]) or a profile's calibrated set.
+pub type Prototypes = [(f32, f32); 6];
+
+/// The reference prototypes scaled for a speaker — the fallback used until a
+/// profile is calibrated. A larger `speaker_scale` suits younger children
+/// (shorter vocal tract → higher formants).
+pub fn default_prototypes(speaker_scale: f32) -> Prototypes {
+    let mut out = [(0.0, 0.0); 6];
+    for (slot, v) in out.iter_mut().zip(VOWELS.iter()) {
+        let (f1, f2) = v.prototype();
+        *slot = (f1 * speaker_scale, f2 * speaker_scale);
+    }
+    out
+}
+
+/// The corner vowels a child produces during calibration. These anchor the map
+/// from the reference vowel space into the child's (see [`normalize_from_corners`]).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Corners {
+    pub a: (f32, f32),
+    pub i: (f32, f32),
+    pub u: (f32, f32),
+}
+
+/// A profile's calibrated vowel detector.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VowelCalibration {
+    /// Personalised (F1, F2) target per vowel, indexed like [`VOWELS`].
+    pub prototypes: Prototypes,
+    /// Raw corner measurements, kept so targets can be re-derived if the
+    /// reference set or mapping changes later.
+    pub corners: Corners,
+    pub created: u64,
+}
+
+/// Derive personalised vowel targets from a child's corner vowels.
+///
+/// A per-axis linear map takes the **reference** vowel space into the **child's**:
+/// F1 is anchored on `/a/` (high) vs the mean of `/i/,/u/` (low), F2 on `/i/`
+/// (high) vs `/u/` (low). The map is then applied to *all six* reference
+/// prototypes, so every target — including `/y/` — stays phonetically correct,
+/// just scaled to the child's vocal tract (never learning a mispronunciation).
+pub fn normalize_from_corners(c: Corners) -> Prototypes {
+    let (ra1, _) = Vowel::A.prototype();
+    let (ri1, ri2) = Vowel::I.prototype();
+    let (ru1, ru2) = Vowel::U.prototype();
+
+    // F1: /a/ is the high anchor, mean(/i/, /u/) the low anchor.
+    let (m1, b1) = fit_line((ri1 + ru1) * 0.5, (c.i.0 + c.u.0) * 0.5, ra1, c.a.0);
+    // F2: /i/ is the high anchor, /u/ the low anchor.
+    let (m2, b2) = fit_line(ru2, c.u.1, ri2, c.i.1);
+
+    let mut out = default_prototypes(1.0);
+    for (slot, v) in out.iter_mut().zip(VOWELS.iter()) {
+        let (f1, f2) = v.prototype();
+        slot.0 = (m1 * f1 + b1).max(50.0);
+        slot.1 = (m2 * f2 + b2).max(100.0);
+    }
+    out
+}
+
+/// Line through `(x0, y0)`–`(x1, y1)` as `(slope, intercept)`. Falls back to the
+/// identity map on degenerate or implausible input (noisy corners), so a bad
+/// calibration yields the reference set rather than nonsense.
+fn fit_line(x0: f32, y0: f32, x1: f32, y1: f32) -> (f32, f32) {
+    let dx = x1 - x0;
+    if dx.abs() < 1e-3 {
+        return (1.0, 0.0);
+    }
+    let m = (y1 - y0) / dx;
+    if !m.is_finite() || !(0.4..=2.6).contains(&m) {
+        return (1.0, 0.0);
+    }
+    (m, y0 - m * x0)
+}
+
+/// Minimum stable samples before a corner-vowel capture is accepted.
+const MIN_CAPTURE_SAMPLES: usize = 10;
+
+/// Accumulates per-frame formant readings while a child holds a vowel, then
+/// reduces them to a robust `(F1, F2)` via an outlier-trimmed median — so the
+/// steady middle of the vowel wins over the glide in and out. Unvoiced frames
+/// are ignored.
+#[derive(Default)]
+pub struct CalibrationCapture {
+    f1: Vec<f32>,
+    f2: Vec<f32>,
+}
+
+impl CalibrationCapture {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Feed one [`analyze`] result's formants; `None` (unvoiced) is ignored.
+    pub fn push(&mut self, formants: Option<(f32, f32)>) {
+        if let Some((f1, f2)) = formants {
+            self.f1.push(f1);
+            self.f2.push(f2);
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        self.f1.len()
+    }
+
+    pub fn clear(&mut self) {
+        self.f1.clear();
+        self.f2.clear();
+    }
+
+    /// The robust `(F1, F2)` once enough stable samples are gathered, else `None`.
+    pub fn result(&self) -> Option<(f32, f32)> {
+        if self.f1.len() < MIN_CAPTURE_SAMPLES {
+            return None;
+        }
+        Some((trimmed_median(&self.f1), trimmed_median(&self.f2)))
+    }
+}
+
+/// Median after discarding samples more than 20% from the raw median.
+fn trimmed_median(xs: &[f32]) -> f32 {
+    let m = median(xs);
+    let kept: Vec<f32> = xs
+        .iter()
+        .copied()
+        .filter(|x| (x - m).abs() <= 0.2 * m)
+        .collect();
+    if kept.is_empty() { m } else { median(&kept) }
+}
+
+fn median(xs: &[f32]) -> f32 {
+    let mut v = xs.to_vec();
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v[v.len() / 2]
+}
+
+/// Tunable detector parameters.
 #[derive(Clone, Copy, Debug)]
 pub struct VowelConfig {
     /// RMS below this is treated as silence / unvoiced (no vowel).
     pub voicing_threshold: f32,
-    /// Multiplies the adult prototypes to fit a speaker; ~1.25 suits children.
-    pub speaker_scale: f32,
+    /// The vowel targets to match against (scaled reference or calibrated).
+    pub prototypes: Prototypes,
 }
 
 impl Default for VowelConfig {
     fn default() -> Self {
         Self {
             voicing_threshold: 0.012,
-            speaker_scale: 1.25,
+            prototypes: default_prototypes(1.25),
         }
     }
 }
@@ -147,7 +286,7 @@ pub fn analyze(samples: &[f32], fs: u32, cfg: &VowelConfig) -> VowelResult {
         _ => return VowelResult::silent(),
     };
 
-    let (scores, best) = classify(f1, f2, cfg.speaker_scale);
+    let (scores, best) = classify(f1, f2, &cfg.prototypes);
     VowelResult {
         formants: Some((f1, f2)),
         scores,
@@ -330,14 +469,13 @@ fn horner(a: &[Complex<f64>], z: Complex<f64>) -> Complex<f64> {
     acc
 }
 
-/// Score every vowel from the measured `(F1, F2)` and return the best.
-fn classify(f1: f32, f2: f32, scale: f32) -> ([f32; 6], Option<Vowel>) {
+/// Score every vowel from the measured `(F1, F2)` against `prototypes`, and
+/// return the best. Distance is in log-frequency space (scale-robust and
+/// perceptually saner).
+fn classify(f1: f32, f2: f32, prototypes: &Prototypes) -> ([f32; 6], Option<Vowel>) {
     let mut scores = [0.0f32; 6];
     let mut best = (0usize, f32::MIN);
-    for (i, v) in VOWELS.iter().enumerate() {
-        let (p1, p2) = v.prototype();
-        let (p1, p2) = (p1 * scale, p2 * scale);
-        // Distance in log-frequency space (scale-robust, perceptually saner).
+    for (i, &(p1, p2)) in prototypes.iter().enumerate() {
         let d1 = (f1 / p1).ln();
         let d2 = (f2 / p2).ln();
         let d = (d1 * d1 + d2 * d2).sqrt();
@@ -393,7 +531,7 @@ mod tests {
         // scale 1.0: synth at the adult prototypes, so classification is exact.
         VowelConfig {
             voicing_threshold: 0.001,
-            speaker_scale: 1.0,
+            prototypes: default_prototypes(1.0),
         }
     }
 
@@ -427,6 +565,75 @@ mod tests {
         for v in VOWELS {
             let res = detect_synth(v, 44_100);
             assert_eq!(res.best, Some(v), "misclassified {:?} at 44k", v.label());
+        }
+    }
+
+    #[test]
+    fn capture_needs_enough_samples_then_averages() {
+        let mut c = CalibrationCapture::new();
+        for _ in 0..5 {
+            c.push(Some((500.0, 1500.0)));
+        }
+        assert!(c.result().is_none(), "too few samples");
+        for _ in 0..10 {
+            c.push(Some((500.0, 1500.0)));
+        }
+        let (f1, f2) = c.result().unwrap();
+        assert!((f1 - 500.0).abs() < 1.0 && (f2 - 1500.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn capture_rejects_onset_offset_outliers() {
+        let mut c = CalibrationCapture::new();
+        for _ in 0..20 {
+            c.push(Some((500.0, 1500.0)));
+        }
+        c.push(Some((60.0, 250.0))); // silence-ish onset
+        c.push(Some((2900.0, 4800.0))); // garbage offset
+        let (f1, f2) = c.result().unwrap();
+        assert!((f1 - 500.0).abs() < 20.0, "f1={f1}");
+        assert!((f2 - 1500.0).abs() < 20.0, "f2={f2}");
+    }
+
+    #[test]
+    fn capture_ignores_unvoiced_frames() {
+        let mut c = CalibrationCapture::new();
+        for _ in 0..12 {
+            c.push(Some((400.0, 1600.0)));
+            c.push(None);
+        }
+        assert_eq!(c.count(), 12);
+    }
+
+    #[test]
+    fn corners_identity_gives_reference() {
+        let c = Corners {
+            a: Vowel::A.prototype(),
+            i: Vowel::I.prototype(),
+            u: Vowel::U.prototype(),
+        };
+        let p = normalize_from_corners(c);
+        for (got, want) in p.iter().zip(default_prototypes(1.0).iter()) {
+            assert!((got.0 - want.0).abs() < 5.0, "F1 {} vs {}", got.0, want.0);
+            assert!((got.1 - want.1).abs() < 5.0, "F2 {} vs {}", got.1, want.1);
+        }
+    }
+
+    #[test]
+    fn corners_scaled_map_scales_all_targets() {
+        // A child whose corners are 1.3x the reference should get 1.3x targets —
+        // including /y/, whose target stays the *correct* y, just scaled.
+        let s = 1.3f32;
+        let sc = |(f1, f2): (f32, f32)| (f1 * s, f2 * s);
+        let c = Corners {
+            a: sc(Vowel::A.prototype()),
+            i: sc(Vowel::I.prototype()),
+            u: sc(Vowel::U.prototype()),
+        };
+        let p = normalize_from_corners(c);
+        for (got, base) in p.iter().zip(default_prototypes(1.0).iter()) {
+            assert!((got.0 - base.0 * s).abs() < base.0 * 0.05);
+            assert!((got.1 - base.1 * s).abs() < base.1 * 0.05);
         }
     }
 

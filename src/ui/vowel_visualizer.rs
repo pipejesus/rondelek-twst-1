@@ -68,7 +68,7 @@ impl Visualizer for VowelVisualizer {
 
         let cfg = VowelConfig {
             voicing_threshold: settings.vowel_voicing_threshold,
-            speaker_scale: settings.vowel_speaker_scale,
+            prototypes: vowel::default_prototypes(settings.vowel_speaker_scale),
         };
         let VowelResult {
             formants, scores, ..
