@@ -147,18 +147,30 @@ voice** button on the Sessions screen:
 
 ```mermaid
 flowchart LR
-    say[hold /a/, then /i/, then /u/] --> cap[CalibrationCapture<br/>trimmed median over stable frames]
-    cap --> corners[Corners a i u]
-    corners --> norm[normalize_from_corners<br/>per-axis linear map]
-    norm --> proto[6 personalised targets]
-    proto --> save[calibration.json]
+    say[hold each of the six vowels] --> cap[CalibrationCapture<br/>trimmed median over stable frames]
+    cap --> measured[measured: 6 vowels]
+    measured --> play[Play targets = measured]
+    measured --> norm[practice_targets<br/>Lobanov normalization]
+    norm --> practice[Practice targets = correct, scaled]
+    play --> save[calibration.json]
+    practice --> save
 ```
 
-The pedagogical crux: we capture only the **corner vowels** (the easiest, most
-distinct) to learn the child's vocal-tract *scale*, then map **all six** correct
-reference targets into that scale (`vowel::normalize_from_corners`). So the `/y/`
-target stays the *correct* central-high position — practice improves production
-rather than rewarding a mispronunciation.
+Calibration captures **all six vowels** and produces two target sets, giving two
+modes (global `Settings::vowel_mode`, toggled in the dev panel):
+
+- **Practice** (therapy) — `vowel::practice_targets` maps the *correct* references
+  into the child's voice-space via a **Lobanov-style** per-formant normalization
+  (z-score against the reference spread, restore into the child's mean/spread over
+  all six vowels). Robust interior placement; `/y/` stays the correct target, so
+  practice improves production rather than rewarding a mispronunciation.
+- **Play** (games) — targets are the child's own `measured` vowels: forgiving
+  recognition to drive a voice game. Accepts current productions by design.
+
+Matching (`classify`) is done on the **Bark** perceptual scale, which separates
+vowels better than raw/log Hz. When a profile isn't calibrated the detector falls
+back to `default_prototypes(speaker_scale)`. The vowel view shows a
+**"Calibrated ✓ · <mode>"** (or "Not calibrated") indicator.
 
 Flow (`app.rs`): `begin_calibration` → `draw_calibrate` runs a two-phase loop per
 corner. In **Ready** it waits for the user to press **Start** (or Space); that

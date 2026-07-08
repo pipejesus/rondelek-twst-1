@@ -1,4 +1,4 @@
-use crate::config::{Settings, Theme};
+use crate::config::{Settings, Theme, VowelMode};
 
 pub struct DevPanel {
     pub visible: bool,
@@ -43,11 +43,23 @@ impl DevPanel {
                 }
                 ui.separator();
                 ui.heading("Vowel detector");
+                ui.horizontal(|ui| {
+                    ui.label("Mode:");
+                    ui.selectable_value(&mut settings.vowel_mode, VowelMode::Practice, "Practice");
+                    ui.selectable_value(&mut settings.vowel_mode, VowelMode::Play, "Play");
+                });
+                ui.label(match settings.vowel_mode {
+                    VowelMode::Practice => "Correct targets, scaled to the voice (therapy).",
+                    VowelMode::Play => "Recognises the child's own vowels (games).",
+                });
                 ui.add(
                     egui::Slider::new(&mut settings.vowel_speaker_scale, 0.9..=1.8)
                         .text("Speaker scale"),
                 )
-                .on_hover_text("Higher for children (shorter vocal tract = higher formants)");
+                .on_hover_text(
+                    "Fallback only — used when the profile is NOT calibrated. \
+                     Higher for children (shorter vocal tract = higher formants).",
+                );
                 ui.add(
                     egui::Slider::new(&mut settings.vowel_voicing_threshold, 0.0..=0.05)
                         .text("Voicing"),

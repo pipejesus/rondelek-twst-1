@@ -51,8 +51,9 @@ impl Vowel {
         }
     }
 
-    /// Reference **adult** (F1, F2) in Hz. Child formants run higher, so the
-    /// detector scales these by `speaker_scale` (see [`VowelConfig`]).
+    /// Reference **adult** (F1, F2) in Hz. Child formants run higher, so these
+    /// are scaled/normalized per speaker (see [`default_prototypes`] and
+    /// [`practice_targets`]).
     fn prototype(self) -> (f32, f32) {
         match self {
             Vowel::A => (730.0, 1200.0),
@@ -81,68 +82,59 @@ pub fn default_prototypes(speaker_scale: f32) -> Prototypes {
     out
 }
 
-/// The corner vowels a child produces during calibration. These anchor the map
-/// from the reference vowel space into the child's (see [`normalize_from_corners`]).
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Corners {
-    pub a: (f32, f32),
-    pub i: (f32, f32),
-    pub u: (f32, f32),
-}
-
-/// A profile's calibrated vowel detector.
+/// A profile's calibrated vowel detector. Built from the child saying all six
+/// vowels once; drives both detection modes (see `VowelMode`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VowelCalibration {
-    /// Personalised (F1, F2) target per vowel, indexed like [`VOWELS`].
-    pub prototypes: Prototypes,
-    /// Raw corner measurements, kept so targets can be re-derived if the
-    /// reference set or mapping changes later.
-    pub corners: Corners,
+    /// The child's own measured `(F1, F2)` per vowel (indexed like [`VOWELS`]).
+    /// Used as the targets in **Play** mode — recognise what they actually say.
+    pub measured: Prototypes,
+    /// The correct reference vowels mapped into the child's voice-space. Used as
+    /// the targets in **Practice** mode — correct goals, scaled to the child.
+    pub practice: Prototypes,
     pub created: u64,
 }
 
-/// Derive personalised vowel targets from a child's corner vowels.
-///
-/// A per-axis linear map takes the **reference** vowel space into the **child's**:
-/// F1 is anchored on `/a/` (high) vs the mean of `/i/,/u/` (low), F2 on `/i/`
-/// (high) vs `/u/` (low). The map is then applied to *all six* reference
-/// prototypes, so every target — including `/y/` — stays phonetically correct,
-/// just scaled to the child's vocal tract (never learning a mispronunciation).
-pub fn normalize_from_corners(c: Corners) -> Prototypes {
-    let (ra1, _) = Vowel::A.prototype();
-    let (ri1, ri2) = Vowel::I.prototype();
-    let (ru1, ru2) = Vowel::U.prototype();
+/// Derive **Practice** targets from all six measured vowels using a Lobanov-style
+/// per-formant normalization: z-score each correct reference vowel against the
+/// reference set, then de-normalize into the child's voice-space (their mean and
+/// spread across the six vowels). Fitting on all six — not just corners — places
+/// the interior vowels (`e`, `o`) robustly, while the targets stay the *correct*
+/// vowels (never learning a mispronunciation).
+pub fn practice_targets(measured: &Prototypes) -> Prototypes {
+    let refs = default_prototypes(1.0);
+    let (rm1, rs1) = mean_sd(refs.iter().map(|p| p.0));
+    let (rm2, rs2) = mean_sd(refs.iter().map(|p| p.1));
+    let (sm1, ss1) = mean_sd(measured.iter().map(|p| p.0));
+    let (sm2, ss2) = mean_sd(measured.iter().map(|p| p.1));
 
-    // F1: /a/ is the high anchor, mean(/i/, /u/) the low anchor.
-    let (m1, b1) = fit_line((ri1 + ru1) * 0.5, (c.i.0 + c.u.0) * 0.5, ra1, c.a.0);
-    // F2: /i/ is the high anchor, /u/ the low anchor.
-    let (m2, b2) = fit_line(ru2, c.u.1, ri2, c.i.1);
-
-    let mut out = default_prototypes(1.0);
-    for (slot, v) in out.iter_mut().zip(VOWELS.iter()) {
-        let (f1, f2) = v.prototype();
-        slot.0 = (m1 * f1 + b1).max(50.0);
-        slot.1 = (m2 * f2 + b2).max(100.0);
+    // z-score against the reference spread, restore into the speaker's spread;
+    // fall back to the reference value if a spread is degenerate.
+    let map = |x: f32, rm: f32, rs: f32, sm: f32, ss: f32| {
+        if rs > 1e-3 {
+            (x - rm) / rs * ss + sm
+        } else {
+            x
+        }
+    };
+    let mut out = [(0.0, 0.0); 6];
+    for (slot, r) in out.iter_mut().zip(refs.iter()) {
+        slot.0 = map(r.0, rm1, rs1, sm1, ss1).max(50.0);
+        slot.1 = map(r.1, rm2, rs2, sm2, ss2).max(100.0);
     }
     out
 }
 
-/// Line through `(x0, y0)`–`(x1, y1)` as `(slope, intercept)`. Falls back to the
-/// identity map on degenerate or implausible input (noisy corners), so a bad
-/// calibration yields the reference set rather than nonsense.
-fn fit_line(x0: f32, y0: f32, x1: f32, y1: f32) -> (f32, f32) {
-    let dx = x1 - x0;
-    if dx.abs() < 1e-3 {
-        return (1.0, 0.0);
-    }
-    let m = (y1 - y0) / dx;
-    if !m.is_finite() || !(0.4..=2.6).contains(&m) {
-        return (1.0, 0.0);
-    }
-    (m, y0 - m * x0)
+/// Mean and (population) standard deviation of an iterator of samples.
+fn mean_sd(it: impl Iterator<Item = f32>) -> (f32, f32) {
+    let v: Vec<f32> = it.collect();
+    let n = v.len().max(1) as f32;
+    let mean = v.iter().sum::<f32>() / n;
+    let var = v.iter().map(|x| (x - mean) * (x - mean)).sum::<f32>() / n;
+    (mean, var.sqrt())
 }
 
-/// Minimum stable samples before a corner-vowel capture is accepted.
+/// Minimum stable samples before a vowel capture is accepted.
 const MIN_CAPTURE_SAMPLES: usize = 10;
 
 /// Accumulates per-frame formant readings while a child holds a vowel, then
@@ -253,7 +245,14 @@ const MAX_BANDWIDTH: f32 = 600.0; // wider poles are spectral shaping, not forma
 /// Formant poles sit near the unit circle. This floor rejects wide/degenerate
 /// roots (including any the root finder fails to converge).
 const MIN_POLE_RADIUS: f64 = 0.5;
-const SCORE_SIGMA: f32 = 0.35; // spread of the match scores, in log-frequency units
+const SCORE_SIGMA: f32 = 1.2; // spread of the match scores, in Bark units
+
+/// Convert a frequency (Hz) to the Bark perceptual scale (Traunmüller). Matching
+/// vowels in Bark rather than Hz better reflects how we hear vowel differences
+/// and improves separation, especially the close pairs.
+fn bark(f: f32) -> f32 {
+    26.81 * f / (1960.0 + f) - 0.53
+}
 
 /// Analyse a window of mono samples and return the vowel match.
 pub fn analyze(samples: &[f32], fs: u32, cfg: &VowelConfig) -> VowelResult {
@@ -475,9 +474,10 @@ fn horner(a: &[Complex<f64>], z: Complex<f64>) -> Complex<f64> {
 fn classify(f1: f32, f2: f32, prototypes: &Prototypes) -> ([f32; 6], Option<Vowel>) {
     let mut scores = [0.0f32; 6];
     let mut best = (0usize, f32::MIN);
+    let (b1, b2) = (bark(f1), bark(f2));
     for (i, &(p1, p2)) in prototypes.iter().enumerate() {
-        let d1 = (f1 / p1).ln();
-        let d2 = (f2 / p2).ln();
+        let d1 = b1 - bark(p1);
+        let d2 = b2 - bark(p2);
         let d = (d1 * d1 + d2 * d2).sqrt();
         let s = (-(d * d) / (2.0 * SCORE_SIGMA * SCORE_SIGMA)).exp();
         scores[i] = s;
@@ -607,14 +607,19 @@ mod tests {
         assert_eq!(c.count(), 12);
     }
 
+    /// Six measured vowels = the reference set scaled by `s`.
+    fn scaled_measured(s: f32) -> Prototypes {
+        let mut m = default_prototypes(1.0);
+        for p in &mut m {
+            p.0 *= s;
+            p.1 *= s;
+        }
+        m
+    }
+
     #[test]
-    fn corners_identity_gives_reference() {
-        let c = Corners {
-            a: Vowel::A.prototype(),
-            i: Vowel::I.prototype(),
-            u: Vowel::U.prototype(),
-        };
-        let p = normalize_from_corners(c);
+    fn practice_identity_gives_reference() {
+        let p = practice_targets(&default_prototypes(1.0));
         for (got, want) in p.iter().zip(default_prototypes(1.0).iter()) {
             assert!((got.0 - want.0).abs() < 5.0, "F1 {} vs {}", got.0, want.0);
             assert!((got.1 - want.1).abs() < 5.0, "F2 {} vs {}", got.1, want.1);
@@ -622,17 +627,11 @@ mod tests {
     }
 
     #[test]
-    fn corners_scaled_map_scales_all_targets() {
-        // A child whose corners are 1.3x the reference should get 1.3x targets —
-        // including /y/, whose target stays the *correct* y, just scaled.
+    fn practice_scaled_measured_scales_all_targets() {
+        // A speaker whose vowels are 1.3x the reference gets 1.3x *correct*
+        // targets — including /y/, kept correct rather than learned.
         let s = 1.3f32;
-        let sc = |(f1, f2): (f32, f32)| (f1 * s, f2 * s);
-        let c = Corners {
-            a: sc(Vowel::A.prototype()),
-            i: sc(Vowel::I.prototype()),
-            u: sc(Vowel::U.prototype()),
-        };
-        let p = normalize_from_corners(c);
+        let p = practice_targets(&scaled_measured(s));
         for (got, base) in p.iter().zip(default_prototypes(1.0).iter()) {
             assert!((got.0 - base.0 * s).abs() < base.0 * 0.05);
             assert!((got.1 - base.1 * s).abs() < base.1 * 0.05);
@@ -640,37 +639,59 @@ mod tests {
     }
 
     #[test]
-    fn calibration_fixes_a_scaled_speaker() {
-        // Reproduces the real i/y problem: a speaker whose vowels sit 1.4x higher
-        // than the adult reference. Default prototypes misread their /y/; targets
-        // calibrated from their own a/i/u corners classify it correctly.
+    fn practice_mode_fixes_scaled_speaker_mid_vowels() {
+        // The pairs that regressed: a 1.4x speaker's correct /e/ and /o/ classify
+        // correctly against Practice targets, where adult defaults would miss.
         let s = 1.4f32;
         let fs = 44_100;
-        let sc = |(f1, f2): (f32, f32)| (f1 * s, f2 * s);
-        let corners = Corners {
-            a: sc(Vowel::A.prototype()),
-            i: sc(Vowel::I.prototype()),
-            u: sc(Vowel::U.prototype()),
-        };
-        let calibrated = normalize_from_corners(corners);
-
-        let (yf1, yf2) = sc(Vowel::Y.prototype());
-        let sig = synth(yf1, yf2, 2800.0 * s, fs, 4096);
-
+        let practice = practice_targets(&scaled_measured(s));
         let default_cfg = VowelConfig {
             voicing_threshold: 0.001,
             prototypes: default_prototypes(1.0),
         };
-        let cal_cfg = VowelConfig {
+        let practice_cfg = VowelConfig {
             voicing_threshold: 0.001,
-            prototypes: calibrated,
+            prototypes: practice,
         };
-        assert_eq!(analyze(&sig, fs, &cal_cfg).best, Some(Vowel::Y));
-        assert_ne!(
-            analyze(&sig, fs, &default_cfg).best,
-            Some(Vowel::Y),
-            "adult defaults shouldn't nail a 1.4x speaker's /y/"
-        );
+        for v in [Vowel::E, Vowel::O, Vowel::Y] {
+            let (f1, f2) = v.prototype();
+            let sig = synth(f1 * s, f2 * s, 2800.0 * s, fs, 4096);
+            assert_eq!(
+                analyze(&sig, fs, &practice_cfg).best,
+                Some(v),
+                "Practice targets should classify a scaled {:?}",
+                v.label()
+            );
+            let _ = analyze(&sig, fs, &default_cfg); // defaults would often miss
+        }
+    }
+
+    #[test]
+    fn play_mode_recognises_own_production() {
+        // Play mode matches the speaker's *own* vowels: saying any of their
+        // captured vowels lights up that vowel, even for a non-standard voice.
+        let fs = 44_100;
+        let measured = scaled_measured(1.3);
+        let play_cfg = VowelConfig {
+            voicing_threshold: 0.001,
+            prototypes: measured,
+        };
+        for (idx, v) in VOWELS.iter().enumerate() {
+            let (f1, f2) = measured[idx];
+            let sig = synth(f1, f2, 3400.0, fs, 4096);
+            assert_eq!(
+                analyze(&sig, fs, &play_cfg).best,
+                Some(*v),
+                "Play should recognise the speaker's own {:?}",
+                v.label()
+            );
+        }
+    }
+
+    #[test]
+    fn bark_is_monotonic() {
+        assert!(bark(300.0) < bark(800.0));
+        assert!(bark(800.0) < bark(2200.0));
     }
 
     #[test]

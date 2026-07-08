@@ -21,6 +21,18 @@ fn default_vowel_speaker_scale() -> f32 {
 fn default_vowel_smoothing() -> f32 {
     0.5
 }
+fn default_vowel_mode() -> VowelMode {
+    VowelMode::Practice
+}
+
+/// How the vowel detector scores against a calibrated profile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VowelMode {
+    /// Correct targets scaled to the child's voice — tracks drift (therapy).
+    Practice,
+    /// The child's own produced vowels — forgiving recognition (games).
+    Play,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
@@ -45,6 +57,9 @@ pub struct Settings {
     /// Vowel visualizer: match-meter smoothing (0 = snappy, → 1 = sluggish).
     #[serde(default = "default_vowel_smoothing")]
     pub vowel_smoothing: f32,
+    /// Which calibrated target set the vowel detector matches against.
+    #[serde(default = "default_vowel_mode")]
+    pub vowel_mode: VowelMode,
     pub show_dev_panel: bool,
     /// UI language code. Defaults to the detected system language on first run.
     #[serde(default = "default_language")]
@@ -70,6 +85,7 @@ impl Default for Settings {
             vowel_voicing_threshold: default_vowel_voicing_threshold(),
             vowel_speaker_scale: default_vowel_speaker_scale(),
             vowel_smoothing: default_vowel_smoothing(),
+            vowel_mode: default_vowel_mode(),
             show_dev_panel: false,
             language: default_language(),
             input_device: None,

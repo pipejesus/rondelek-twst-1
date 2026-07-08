@@ -6,7 +6,7 @@
 use egui::{Align2, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 use crate::audio::vowel::{self, VOWELS, VowelConfig, VowelResult};
-use crate::config::{Settings, Theme};
+use crate::config::{Settings, Theme, VowelMode};
 use crate::ui::visualizer::{AudioFrame, Visualizer};
 use crate::util::lerp;
 
@@ -22,8 +22,8 @@ pub struct VowelVisualizer {
     scores: [f32; 6],
     /// Last detected `(F1, F2)` in Hz, for the on-screen debug readout.
     formants: Option<(f32, f32)>,
-    /// Active profile's calibrated targets, if calibrated.
-    calibration: Option<vowel::Prototypes>,
+    /// Active profile's calibration, if calibrated.
+    calibration: Option<vowel::VowelCalibration>,
 }
 
 impl VowelVisualizer {
@@ -69,10 +69,15 @@ impl Visualizer for VowelVisualizer {
         };
         let window = &src[src.len().saturating_sub(WINDOW)..];
 
-        // Calibrated targets when the profile has them, else the scaled reference.
-        let prototypes = self
-            .calibration
-            .unwrap_or_else(|| vowel::default_prototypes(settings.vowel_speaker_scale));
+        // Calibrated: pick the target set for the current mode. Uncalibrated:
+        // fall back to the scaled reference set (Speaker-scale slider).
+        let prototypes = match &self.calibration {
+            Some(cal) => match settings.vowel_mode {
+                VowelMode::Practice => cal.practice,
+                VowelMode::Play => cal.measured,
+            },
+            None => vowel::default_prototypes(settings.vowel_speaker_scale),
+        };
         let cfg = VowelConfig {
             voicing_threshold: settings.vowel_voicing_threshold,
             prototypes,
@@ -95,16 +100,36 @@ impl Visualizer for VowelVisualizer {
         self.formants = Some((720.0, 1200.0));
     }
 
-    fn set_calibration(&mut self, prototypes: Option<vowel::Prototypes>) {
-        self.calibration = prototypes;
+    fn set_calibration(&mut self, calibration: Option<vowel::VowelCalibration>) {
+        self.calibration = calibration;
     }
 
-    fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, _settings: &Settings) {
+    fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, settings: &Settings) {
         if rect.width() <= 8.0 || rect.height() <= 8.0 {
             return;
         }
         let pad = (rect.width().min(rect.height()) * 0.06).clamp(6.0, 18.0);
         let inner = rect.shrink(pad);
+
+        // Calibration status, top-left — so it's never ambiguous which targets
+        // (and mode) are active.
+        let (status, status_color) = match &self.calibration {
+            Some(_) => {
+                let mode = match settings.vowel_mode {
+                    VowelMode::Practice => "Practice",
+                    VowelMode::Play => "Play",
+                };
+                (format!("Calibrated ✓ · {mode}"), theme.visualizer_bar_high)
+            }
+            None => ("Not calibrated".to_string(), theme.text_secondary),
+        };
+        painter.text(
+            inner.left_top(),
+            Align2::LEFT_TOP,
+            status,
+            FontId::monospace((inner.height() * 0.06).clamp(9.0, 13.0)),
+            status_color,
+        );
 
         // Left third: the big detected letter + F1/F2 debug readout.
         let split = inner.left() + inner.width() * 0.34;

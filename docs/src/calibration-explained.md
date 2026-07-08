@@ -59,28 +59,43 @@ Two tempting approaches — both rejected:
 It measures **only the size and shape of the child's personal map**, then places
 the **correct** vowel targets onto *that* map.
 
-To do it, the app asks the child to say just three easy sounds — **`a`, `i`, `u`**.
-These are the three **corners** of the map: the most extreme, most distinct, and
-easiest vowels to produce (even a child who confuses `y` and `i` can usually
-produce `a`, `i`, `u` clearly). From those three corners the app works out how big
-and stretched *this child's* map is. It then takes the **textbook‑correct
-positions of all six vowels** and redraws them at the right spots for a map of that
+To do it, the app asks the child to say **all six vowels** (`a e i o u y`), one at
+a time, holding each briefly. From those six it works out how big and stretched
+*this child's* map is — its centre and spread. It then takes the **textbook‑correct
+positions of the six vowels** and redraws them at the right spots for a map of that
 size.
 
-**The tailor analogy.** It's like a tailor taking three quick measurements and
-then cutting the *correct* pattern to fit *your* body. We don't copy your slouch
-(the child's current mispronunciation), and we don't force you into someone else's
-suit (the adult reference). We tailor the *right* target to *you*.
+> **For clinicians:** the six‑vowel fit is a **Lobanov‑style** per‑formant
+> z‑score/de‑normalization — more robust for the interior vowels (`e`, `o`) than a
+> 3‑corner fit. Matching is done on the **Bark** scale.
 
-## Why this fixes the y/i confusion
+**The tailor analogy.** It's like a tailor taking measurements and then cutting the
+*correct* pattern to fit *your* body. We don't copy your slouch (the child's current
+mispronunciation), and we don't force you into someone else's suit (the adult
+reference). We tailor the *right* target to *you*.
 
-After calibration, the **`y` target sits at the correct central‑high spot — sized
-for that child's voice.** So during practice the app only recognises "y" when the
-child actually moves their tongue to the correct place. It won't cheat by accepting
-an old, `i`‑like `y`, and it won't unfairly reject a good `y` for being "too small"
-for an adult. **It holds the correct standard, in the child's size.**
+## Two modes from one calibration
+
+The same six recordings power two ways of using the app:
+
+- **Practice mode (therapy)** — targets are the **correct** vowels, scaled to the
+  child. The app only says "that's a good `e`" when the child actually reaches a
+  correct `e`, so it can reveal — and help correct — a drift like the `y`/`i` mix.
+- **Play mode (games)** — targets are the vowels the child **actually produces**.
+  Detection is forgiving and responsive, so a child's voice can drive a game (e.g.
+  steering a ball) without being judged for correctness. This intentionally
+  *accepts* the child's current sounds — it's for fun and engagement, not therapy.
+
+## Why Practice mode fixes the y/i confusion
+
+In Practice mode the **`y` target sits at the correct central‑high spot — sized for
+that child's voice.** So the app only recognises "y" when the child moves their
+tongue to the correct place. It won't cheat by accepting an old, `i`‑like `y`, and
+it won't unfairly reject a good `y` for being "too small" for an adult. **It holds
+the correct standard, in the child's size.**
 
 That's the whole idea in one sentence:
 
-> **Measure the child's voice *size* from three easy anchor sounds (`a`, `i`, `u`),
-> then judge every vowel against the *correct* targets, scaled to that size.**
+> **Measure the child's voice *size* from all six vowels, then — in Practice mode —
+> judge each vowel against the *correct* target scaled to that size (Play mode
+> instead recognises the child's own vowels, for games).**

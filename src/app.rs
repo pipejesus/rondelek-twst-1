@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::audio::vowel::{
-    self, CalibrationCapture, Corners, VowelCalibration, VowelConfig, normalize_from_corners,
+    self, CalibrationCapture, VowelCalibration, VowelConfig, practice_targets,
 };
 use crate::audio::{Capture, Playback, Sample, device};
 use crate::config::{
@@ -39,9 +39,7 @@ enum AppScreen {
     Session,
 }
 
-/// Corner vowels captured during calibration, in order (a, i, u).
-const CALIB_CORNERS: [vowel::Vowel; 3] = [vowel::Vowel::A, vowel::Vowel::I, vowel::Vowel::U];
-/// Voiced frames to collect per corner before it is accepted and we advance.
+/// Voiced frames to collect per vowel before it is accepted and we advance.
 const CALIB_TARGET: usize = 24;
 
 /// Whether we're waiting for the child to begin the current vowel, or actively
@@ -53,14 +51,15 @@ enum CalibPhase {
     Listening,
 }
 
-/// State of the guided calibration flow.
+/// State of the guided calibration flow. All six vowels are captured (in
+/// `vowel::VOWELS` order) so both detection modes can be derived.
 struct CalibrationState {
-    /// Which corner we're on (index into [`CALIB_CORNERS`]).
+    /// Which vowel we're on (index into `vowel::VOWELS`).
     step: usize,
     phase: CalibPhase,
     capture: CalibrationCapture,
-    /// Corners captured so far, in `CALIB_CORNERS` order.
-    corners: Vec<(f32, f32)>,
+    /// Vowels measured so far, in `vowel::VOWELS` order.
+    measured: Vec<(f32, f32)>,
     /// Latest live formant estimate, for on-screen feedback.
     live_formants: Option<(f32, f32)>,
 }
@@ -546,16 +545,15 @@ impl App {
         self.screen = AppScreen::Sessions;
     }
 
-    /// Push the current profile's calibrated vowel targets to the visualizers
-    /// (or clear to the reference set when the profile isn't calibrated).
+    /// Push the current profile's calibration to the visualizers (or `None` when
+    /// the profile isn't calibrated, falling back to the scaled reference set).
     fn apply_profile_calibration(&mut self) {
-        let prototypes = self
+        let cal = self
             .current_profile
             .as_ref()
-            .and_then(|p| p.load_calibration())
-            .map(|c| c.prototypes);
+            .and_then(|p| p.load_calibration());
         for viz in &mut self.visualizers {
-            viz.set_calibration(prototypes);
+            viz.set_calibration(cal.clone());
         }
     }
 
@@ -570,7 +568,7 @@ impl App {
             step: 0,
             phase: CalibPhase::Ready,
             capture: CalibrationCapture::new(),
-            corners: Vec::new(),
+            measured: Vec::new(),
             live_formants: None,
         });
         self.accumulated_samples.clear();
@@ -581,17 +579,16 @@ impl App {
     /// to the profile, and return to the Sessions screen.
     fn finish_calibration(&mut self) {
         if let Some(state) = self.calib.take()
-            && state.corners.len() == CALIB_CORNERS.len()
+            && state.measured.len() == vowel::VOWELS.len()
             && let Some(profile) = self.current_profile.as_ref()
         {
-            let corners = Corners {
-                a: state.corners[0],
-                i: state.corners[1],
-                u: state.corners[2],
-            };
+            let mut measured = [(0.0f32, 0.0f32); 6];
+            for (slot, m) in measured.iter_mut().zip(state.measured.iter()) {
+                *slot = *m;
+            }
             let cal = VowelCalibration {
-                prototypes: normalize_from_corners(corners),
-                corners,
+                practice: practice_targets(&measured),
+                measured,
                 created: now_secs(),
             };
             if let Err(e) = profile.save_calibration(&cal) {
@@ -651,12 +648,12 @@ impl App {
             state.live_formants = formants;
             state.capture.push(formants);
             if state.capture.count() >= CALIB_TARGET
-                && let Some(corner) = state.capture.result()
+                && let Some(measured) = state.capture.result()
             {
-                state.corners.push(corner);
+                state.measured.push(measured);
                 state.capture.clear();
                 state.step += 1;
-                if state.corners.len() == CALIB_CORNERS.len() {
+                if state.measured.len() == vowel::VOWELS.len() {
                     finished = true;
                 } else {
                     // Wait for the user to start the next vowel.
@@ -679,7 +676,7 @@ impl App {
         }
         let (step, count, phase) = match self.calib.as_ref() {
             Some(s) => (
-                s.step.min(CALIB_CORNERS.len() - 1),
+                s.step.min(vowel::VOWELS.len() - 1),
                 s.capture.count(),
                 s.phase,
             ),
@@ -691,7 +688,7 @@ impl App {
 
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
-        let target = CALIB_CORNERS[step];
+        let target = vowel::VOWELS[step];
         let progress = (count as f32 / CALIB_TARGET as f32).clamp(0.0, 1.0);
 
         let mut start = false;
@@ -713,7 +710,7 @@ impl App {
             );
             ui.add_space(6.0);
             ui.label(
-                egui::RichText::new(format!("{} / {}", step + 1, CALIB_CORNERS.len()))
+                egui::RichText::new(format!("{} / {}", step + 1, vowel::VOWELS.len()))
                     .color(self.theme.text_secondary)
                     .size(14.0),
             );

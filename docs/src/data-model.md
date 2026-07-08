@@ -41,11 +41,12 @@ flowchart TD
 
 ### Calibration
 
-`calibration.json` (`vowel::VowelCalibration`, written only after a child runs
-voice calibration) holds their personalised vowel targets: the six `prototypes`
-`(F1, F2)`, the raw `corners` (measured `/a/`, `/i/`, `/u/`) kept for
-re-derivation, and `created`. Absent = the child uses the scaled reference set.
-See [The visualizer → Calibration](visualizer.md#calibration).
+`calibration.json` (`vowel::VowelCalibration`, written after a child runs voice
+calibration) holds two `(F1, F2)` target sets, indexed like `vowel::VOWELS`, plus
+`created`: **`measured`** — the child's own six vowels (used by *Play* mode) — and
+**`practice`** — the correct references mapped into the child's voice-space (used by
+*Practice* mode). Absent = the child uses the scaled reference set. See
+[The visualizer → Calibration](visualizer.md#calibration).
 
 ### Manifests
 

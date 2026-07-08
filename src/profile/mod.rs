@@ -315,19 +315,16 @@ mod tests {
 
     #[test]
     fn calibration_round_trips() {
-        use crate::audio::vowel::{Corners, VowelCalibration, normalize_from_corners};
+        use crate::audio::vowel::{VowelCalibration, default_prototypes, practice_targets};
         let profile = Profile::create("Cal Kid", None).unwrap();
         let dir = profile.dir.clone();
         assert!(profile.load_calibration().is_none(), "starts uncalibrated");
 
-        let corners = Corners {
-            a: (820.0, 1350.0),
-            i: (360.0, 2550.0),
-            u: (390.0, 820.0),
-        };
+        let mut measured = default_prototypes(1.3);
+        measured[0].0 += 20.0; // a little per-vowel variation
         let cal = VowelCalibration {
-            prototypes: normalize_from_corners(corners),
-            corners,
+            practice: practice_targets(&measured),
+            measured,
             created: 123,
         };
         profile.save_calibration(&cal).unwrap();
