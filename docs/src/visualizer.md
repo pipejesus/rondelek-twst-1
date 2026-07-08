@@ -136,6 +136,10 @@ vowels at known formants and asserting the classification.
 
 ### Calibration
 
+> **New here?** Read [How calibration works](calibration-explained.md) first — a
+> plain-language explanation of the idea (and what it deliberately avoids),
+> written for anyone including clinicians. This section covers the implementation.
+
 Fixed prototypes can't separate the closest, most speaker-dependent pair (`/i/`
 vs `/y/`), and every child's vocal tract differs — so classification runs against
 a **per-profile prototype set**. A child calibrates once from the **Calibrate
