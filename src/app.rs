@@ -2,6 +2,9 @@ use egui::{Align2, Color32, Key, Pos2, Rect, Sense, Ui, Vec2};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::audio::vowel::{
+    self, CalibrationCapture, Corners, VowelCalibration, VowelConfig, normalize_from_corners,
+};
 use crate::audio::{Capture, Playback, Sample, device};
 use crate::config::{
     self, NUM_SAMPLES, PadKind, REC_PAD, ROUNDING_PAD, SAMPLE_PADS, Settings, Theme,
@@ -13,6 +16,7 @@ use crate::ui::{
     AudioFrame, ConfigPanel, DevPanel, Pad, PadMode, Renderer, SpectrumVisualizer, Visualizer,
     VowelVisualizer, compute_layout, draw_keycap, draw_kid_face, gloss_overlay,
 };
+use crate::util::now_secs;
 
 /// Index of the REC control pad within `self.pads` (after the sample pads).
 const REC_PAD_IDX: usize = NUM_SAMPLES;
@@ -29,8 +33,26 @@ enum AppScreen {
     ProfileForm,
     /// A profile's sessions: resume a past one or start fresh.
     Sessions,
+    /// Per-child voice calibration for the vowel detector.
+    Calibrate,
     /// The sampler.
     Session,
+}
+
+/// Corner vowels captured during calibration, in order (a, i, u).
+const CALIB_CORNERS: [vowel::Vowel; 3] = [vowel::Vowel::A, vowel::Vowel::I, vowel::Vowel::U];
+/// Voiced frames to collect per corner before it is accepted and we advance.
+const CALIB_TARGET: usize = 24;
+
+/// State of the guided calibration flow.
+struct CalibrationState {
+    /// Which corner we're on (index into [`CALIB_CORNERS`]).
+    step: usize,
+    capture: CalibrationCapture,
+    /// Corners captured so far, in `CALIB_CORNERS` order.
+    corners: Vec<(f32, f32)>,
+    /// Latest live formant estimate, for on-screen feedback.
+    live_formants: Option<(f32, f32)>,
 }
 
 /// Whether the profile form is creating a new profile or editing an existing one.
@@ -78,6 +100,9 @@ pub struct App {
     form_avatar: AvatarChoice,
     form_error: Option<String>,
     camera: Option<crate::camera::CameraSession>,
+
+    // Vowel calibration flow (per profile).
+    calib: Option<CalibrationState>,
 
     // Texture caches.
     tex_cache: HashMap<PathBuf, egui::TextureHandle>,
@@ -183,6 +208,7 @@ impl App {
             form_avatar: AvatarChoice::Keep,
             form_error: None,
             camera: None,
+            calib: None,
             tex_cache: HashMap::new(),
             flag_cache: HashMap::new(),
             record_mode: false,
@@ -214,6 +240,9 @@ impl App {
         // Edit form for the profile selected via RONDELEK_PROFILE above.
         if std::env::var("RONDELEK_SCREEN").as_deref() == Ok("editprofile") {
             app.begin_edit_profile();
+        }
+        if std::env::var("RONDELEK_SCREEN").as_deref() == Ok("calibrate") {
+            app.begin_calibration();
         }
         if let Ok(path) = std::env::var("RONDELEK_SESSION") {
             app.open_session_dir(PathBuf::from(path));
@@ -503,7 +532,206 @@ impl App {
     fn select_profile(&mut self, profile: Profile) {
         self.profile_sessions = profile.list_sessions();
         self.current_profile = Some(profile);
+        self.apply_profile_calibration();
         self.screen = AppScreen::Sessions;
+    }
+
+    /// Push the current profile's calibrated vowel targets to the visualizers
+    /// (or clear to the reference set when the profile isn't calibrated).
+    fn apply_profile_calibration(&mut self) {
+        let prototypes = self
+            .current_profile
+            .as_ref()
+            .and_then(|p| p.load_calibration())
+            .map(|c| c.prototypes);
+        for viz in &mut self.visualizers {
+            viz.set_calibration(prototypes);
+        }
+    }
+
+    // ---- vowel calibration ---------------------------------------------
+
+    /// Enter the guided calibration flow for the current profile.
+    fn begin_calibration(&mut self) {
+        if self.current_profile.is_none() {
+            return;
+        }
+        self.calib = Some(CalibrationState {
+            step: 0,
+            capture: CalibrationCapture::new(),
+            corners: Vec::new(),
+            live_formants: None,
+        });
+        self.accumulated_samples.clear();
+        self.screen = AppScreen::Calibrate;
+    }
+
+    /// Finish: derive personalised targets from the captured corners, save them
+    /// to the profile, and return to the Sessions screen.
+    fn finish_calibration(&mut self) {
+        if let Some(state) = self.calib.take()
+            && state.corners.len() == CALIB_CORNERS.len()
+            && let Some(profile) = self.current_profile.as_ref()
+        {
+            let corners = Corners {
+                a: state.corners[0],
+                i: state.corners[1],
+                u: state.corners[2],
+            };
+            let cal = VowelCalibration {
+                prototypes: normalize_from_corners(corners),
+                corners,
+                created: now_secs(),
+            };
+            if let Err(e) = profile.save_calibration(&cal) {
+                eprintln!("Failed to save calibration: {e}");
+            }
+        }
+        self.calib = None;
+        self.apply_profile_calibration();
+        self.screen = AppScreen::Sessions;
+    }
+
+    /// Pull the mic and feed the current corner's capture; returns the live
+    /// formant estimate for display. Advances the step when a corner is captured.
+    fn pump_calibration(&mut self) -> Option<(f32, f32)> {
+        let dt = 1.0 / 60.0;
+        self.maintain_audio(dt);
+        let mic = self
+            .capture
+            .as_mut()
+            .map(Capture::drain)
+            .unwrap_or_default();
+        if !mic.is_empty() {
+            self.accumulated_samples.extend_from_slice(&mic);
+            trim_rolling(&mut self.accumulated_samples, self.capture_rate);
+        }
+        let window =
+            &self.accumulated_samples[self.accumulated_samples.len().saturating_sub(2048)..];
+        let cfg = VowelConfig {
+            voicing_threshold: self.settings.vowel_voicing_threshold,
+            prototypes: vowel::default_prototypes(self.settings.vowel_speaker_scale),
+        };
+        let formants = vowel::analyze(window, self.capture_rate, &cfg).formants;
+
+        let mut finished = false;
+        if let Some(state) = self.calib.as_mut() {
+            state.live_formants = formants;
+            state.capture.push(formants);
+            if state.capture.count() >= CALIB_TARGET
+                && let Some(corner) = state.capture.result()
+            {
+                state.corners.push(corner);
+                state.capture.clear();
+                state.step += 1;
+                finished = state.corners.len() == CALIB_CORNERS.len();
+            }
+        }
+        if finished {
+            self.finish_calibration();
+        }
+        formants
+    }
+
+    fn draw_calibrate(&mut self, ui: &mut Ui) {
+        ui.ctx().request_repaint();
+        let live = self.pump_calibration();
+        // pump_calibration may have finished and switched screens.
+        if self.screen != AppScreen::Calibrate {
+            return;
+        }
+        let (step, count) = match self.calib.as_ref() {
+            Some(s) => (s.step.min(CALIB_CORNERS.len() - 1), s.capture.count()),
+            None => {
+                self.screen = AppScreen::Sessions;
+                return;
+            }
+        };
+
+        let full = ui.max_rect();
+        ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
+        let target = CALIB_CORNERS[step];
+        let progress = (count as f32 / CALIB_TARGET as f32).clamp(0.0, 1.0);
+
+        let mut cancel = false;
+        let mut retry = false;
+
+        ui.vertical_centered(|ui| {
+            ui.add_space((full.height() * 0.10).min(64.0));
+            ui.label(
+                egui::RichText::new(self.i18n.t("calibrate.title"))
+                    .color(self.theme.text_primary)
+                    .size(24.0)
+                    .strong(),
+            );
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(format!("{} / {}", step + 1, CALIB_CORNERS.len()))
+                    .color(self.theme.text_secondary)
+                    .size(14.0),
+            );
+            ui.add_space(20.0);
+            ui.label(
+                egui::RichText::new(self.i18n.t("calibrate.say"))
+                    .color(self.theme.text_secondary)
+                    .size(16.0),
+            );
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(target.label())
+                    .color(ORANGE)
+                    .size(96.0)
+                    .strong(),
+            );
+            ui.add_space(16.0);
+            ui.add_sized([300.0, 18.0], egui::ProgressBar::new(progress).fill(ORANGE));
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(self.i18n.t("calibrate.hold"))
+                    .color(self.theme.text_secondary)
+                    .size(13.0),
+            );
+            if let Some((f1, f2)) = live {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!("F1 {f1:.0}  F2 {f2:.0} Hz"))
+                        .color(self.theme.text_secondary)
+                        .monospace(),
+                );
+            }
+            ui.add_space(24.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(300.0, 40.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    if ui
+                        .add_sized(
+                            [145.0, 40.0],
+                            egui::Button::new(self.i18n.t("calibrate.cancel")),
+                        )
+                        .clicked()
+                    {
+                        cancel = true;
+                    }
+                    if ui
+                        .add_sized(
+                            [145.0, 40.0],
+                            egui::Button::new(self.i18n.t("calibrate.retry")),
+                        )
+                        .clicked()
+                    {
+                        retry = true;
+                    }
+                },
+            );
+        });
+
+        if cancel {
+            self.calib = None;
+            self.screen = AppScreen::Sessions;
+        } else if retry && let Some(s) = self.calib.as_mut() {
+            s.capture.clear();
+        }
     }
 
     fn begin_new_profile(&mut self) {
@@ -1117,6 +1345,7 @@ impl App {
 
         let mut back = false;
         let mut edit_profile = false;
+        let mut calibrate = false;
         let mut new_session = false;
         let mut open_idx: Option<usize> = None;
 
@@ -1166,6 +1395,16 @@ impl App {
                 {
                     edit_profile = true;
                 }
+                ui.add_space(8.0);
+                if ui
+                    .add_sized(
+                        [200.0, 32.0],
+                        egui::Button::new(self.i18n.t("sessions.calibrate")),
+                    )
+                    .clicked()
+                {
+                    calibrate = true;
+                }
                 ui.add_space(16.0);
 
                 let new_btn = egui::Button::new(
@@ -1203,6 +1442,8 @@ impl App {
             self.go_to_profiles();
         } else if edit_profile {
             self.begin_edit_profile();
+        } else if calibrate {
+            self.begin_calibration();
         } else if new_session {
             self.start_new_session();
         } else if let Some(i) = open_idx {
@@ -1489,6 +1730,7 @@ impl eframe::App for App {
             AppScreen::Profiles => self.draw_profiles(ui),
             AppScreen::ProfileForm => self.draw_profile_form(ui),
             AppScreen::Sessions => self.draw_sessions(ui),
+            AppScreen::Calibrate => self.draw_calibrate(ui),
             AppScreen::Session => self.draw_session(ui),
         }
 

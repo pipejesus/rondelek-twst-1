@@ -22,6 +22,8 @@ pub struct VowelVisualizer {
     scores: [f32; 6],
     /// Last detected `(F1, F2)` in Hz, for the on-screen debug readout.
     formants: Option<(f32, f32)>,
+    /// Active profile's calibrated targets, if calibrated.
+    calibration: Option<vowel::Prototypes>,
 }
 
 impl VowelVisualizer {
@@ -29,6 +31,7 @@ impl VowelVisualizer {
         Self {
             scores: [0.0; 6],
             formants: None,
+            calibration: None,
         }
     }
 
@@ -66,9 +69,13 @@ impl Visualizer for VowelVisualizer {
         };
         let window = &src[src.len().saturating_sub(WINDOW)..];
 
+        // Calibrated targets when the profile has them, else the scaled reference.
+        let prototypes = self
+            .calibration
+            .unwrap_or_else(|| vowel::default_prototypes(settings.vowel_speaker_scale));
         let cfg = VowelConfig {
             voicing_threshold: settings.vowel_voicing_threshold,
-            prototypes: vowel::default_prototypes(settings.vowel_speaker_scale),
+            prototypes,
         };
         let VowelResult {
             formants, scores, ..
@@ -86,6 +93,10 @@ impl Visualizer for VowelVisualizer {
         // A representative "a" detection, so screenshots show the view alive.
         self.scores = [0.92, 0.34, 0.10, 0.52, 0.08, 0.22]; // a e i o u y
         self.formants = Some((720.0, 1200.0));
+    }
+
+    fn set_calibration(&mut self, prototypes: Option<vowel::Prototypes>) {
+        self.calibration = prototypes;
     }
 
     fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, _settings: &Settings) {

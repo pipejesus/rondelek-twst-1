@@ -134,6 +134,35 @@ Dev-panel controls (`Ctrl+Shift+D`): **Speaker scale**, **Voicing** threshold,
 **Vowel smoothing**. The detector is unit-tested by synthesising source-filter
 vowels at known formants and asserting the classification.
 
+### Calibration
+
+Fixed prototypes can't separate the closest, most speaker-dependent pair (`/i/`
+vs `/y/`), and every child's vocal tract differs — so classification runs against
+a **per-profile prototype set**. A child calibrates once from the **Calibrate
+voice** button on the Sessions screen:
+
+```mermaid
+flowchart LR
+    say[hold /a/, then /i/, then /u/] --> cap[CalibrationCapture<br/>trimmed median over stable frames]
+    cap --> corners[Corners a i u]
+    corners --> norm[normalize_from_corners<br/>per-axis linear map]
+    norm --> proto[6 personalised targets]
+    proto --> save[calibration.json]
+```
+
+The pedagogical crux: we capture only the **corner vowels** (the easiest, most
+distinct) to learn the child's vocal-tract *scale*, then map **all six** correct
+reference targets into that scale (`vowel::normalize_from_corners`). So the `/y/`
+target stays the *correct* central-high position — practice improves production
+rather than rewarding a mispronunciation.
+
+Flow (`app.rs`): `begin_calibration` → `draw_calibrate` pumps the mic through the
+detector and fills `CalibrationCapture` per corner (progress bar), auto-advancing
+when stable → `finish_calibration` writes `calibration.json` and calls
+`apply_profile_calibration`, which pushes the targets to the visualizers via
+`Visualizer::set_calibration`. Uncalibrated profiles fall back to
+`default_prototypes(speaker_scale)`. Screenshot harness: `RONDELEK_SCREEN=calibrate`.
+
 ## Adding a new visualizer
 
 1. Create a struct implementing `Visualizer` (`update` + `draw`, optionally

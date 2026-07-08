@@ -13,6 +13,7 @@ profiles/
   <slug>-<short-uid>/            one child
     profile.json                 { uid, name, avatar, created }
     avatar.png                   optional, square, 256px
+    calibration.json             optional, per-child vowel calibration
     sessions/
       2026-07-01_22-11-06/       one practice run (timestamped folder)
         session.json             { uid, name, created, modified, pads[] }
@@ -37,6 +38,14 @@ flowchart TD
     sess --> pad[PadEntry x NUM_SAMPLES]
     pad --> wav[pad_NN.wav if recorded]
 ```
+
+### Calibration
+
+`calibration.json` (`vowel::VowelCalibration`, written only after a child runs
+voice calibration) holds their personalised vowel targets: the six `prototypes`
+`(F1, F2)`, the raw `corners` (measured `/a/`, `/i/`, `/u/`) kept for
+re-derivation, and `created`. Absent = the child uses the scaled reference set.
+See [The visualizer → Calibration](visualizer.md#calibration).
 
 ### Manifests
 
