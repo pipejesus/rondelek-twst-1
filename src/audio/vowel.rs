@@ -516,9 +516,11 @@ mod tests {
             x[i] = 1.0;
             i += period.max(1);
         }
-        resonate(&mut x, f1, fs, 0.97);
-        resonate(&mut x, f2, fs, 0.96);
-        resonate(&mut x, f3, fs, 0.95);
+        // r near 1 → realistically narrow formant bandwidths (~100-150 Hz), so
+        // even a high, weak F2 forms a distinct pole the detector can recover.
+        resonate(&mut x, f1, fs, 0.99);
+        resonate(&mut x, f2, fs, 0.99);
+        resonate(&mut x, f3, fs, 0.985);
         // Normalise to a sensible amplitude.
         let peak = x.iter().fold(0.0f32, |m, v| m.max(v.abs())).max(1e-6);
         for s in &mut x {
@@ -635,6 +637,40 @@ mod tests {
             assert!((got.0 - base.0 * s).abs() < base.0 * 0.05);
             assert!((got.1 - base.1 * s).abs() < base.1 * 0.05);
         }
+    }
+
+    #[test]
+    fn calibration_fixes_a_scaled_speaker() {
+        // Reproduces the real i/y problem: a speaker whose vowels sit 1.4x higher
+        // than the adult reference. Default prototypes misread their /y/; targets
+        // calibrated from their own a/i/u corners classify it correctly.
+        let s = 1.4f32;
+        let fs = 44_100;
+        let sc = |(f1, f2): (f32, f32)| (f1 * s, f2 * s);
+        let corners = Corners {
+            a: sc(Vowel::A.prototype()),
+            i: sc(Vowel::I.prototype()),
+            u: sc(Vowel::U.prototype()),
+        };
+        let calibrated = normalize_from_corners(corners);
+
+        let (yf1, yf2) = sc(Vowel::Y.prototype());
+        let sig = synth(yf1, yf2, 2800.0 * s, fs, 4096);
+
+        let default_cfg = VowelConfig {
+            voicing_threshold: 0.001,
+            prototypes: default_prototypes(1.0),
+        };
+        let cal_cfg = VowelConfig {
+            voicing_threshold: 0.001,
+            prototypes: calibrated,
+        };
+        assert_eq!(analyze(&sig, fs, &cal_cfg).best, Some(Vowel::Y));
+        assert_ne!(
+            analyze(&sig, fs, &default_cfg).best,
+            Some(Vowel::Y),
+            "adult defaults shouldn't nail a 1.4x speaker's /y/"
+        );
     }
 
     #[test]
