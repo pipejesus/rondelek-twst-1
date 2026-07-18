@@ -28,7 +28,9 @@ fn default_vowel_margin_threshold() -> f32 {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
     pub volume: f32,
-    pub dark_mode: bool,
+    /// Installed skin folder name; None = the built-in base skin.
+    #[serde(default)]
+    pub skin: Option<String>,
     pub visualizer_smoothing: f32,
     pub visualizer_decay: f32,
     pub visualizer_num_bars: usize,
@@ -67,7 +69,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             volume: 0.8,
-            dark_mode: false,
+            skin: None,
             visualizer_smoothing: 0.7,
             visualizer_decay: 0.4,
             visualizer_num_bars: 36,

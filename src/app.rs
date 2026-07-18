@@ -4,15 +4,14 @@ use std::path::{Path, PathBuf};
 
 use crate::audio::vowel::{self, CalibrationCapture};
 use crate::audio::{Capture, Playback, Sample, device};
-use crate::config::{
-    self, NUM_SAMPLES, PadKind, REC_PAD, ROUNDING_PAD, SAMPLE_PADS, Settings, Theme,
-};
+use crate::config::{NUM_SAMPLES, PadKind, REC_PAD, ROUNDING_PAD, SAMPLE_PADS, Settings, Theme};
 use crate::i18n::{self, EUROPEAN_LANGS, I18n};
 use crate::profile::{self, Profile, SessionInfo};
 use crate::session::Session;
 use crate::ui::{
-    AudioFrame, ConfigPanel, Pad, PadMode, Renderer, SpectrumVisualizer, Visualizer,
-    VowelVisualizer, compute_layout, draw_keycap, draw_kid_face, gloss_overlay,
+    self, AudioFrame, ConfigPanel, Pad, PadMode, Renderer, Skin, SpectrumVisualizer, Visualizer,
+    VowelVisualizer, compute_layout, draw_kid_face, gloss_overlay,
+    skin::{ButtonTex, draw_cover},
 };
 use crate::util::now_secs;
 
@@ -86,6 +85,9 @@ pub struct App {
     samples: Vec<Sample>,
     pads: Vec<Pad>,
     theme: Theme,
+    skin: Skin,
+    /// Installed skin folder names, refreshed when the config panel opens.
+    available_skins: Vec<String>,
     visualizers: Vec<Box<dyn Visualizer>>,
     active_visualizer: usize,
     config_panel: ConfigPanel,
@@ -159,7 +161,7 @@ fn color_image_from_path(path: &Path) -> Option<egui::ColorImage> {
     Some(egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()))
 }
 
-fn color_image_from_bytes(bytes: &[u8]) -> Option<egui::ColorImage> {
+pub(crate) fn color_image_from_bytes(bytes: &[u8]) -> Option<egui::ColorImage> {
     let img = image::load_from_memory(bytes).ok()?.to_rgba8();
     let size = [img.width() as usize, img.height() as usize];
     Some(egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw()))
@@ -175,11 +177,15 @@ impl App {
         }
         let i18n = I18n::new(&settings.language);
 
-        let theme = if settings.dark_mode {
-            config::theme_dark()
-        } else {
-            config::theme_light()
-        };
+        // Discover first: it extracts any freshly dropped skin zips, which the
+        // selected skin may be about to load from.
+        let available_skins = ui::skin::discover();
+        let skin_dir = settings
+            .skin
+            .as_ref()
+            .map(|name| ui::skin::skins_dir().join(name));
+        let skin = Skin::load(&cc.egui_ctx, skin_dir.as_deref());
+        let theme = skin.theme.clone();
 
         let capture_rate = 44100;
         let samples = (0..NUM_SAMPLES)
@@ -197,6 +203,8 @@ impl App {
             samples,
             pads,
             theme,
+            skin,
+            available_skins,
             visualizers: vec![
                 Box::new(SpectrumVisualizer::new()),
                 Box::new(VowelVisualizer::new()),
@@ -688,8 +696,7 @@ impl App {
                     .collect()
             })
             .unwrap_or_default();
-        let all_recorded =
-            recorded.len() == vowel::VOWELS.len() && recorded.iter().all(|&b| b);
+        let all_recorded = recorded.len() == vowel::VOWELS.len() && recorded.iter().all(|&b| b);
 
         let done = Color32::from_rgb(0x3C, 0xB0, 0x4B);
         let mut open: Option<usize> = None;
@@ -726,14 +733,21 @@ impl App {
                             } else {
                                 letter.to_string()
                             };
-                            let fill = if is_done { done } else { self.theme.pad_play_bg };
+                            let fill = if is_done {
+                                done
+                            } else {
+                                self.theme.pad_play_bg
+                            };
                             let txt_color = if is_done {
                                 Color32::WHITE
                             } else {
                                 self.theme.text_primary
                             };
                             let btn = egui::Button::new(
-                                egui::RichText::new(text).color(txt_color).size(34.0).strong(),
+                                egui::RichText::new(text)
+                                    .color(txt_color)
+                                    .size(34.0)
+                                    .strong(),
                             )
                             .fill(fill)
                             .min_size(egui::vec2(96.0, 96.0));
@@ -765,7 +779,10 @@ impl App {
                     )
                     .fill(ORANGE);
                     if ui
-                        .add_enabled(all_recorded, egui::Button::min_size(save_btn, [150.0, 44.0].into()))
+                        .add_enabled(
+                            all_recorded,
+                            egui::Button::min_size(save_btn, [150.0, 44.0].into()),
+                        )
                         .clicked()
                     {
                         save = true;
@@ -843,7 +860,9 @@ impl App {
                 self.i18n.t("calibrate.record")
             };
             let rec_btn = egui::Button::new(
-                egui::RichText::new(rec_label).color(Color32::WHITE).size(18.0),
+                egui::RichText::new(rec_label)
+                    .color(Color32::WHITE)
+                    .size(18.0),
             )
             .fill(if was_recording { recording_red } else { ORANGE })
             .min_size(egui::vec2(240.0, 56.0));
@@ -884,7 +903,10 @@ impl App {
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     if ui
-                        .add_sized([150.0, 44.0], egui::Button::new(self.i18n.t("calibrate.back")))
+                        .add_sized(
+                            [150.0, 44.0],
+                            egui::Button::new(self.i18n.t("calibrate.back")),
+                        )
                         .clicked()
                     {
                         back = true;
@@ -1682,7 +1704,8 @@ impl App {
             .and_then(|p| self.texture_from_path(&ctx, p));
 
         let painter = ui.painter().clone();
-        Renderer::draw_case(&painter, &layout, &self.theme);
+        draw_cover(&painter, &self.skin.background, full_bounds);
+        Renderer::draw_case(&painter, &layout, &self.skin, &self.theme);
 
         let active = self.active_visualizer;
         if self.auto_shot.is_some() {
@@ -1738,48 +1761,46 @@ impl App {
             {
                 self.stop_recording();
             }
-            self.pads[idx].draw(&painter, &self.theme);
+            self.pads[idx].draw(&painter, &self.theme, &self.skin);
         }
 
-        // Header: glossy kid-face "back to profiles" button (left).
+        // Header: skinned "back to profiles" key (left).
         let back_resp = ui.interact(
             layout.back,
             egui::Id::new("back_to_profiles"),
             Sense::click(),
         );
-        let cap = draw_keycap(
-            &painter,
-            layout.back,
-            self.theme.pad_function_bg,
-            ROUNDING_PAD,
-        );
-        draw_kid_face(&painter, cap.shrink(cap.width() * 0.12), &self.theme);
+        draw_button_tex(&painter, &self.skin.back, layout.back, &back_resp);
         if back_resp.clicked() {
             self.go_to_profiles();
             return;
         }
 
-        // Header: cycle-visualizer button (square, just left of REC).
+        // Header: cycle-visualizer key (square, just left of REC).
         let cycle_resp = ui.interact(layout.cycle, egui::Id::new("cycle_viz"), Sense::click());
-        let cap = draw_keycap(
-            &painter,
-            layout.cycle,
-            self.theme.pad_function_bg,
-            ROUNDING_PAD,
-        );
-        draw_viz_icon(&painter, cap, &self.theme);
+        draw_button_tex(&painter, &self.skin.cycle, layout.cycle, &cycle_resp);
         if cycle_resp.clicked() {
             self.cycle_visualizer();
         }
 
-        // Header: profile avatar, flush to the top edge, under gloss.
-        let cap = draw_keycap(&painter, layout.avatar, self.theme.panel_fg, ROUNDING_PAD);
+        // Header: profile avatar under the skin's frame, flush to the top edge.
+        let hole = layout.avatar.shrink(layout.avatar.width() * 0.10);
         if let Some(id) = avatar_id {
-            painter.image(id, cap, uv_full(), Color32::WHITE);
-            gloss_overlay(&painter, cap, ROUNDING_PAD);
+            painter.image(id, hole, uv_full(), Color32::WHITE);
         } else {
-            draw_kid_face(&painter, cap.shrink(cap.width() * 0.12), &self.theme);
+            painter.rect_filled(
+                hole,
+                egui::CornerRadius::same(ROUNDING_PAD as u8),
+                self.theme.panel_fg,
+            );
+            draw_kid_face(&painter, hole.shrink(hole.width() * 0.08), &self.theme);
         }
+        painter.image(
+            self.skin.avatar_frame.id(),
+            layout.avatar,
+            uv_full(),
+            Color32::WHITE,
+        );
 
         // Bottom status line: record state, else any audio error.
         let status = if self.record_mode {
@@ -1816,21 +1837,14 @@ fn uv_full() -> Rect {
     Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0))
 }
 
-/// Paint a small ascending-bars glyph on the cycle-visualizer keycap.
-fn draw_viz_icon(painter: &egui::Painter, rect: Rect, theme: &Theme) {
-    let area = rect.shrink(rect.width() * 0.30);
-    let n = 4;
-    let gap = area.width() * 0.14;
-    let bar_w = (area.width() - gap * (n as f32 - 1.0)) / n as f32;
-    for i in 0..n {
-        let h = area.height() * (0.35 + 0.21 * i as f32);
-        let x = area.left() + i as f32 * (bar_w + gap);
-        let bar = Rect::from_min_max(
-            Pos2::new(x, area.bottom() - h),
-            Pos2::new(x + bar_w, area.bottom()),
-        );
-        painter.rect_filled(bar, egui::CornerRadius::same(1), theme.pad_function_fg);
-    }
+/// Draw a skinned header key, using its pressed artwork while held.
+fn draw_button_tex(painter: &egui::Painter, tex: &ButtonTex, rect: Rect, resp: &egui::Response) {
+    let t = if resp.is_pointer_button_down_on() {
+        &tex.pressed
+    } else {
+        &tex.idle
+    };
+    painter.image(t.id(), rect, uv_full(), Color32::WHITE);
 }
 
 /// Keep a visualizer feed buffer to at most ~3 seconds (capped) so it only ever
@@ -1903,6 +1917,10 @@ impl eframe::App for App {
 
         if ui.input(|i| i.key_pressed(Key::F12)) {
             self.config_panel.toggle();
+            if self.config_panel.visible {
+                // Rescan on open so freshly dropped skin zips show up.
+                self.available_skins = ui::skin::discover();
+            }
         }
 
         if ui.input(|i| i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(Key::S)) {
@@ -1950,7 +1968,7 @@ impl eframe::App for App {
             let outcome = self.config_panel.show(
                 ui.ctx(),
                 &mut self.settings,
-                &mut self.theme,
+                &self.available_skins,
                 &self.i18n,
                 self.input_peak,
                 &cal_info,
@@ -1960,6 +1978,17 @@ impl eframe::App for App {
             }
             if let Some(code) = outcome.chosen_language {
                 self.set_language(&code);
+                self.save_settings();
+            }
+            if let Some(choice) = outcome.chosen_skin {
+                self.settings.skin = choice;
+                let dir = self
+                    .settings
+                    .skin
+                    .as_ref()
+                    .map(|name| ui::skin::skins_dir().join(name));
+                self.skin = Skin::load(ui.ctx(), dir.as_deref());
+                self.theme = self.skin.theme.clone();
                 self.save_settings();
             }
             if outcome.recalibrate {

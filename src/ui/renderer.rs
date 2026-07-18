@@ -1,13 +1,14 @@
 use crate::config::Theme;
 use crate::ui::FaceLayout;
-use egui::{Align2, CornerRadius, FontId, Painter, Pos2, Stroke, StrokeKind, Vec2};
+use crate::ui::skin::{Skin, draw_nine_slice, draw_tiled, slice_screen_inset};
+use egui::{CornerRadius, Painter, Vec2};
 
 pub struct Renderer;
 
 impl Renderer {
-    /// Draw the device case and the framed screen housing. Pads and the
-    /// visualizer are drawn separately on top.
-    pub fn draw_case(painter: &Painter, layout: &FaceLayout, theme: &Theme) {
+    /// Draw the device case and the framed screen housing from the active
+    /// skin. Pads and the visualizer are drawn separately on top.
+    pub fn draw_case(painter: &Painter, layout: &FaceLayout, skin: &Skin, theme: &Theme) {
         let case = layout.case;
 
         // Drop shadow for the whole unit.
@@ -17,70 +18,17 @@ impl Renderer {
             theme.case_shadow,
         );
 
-        // Body.
-        painter.rect_filled(case, CornerRadius::same(18), theme.panel_bg);
-        painter.rect_stroke(
-            case,
-            CornerRadius::same(18),
-            Stroke::new(2.0, theme.case_border),
-            StrokeKind::Inside,
-        );
-
-        // Screen bezel.
-        let bezel = layout.screen_bezel;
-        painter.rect_filled(bezel, CornerRadius::same(12), theme.panel_fg);
-        painter.rect_stroke(
-            bezel,
-            CornerRadius::same(12),
-            Stroke::new(1.0, theme.case_border),
-            StrokeKind::Inside,
-        );
-
-        // Inner screen.
-        painter.rect_filled(layout.screen, CornerRadius::same(8), theme.visualizer_bg);
-
-        Self::draw_faceplate_marks(painter, layout, theme);
-    }
-
-    /// Small "future-retro" touches: the model wordmark and a row of
-    /// registration tick marks above the pad grid.
-    fn draw_faceplate_marks(painter: &Painter, layout: &FaceLayout, theme: &Theme) {
-        let case = layout.case;
-
-        // Model wordmark, bottom-right of the case.
-        let wm_size = (case.height() * 0.022).clamp(10.0, 16.0);
-        painter.text(
-            Pos2::new(case.right() - 14.0, case.bottom() - 10.0),
-            Align2::RIGHT_BOTTOM,
-            "TWST·1",
-            FontId::proportional(wm_size),
-            theme.text_secondary,
-        );
-        painter.text(
-            Pos2::new(case.left() + 16.0, case.bottom() - 10.0),
-            Align2::LEFT_BOTTOM,
-            "RONDELEK",
-            FontId::proportional(wm_size),
-            theme.text_secondary,
-        );
-
-        // Registration tick marks just under the screen bezel.
-        let tick_y = layout.screen_bezel.bottom() + 5.0;
-        let ticks = 24;
-        let span = layout.screen_bezel.width();
-        for i in 0..=ticks {
-            let x = layout.screen_bezel.left() + span * (i as f32 / ticks as f32);
-            let tall = i % 4 == 0;
-            let h = if tall { 5.0 } else { 2.5 };
-            let col = if tall {
-                theme.text_secondary
-            } else {
-                theme.case_border
-            };
-            painter.line_segment(
-                [Pos2::new(x, tick_y), Pos2::new(x, tick_y + h)],
-                Stroke::new(1.0, col),
-            );
+        // Body: nine-sliced so corners stay crisp at any window size, plus the
+        // tiled matte grain over the flat centre (which stretching leaves
+        // noise-free by design — see genskin).
+        draw_nine_slice(painter, &skin.case, case, skin.slice.case);
+        if let Some(grain) = &skin.grain {
+            let d = slice_screen_inset(skin.slice.case, case);
+            draw_tiled(painter, grain, case.shrink(d));
         }
+
+        // Screen bezel and the screen itself.
+        draw_nine_slice(painter, &skin.bezel, layout.screen_bezel, skin.slice.bezel);
+        painter.rect_filled(layout.screen, CornerRadius::same(8), theme.visualizer_bg);
     }
 }

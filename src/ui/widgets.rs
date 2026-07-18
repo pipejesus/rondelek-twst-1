@@ -1,49 +1,11 @@
-//! Small shared painter helpers for the glossy "keycap" look used by pads and
-//! header buttons, plus a drawn kid-face placeholder avatar.
+//! A drawn kid-face placeholder avatar (used when a profile has no picture)
+//! and the translucent gloss band the profile screens lay over avatar photos.
 
 use crate::config::Theme;
-use egui::{Color32, CornerRadius, Painter, Pos2, Rect, Stroke, Vec2};
+use egui::{Color32, CornerRadius, Painter, Pos2, Rect, Stroke};
 
-/// Lighten (`amount > 0`) or darken (`amount < 0`) a colour by mixing toward
-/// white or black.
-pub fn shade(c: Color32, amount: f32) -> Color32 {
-    let mix = |ch: u8| {
-        let target = if amount >= 0.0 { 255.0 } else { 0.0 };
-        let t = amount.abs().clamp(0.0, 1.0);
-        (ch as f32 + (target - ch as f32) * t).round() as u8
-    };
-    Color32::from_rgb(mix(c.r()), mix(c.g()), mix(c.b()))
-}
-
-/// Draw a static glossy keycap (rim + raised cap + top highlight) and return the
-/// raised cap rect so callers can place a label, icon or image on it. Mirrors the
-/// pad look so header buttons match the REC button.
-pub fn draw_keycap(painter: &Painter, rect: Rect, bg: Color32, rounding: f32) -> Rect {
-    let size = rect.width().min(rect.height());
-    let r = CornerRadius::same(rounding as u8);
-    let side = (size * 0.05).clamp(2.0, 6.0);
-    let lift = (size * 0.09).clamp(3.0, 9.0);
-
-    // Soft drop shadow.
-    painter.rect_filled(
-        rect.translate(Vec2::new(0.0, lift * 0.6 + 2.0)),
-        r,
-        Color32::from_rgba_premultiplied(0, 0, 0, 60),
-    );
-    // Rim (side walls).
-    painter.rect_filled(rect, r, shade(bg, -0.22));
-    // Raised cap.
-    let cap = Rect::from_min_max(
-        Pos2::new(rect.left() + side, rect.top() + side * 0.5),
-        Pos2::new(rect.right() - side, rect.bottom() - lift),
-    );
-    painter.rect_filled(cap, r, bg);
-    gloss_overlay(painter, cap, rounding);
-    cap
-}
-
-/// Overlay just the translucent top-highlight band, e.g. on top of an avatar
-/// image so it reads as "under glass" like the keycaps.
+/// Overlay a translucent top-highlight band, e.g. on top of an avatar image so
+/// it reads as "under glass".
 pub fn gloss_overlay(painter: &Painter, rect: Rect, rounding: f32) {
     let band = Rect::from_min_max(
         rect.min,
@@ -54,6 +16,17 @@ pub fn gloss_overlay(painter: &Painter, rect: Rect, rounding: f32) {
         CornerRadius::same(rounding as u8),
         Color32::from_white_alpha(28),
     );
+}
+
+/// Lighten (`amount > 0`) or darken (`amount < 0`) a colour by mixing toward
+/// white or black.
+fn shade(c: Color32, amount: f32) -> Color32 {
+    let mix = |ch: u8| {
+        let target = if amount >= 0.0 { 255.0 } else { 0.0 };
+        let t = amount.abs().clamp(0.0, 1.0);
+        (ch as f32 + (target - ch as f32) * t).round() as u8
+    };
+    Color32::from_rgb(mix(c.r()), mix(c.g()), mix(c.b()))
 }
 
 /// Draw a friendly smiling-kid placeholder inside `rect` (used when a profile has

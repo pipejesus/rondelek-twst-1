@@ -1,4 +1,5 @@
-use crate::config::{FONT_SIZE_LABEL, PadDef, PadKind, ROUNDING_PAD, Theme};
+use crate::config::{PadDef, PadKind, ROUNDING_PAD, Theme};
+use crate::ui::skin::{Skin, uv_full};
 use egui::{Color32, CornerRadius, Key, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,7 +21,6 @@ pub struct Pad {
     pub kind: PadKind,
     pub key: Key,
     pub rect: Rect,
-    pub label: &'static str,
     pub sample_idx: usize,
     pub has_sample: bool,
     pub is_recording: bool,
@@ -38,7 +38,6 @@ impl Pad {
             kind: def.kind,
             key: def.key,
             rect,
-            label: def.label,
             sample_idx: def.sample_idx,
             has_sample: false,
             is_recording: false,
@@ -85,64 +84,49 @@ impl Pad {
         (just_activated, just_released)
     }
 
-    pub fn draw(&self, painter: &Painter, theme: &Theme) {
-        let bg = self.bg_color(theme);
+    pub fn draw(&self, painter: &Painter, theme: &Theme, skin: &Skin) {
         let rect = self.rect;
         let size = rect.width().min(rect.height());
         let rounding = CornerRadius::same(ROUNDING_PAD as u8);
 
-        // Keycap geometry: a darker "rim" (the side walls) with a raised cap
-        // that sinks down when pressed.
-        let side = (size * 0.05).clamp(2.0, 6.0);
-        let lift_max = (size * 0.09).clamp(3.0, 9.0);
-        let lift = lift_max * (1.0 - self.press) + side * self.press;
+        // Skin artwork: per-pad key for samples, the REC key for the function
+        // pad. Press states are baked; the engine only picks and nudges them.
+        let button = match self.kind {
+            PadKind::Function => &skin.rec,
+            PadKind::Sample => &skin.pads[self.sample_idx.min(skin.pads.len() - 1)],
+        };
+        let tex = if self.press > 0.5 {
+            &button.pressed
+        } else {
+            &button.idle
+        };
 
-        // Soft drop shadow, shrinking as the pad is pressed.
-        let shadow_a = (60.0 * (1.0 - self.press)) as u8;
+        // Soft drop shadow, fading as the pad is pressed. Inset to stay behind
+        // the artwork (skin images carry a transparent margin).
+        let shadow_a = (36.0 * (1.0 - self.press)) as u8;
         painter.rect_filled(
-            rect.translate(Vec2::new(0.0, lift * 0.6 + 2.0)),
-            rounding,
+            rect.shrink(size * 0.05)
+                .translate(Vec2::new(0.0, (size * 0.045).clamp(3.0, 9.0))),
+            CornerRadius::same((size * 0.16).min(255.0) as u8),
             Color32::from_rgba_premultiplied(0, 0, 0, shadow_a),
         );
 
-        // Rim (side walls).
-        painter.rect_filled(rect, rounding, shade(bg, -0.22));
-
-        // Raised cap surface.
-        let cap = Rect::from_min_max(
-            Pos2::new(rect.left() + side, rect.top() + side * 0.5),
-            Pos2::new(rect.right() - side, rect.bottom() - lift),
-        );
-        painter.rect_filled(cap, rounding, bg);
-
-        // Top highlight band for a glossy, moulded look.
-        let hl = Rect::from_min_max(
-            cap.min,
-            Pos2::new(cap.right(), cap.top() + cap.height() * 0.42),
-        );
-        painter.rect_filled(hl, rounding, shade(bg, 0.10));
-        // Re-draw the lower portion so the highlight stays at the top only.
-        let lower = Rect::from_min_max(
-            Pos2::new(cap.left(), cap.top() + cap.height() * 0.40),
-            cap.max,
-        );
-        painter.rect_filled(lower, CornerRadius::same((ROUNDING_PAD * 0.6) as u8), bg);
-
-        // Label.
-        let fg = self.fg_color(theme);
-        let font = (size * 0.34).clamp(12.0, FONT_SIZE_LABEL);
-        painter.text(
-            cap.center(),
-            egui::Align2::CENTER_CENTER,
-            self.label,
-            egui::FontId::proportional(font),
-            fg,
-        );
+        // Record mode: tint sample pads toward the record colour.
+        let tint = if self.kind == PadKind::Sample && self.mode == PadMode::Record {
+            let r = theme.pad_record_bg;
+            let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * 0.4) as u8;
+            Color32::from_rgb(mix(255, r.r()), mix(255, r.g()), mix(255, r.b()))
+        } else {
+            Color32::WHITE
+        };
+        let sink = Vec2::new(0.0, size * 0.02 * self.press);
+        painter.image(tex.id(), rect.translate(sink), uv_full(), tint);
 
         // Status LED (sample pads only).
         if self.kind == PadKind::Sample {
             let led_r = (size * 0.045).clamp(3.0, 6.0);
-            let led_pos = Pos2::new(cap.right() - led_r * 2.4, cap.top() + led_r * 2.4);
+            let inset = size * 0.14;
+            let led_pos = Pos2::new(rect.right() - inset, rect.top() + inset) + sink;
             let led_color = if self.has_sample {
                 theme.led_full
             } else {
@@ -154,34 +138,15 @@ impl Pad {
         // Pulsing ring while recording.
         if self.is_recording {
             let pulse = 0.5 + 0.5 * (self.pulse_t * std::f32::consts::TAU * 1.6).sin();
+            let r = theme.pad_record_bg;
             let ring =
-                Color32::from_rgba_premultiplied(0xFF, 0x6A, 0x1A, (90.0 + 140.0 * pulse) as u8);
+                Color32::from_rgba_unmultiplied(r.r(), r.g(), r.b(), (90.0 + 140.0 * pulse) as u8);
             painter.rect_stroke(
                 rect.expand(3.0),
                 rounding,
                 Stroke::new(3.0, ring),
                 StrokeKind::Outside,
             );
-        }
-    }
-
-    fn bg_color(&self, theme: &Theme) -> Color32 {
-        match self.kind {
-            PadKind::Function => theme.pad_function_bg,
-            PadKind::Sample => match self.mode {
-                PadMode::Play => theme.pad_play_bg,
-                PadMode::Record => theme.pad_record_bg,
-            },
-        }
-    }
-
-    fn fg_color(&self, theme: &Theme) -> Color32 {
-        match self.kind {
-            PadKind::Function => theme.pad_function_fg,
-            PadKind::Sample => match self.mode {
-                PadMode::Play => theme.pad_play_fg,
-                PadMode::Record => theme.pad_record_fg,
-            },
         }
     }
 
@@ -192,15 +157,4 @@ impl Pad {
     pub fn set_rect(&mut self, rect: Rect) {
         self.rect = rect;
     }
-}
-
-/// Lighten (`amount > 0`) or darken (`amount < 0`) a colour by mixing toward
-/// white or black.
-fn shade(c: Color32, amount: f32) -> Color32 {
-    let mix = |ch: u8| {
-        let target = if amount >= 0.0 { 255.0 } else { 0.0 };
-        let t = amount.abs().clamp(0.0, 1.0);
-        (ch as f32 + (target - ch as f32) * t).round() as u8
-    };
-    Color32::from_rgb(mix(c.r()), mix(c.g()), mix(c.b()))
 }
