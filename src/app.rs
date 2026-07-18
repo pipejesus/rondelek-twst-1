@@ -9,7 +9,8 @@ use crate::i18n::{self, EUROPEAN_LANGS, I18n};
 use crate::profile::{self, Profile, SessionInfo};
 use crate::session::Session;
 use crate::ui::{
-    self, AudioFrame, ConfigPanel, Pad, PadMode, Renderer, Skin, SpectrumVisualizer, Visualizer,
+    self, AudioFrame, ConfigPanel, OffVisualizer, Pad, PadMode, Renderer, Skin,
+    SpectrumVisualizer, Visualizer,
     VowelVisualizer, compute_layout, draw_kid_face, gloss_overlay,
     skin::{ButtonTex, draw_cover},
 };
@@ -208,9 +209,10 @@ impl App {
             visualizers: vec![
                 Box::new(SpectrumVisualizer::new()),
                 Box::new(VowelVisualizer::new()),
+                Box::new(OffVisualizer),
             ],
             // Clamp in case a newer config selected a visualizer we no longer have.
-            active_visualizer: settings.active_visualizer.min(1),
+            active_visualizer: settings.active_visualizer.min(2),
             config_panel: ConfigPanel::new(),
             settings,
             settings_path,

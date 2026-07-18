@@ -394,3 +394,21 @@ mod tests {
         );
     }
 }
+
+/// The "screen off" visualizer: ingests nothing and draws only a dim standby
+/// dot, so the sampler can run with the display idle (also handy to measure
+/// what the visualizers themselves cost).
+pub struct OffVisualizer;
+
+impl Visualizer for OffVisualizer {
+    fn update(&mut self, _frame: &AudioFrame, _settings: &Settings) {}
+
+    fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, _settings: &Settings) {
+        let r = (rect.height() * 0.03).clamp(2.0, 4.0);
+        painter.circle_filled(
+            Pos2::new(rect.right() - 4.0 * r, rect.bottom() - 4.0 * r),
+            r,
+            theme.visualizer_dot_off,
+        );
+    }
+}
