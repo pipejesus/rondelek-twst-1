@@ -1,0 +1,29 @@
+{
+  "format": 1,
+  "name": "Base Pastel",
+  "author": "Rondelek",
+  "slice": { "case": 96, "bezel": 72 },
+  "colors": {
+    "panel_bg": "#FBF2E4",
+    "panel_fg": "#E9DDC8",
+    "pad_play_bg": "#F5EFE2",
+    "pad_play_fg": "#4A443C",
+    "pad_play_hover": "#FFF8EA",
+    "pad_play_pressed": "#F8D9C4",
+    "pad_record_bg": "#E9655A",
+    "pad_record_fg": "#FFFFFF",
+    "pad_function_bg": "#4E4A45",
+    "pad_function_fg": "#F5EFE2",
+    "led_empty": "#D8CDBA",
+    "led_full": "#E9655A",
+    "case_shadow": "#00000028",
+    "case_border": "#A9C9B6",
+    "text_primary": "#4A443C",
+    "text_secondary": "#93887A",
+    "visualizer_bg": "#33303A",
+    "visualizer_dot_off": "#413D4A",
+    "visualizer_bar_low": "#7FC8A9",
+    "visualizer_bar_mid": "#F5A9BC",
+    "visualizer_bar_high": "#F5E29E"
+  }
+}
