@@ -13,7 +13,6 @@ pub enum PadKind {
 pub struct PadDef {
     pub kind: PadKind,
     pub key: Key,
-    pub label: &'static str,
     pub sample_idx: usize,
 }
 
@@ -33,73 +32,61 @@ pub const SAMPLE_PADS: &[PadDef] = &[
     PadDef {
         kind: PadKind::Sample,
         key: Key::Num1,
-        label: "1",
         sample_idx: 0,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::Num2,
-        label: "2",
         sample_idx: 1,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::Num3,
-        label: "3",
         sample_idx: 2,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::Num4,
-        label: "4",
         sample_idx: 3,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::Q,
-        label: "Q",
         sample_idx: 4,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::W,
-        label: "W",
         sample_idx: 5,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::E,
-        label: "E",
         sample_idx: 6,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::R,
-        label: "R",
         sample_idx: 7,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::A,
-        label: "A",
         sample_idx: 8,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::S,
-        label: "S",
         sample_idx: 9,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::D,
-        label: "D",
         sample_idx: 10,
     },
     PadDef {
         kind: PadKind::Sample,
         key: Key::F,
-        label: "F",
         sample_idx: 11,
     },
 ];
@@ -108,6 +95,5 @@ pub const SAMPLE_PADS: &[PadDef] = &[
 pub const REC_PAD: PadDef = PadDef {
     kind: PadKind::Function,
     key: Key::Space,
-    label: "REC",
     sample_idx: 0,
 };

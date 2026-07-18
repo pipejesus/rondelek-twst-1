@@ -2,6 +2,7 @@
 name = "rondelek"
 version = "0.1.0"
 edition = "2024"
+default-run = "rondelek"
 description = "TWST-1 audio sampler for children with hearing implants"
 authors = ["pipejesus"]
 license = "MIT"
@@ -24,3 +25,4 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 uuid = { version = "1.23.4", features = ["v4"] }
 sys-locale = "0.3.2"
 nokhwa = { version = "0.10.11", features = ["input-native"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }

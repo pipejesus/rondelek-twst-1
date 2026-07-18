@@ -4,7 +4,7 @@
 //! is now exactly one place to configure everything.
 
 use crate::audio::device::{self, DevicePref};
-use crate::config::{Settings, Theme, theme_dark, theme_light};
+use crate::config::Settings;
 use crate::i18n::{EUROPEAN_LANGS, I18n, endonym};
 use crate::ui::level_meter;
 use crate::util::format_timestamp;
@@ -35,6 +35,9 @@ pub struct ConfigOutcome {
     pub recalibrate: bool,
     /// The user picked a new UI language (app applies it — it owns the i18n).
     pub chosen_language: Option<String>,
+    /// The user picked a skin: `Some(None)` = built-in base, `Some(Some(name))`
+    /// = an installed skin folder. The app loads it — it owns the textures.
+    pub chosen_skin: Option<Option<String>>,
 }
 
 pub struct ConfigPanel {
@@ -58,7 +61,7 @@ impl ConfigPanel {
         &mut self,
         ctx: &egui::Context,
         settings: &mut Settings,
-        theme: &mut Theme,
+        skins: &[String],
         i18n: &I18n,
         input_peak: f32,
         cal: &CalInfo,
@@ -96,7 +99,7 @@ impl ConfigPanel {
                             Tab::Audio => audio_tab(ui, settings, i18n, input_peak, &mut out),
                             Tab::Detection => detection_tab(ui, settings, &mut out),
                             Tab::Visualizer => visualizer_tab(ui, settings, &mut out),
-                            Tab::Appearance => appearance_tab(ui, settings, theme, i18n, &mut out),
+                            Tab::Appearance => appearance_tab(ui, settings, skins, i18n, &mut out),
                             Tab::Calibration => calibration_tab(ui, cal, &mut out),
                         }
                     });
@@ -198,27 +201,41 @@ fn visualizer_tab(ui: &mut egui::Ui, settings: &mut Settings, out: &mut ConfigOu
 fn appearance_tab(
     ui: &mut egui::Ui,
     settings: &mut Settings,
-    theme: &mut Theme,
+    skins: &[String],
     i18n: &I18n,
     out: &mut ConfigOutcome,
 ) {
     ui.heading("Appearance");
     ui.add_space(4.0);
-    if ui
-        .button(if settings.dark_mode {
-            "☀ Light mode"
-        } else {
-            "🌙 Dark mode"
-        })
-        .clicked()
-    {
-        settings.dark_mode = !settings.dark_mode;
-        *theme = if settings.dark_mode {
-            theme_dark()
-        } else {
-            theme_light()
-        };
-        out.changed = true;
+
+    ui.label("Skin");
+    let current_label = settings.skin.as_deref().unwrap_or("Base Pastel (built-in)");
+    egui::ComboBox::from_id_salt("cfg_skin")
+        .selected_text(current_label)
+        .width(200.0)
+        .show_ui(ui, |ui| {
+            if ui
+                .selectable_label(settings.skin.is_none(), "Base Pastel (built-in)")
+                .clicked()
+                && settings.skin.is_some()
+            {
+                out.chosen_skin = Some(None);
+            }
+            for name in skins {
+                if ui
+                    .selectable_label(settings.skin.as_deref() == Some(name), name)
+                    .clicked()
+                    && settings.skin.as_deref() != Some(name)
+                {
+                    out.chosen_skin = Some(Some(name.clone()));
+                }
+            }
+        });
+    if skins.is_empty() {
+        ui.small(format!(
+            "Drop skin zips into {}",
+            crate::ui::skin::skins_dir().display()
+        ));
     }
     ui.add_space(4.0);
     out.changed |= ui
@@ -271,9 +288,11 @@ fn calibration_tab(ui: &mut egui::Ui, cal: &CalInfo, out: &mut ConfigOutcome) {
         out.recalibrate = true;
     }
     ui.label(
-        egui::RichText::new("Opens the vowel grid to record all six (re-record any before saving).")
-            .small()
-            .weak(),
+        egui::RichText::new(
+            "Opens the vowel grid to record all six (re-record any before saving).",
+        )
+        .small()
+        .weak(),
     );
 }
 
