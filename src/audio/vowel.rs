@@ -1,29 +1,38 @@
-//! Vowel detection by formant estimation.
+//! Vowel detection by MFCC template matching.
 //!
-//! Vowels are characterised by their formant frequencies — the resonances of
-//! the vocal tract. F1 and F2 alone place a vowel in the classic vowel space, so
-//! we estimate them with **Linear Predictive Coding** (the standard method for
-//! modelling the speech spectral envelope) and map the result to the nearest
-//! Polish vowel prototype.
+//! We do **not** try to measure formant frequencies. Pulling clean formants out
+//! of a child's high-pitched, short-vocal-tract voice is a known ill-posed
+//! problem (LPC reports false formants at high f0), and it was the source of the
+//! detector's past unreliability. Instead we compare the *shape of the spectral
+//! envelope* — the standard, robust representation for closed-set,
+//! speaker-dependent vowel recognition.
 //!
-//! Pipeline (all pure Rust, no external DSP dependency — see the developer
-//! handbook for why a crate was evaluated but not adopted):
+//! Pipeline (per analysis window):
 //!
 //! ```text
-//! window -> voicing gate -> decimate ~8 kHz -> pre-emphasis + Hamming
-//!        -> autocorrelation -> Levinson-Durbin (LPC) -> polynomial roots
-//!        -> formant poles (F1, F2) -> nearest Polish vowel
+//! window -> voicing gate (RMS) -> MFCC (mel filterbank + DCT, c0 dropped)
+//!        -> cepstral-mean normalization (running channel estimate)
+//!        -> nearest calibrated template (diagonal Mahalanobis) -> vowel
 //! ```
 //!
-//! The detector is deliberately decoupled from any visualizer: it takes a slice
-//! of samples and returns a [`VowelResult`], so different visualizers (a debug
-//! meter today, a playful kid view later) can share it.
+//! Each child calibrates their six vowels once; that builds six MFCC templates
+//! (mean + per-dimension variance). Detection matches the child against *their
+//! own* templates, recorded on the *same* microphone — so the mic's fixed
+//! coloration cancels on both sides (cepstral-mean normalization removes what's
+//! left). This is why no microphone frequency-sweep calibration is needed.
+//!
+//! MFCC features come from the `spectrograms` crate (pure-Rust FFT). If this ever
+//! needs to grow — onset/pitch detection, or a second opinion on the feature
+//! front-end — swap the feature source for `aubio` via `aubio-rs` (battle-tested
+//! C library); the template/classifier code here stays the same.
 
-use rustfft::num_complex::Complex;
-use std::f32::consts::PI;
+use non_empty_slice::NonEmptySlice;
+use serde::{Deserialize, Serialize};
+use spectrograms::{MfccParams, StftParams, WindowType, mfcc};
+use std::num::NonZeroUsize;
 
 /// The Polish oral vowels we classify, in a fixed order (indices line up with
-/// [`VowelResult::scores`]).
+/// [`VowelResult::scores`] and a calibration's templates).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Vowel {
     A,
@@ -49,314 +58,427 @@ impl Vowel {
             Vowel::Y => "y",
         }
     }
+}
 
-    /// Reference **adult** (F1, F2) in Hz. Child formants run higher, so the
-    /// detector scales these by `speaker_scale` (see [`VowelConfig`]).
-    fn prototype(self) -> (f32, f32) {
-        match self {
-            Vowel::A => (730.0, 1200.0),
-            Vowel::E => (530.0, 1840.0),
-            Vowel::I => (300.0, 2200.0),
-            Vowel::O => (520.0, 920.0),
-            Vowel::U => (330.0, 720.0),
-            Vowel::Y => (420.0, 1600.0),
-        }
+// ---- MFCC feature extraction -------------------------------------------------
+
+/// Requested MFCC coefficients; c0 (overall energy, which tracks mic gain) is
+/// then dropped, leaving [`N_MFCC`] usable dimensions.
+const MFCC_REQUEST: usize = 13;
+/// Usable MFCC dimensions after dropping c0.
+pub const N_MFCC: usize = MFCC_REQUEST - 1;
+/// Mel filterbank bands (must be >= `MFCC_REQUEST`).
+const N_MELS: usize = 26;
+/// Sinusoidal liftering (standard speech value).
+const LIFTER: usize = 22;
+
+fn nz(n: usize) -> NonZeroUsize {
+    NonZeroUsize::new(n).expect("non-zero MFCC/STFT parameter")
+}
+
+/// FFT size for the analysis rate: ~25 ms, a power of two, capped so short
+/// windows still yield a frame.
+fn fft_size(fs: u32) -> usize {
+    if fs >= 32_000 {
+        1024
+    } else if fs >= 16_000 {
+        512
+    } else {
+        256
     }
 }
 
-/// Tunable detector parameters (exposed in the dev panel; see `Settings`).
-#[derive(Clone, Copy, Debug)]
-pub struct VowelConfig {
-    /// RMS below this is treated as silence / unvoiced (no vowel).
-    pub voicing_threshold: f32,
-    /// Multiplies the adult prototypes to fit a speaker; ~1.25 suits children.
-    pub speaker_scale: f32,
+/// One MFCC vector ([`N_MFCC`] dims) for a window, averaged over its STFT frames.
+/// `None` when the window is too short or the transform fails.
+pub fn mfcc_frame(window: &[f32], fs: u32) -> Option<Vec<f32>> {
+    let fft = fft_size(fs);
+    if window.len() < fft || fs == 0 {
+        return None;
+    }
+    let samples = NonEmptySlice::new(window)?;
+    let stft = StftParams::new(nz(fft), nz(fft / 2), WindowType::Hanning, true).ok()?;
+    // c0 dropped (gain), liftering on: MFCC_REQUEST in -> N_MFCC out.
+    let params = MfccParams::new(nz(MFCC_REQUEST))
+        .with_c0(false)
+        .with_lifter(LIFTER);
+    let m = mfcc::<f32>(samples, &stft, fs as f64, nz(N_MELS), &params).ok()?;
+    let arr = &*m; // Array2<f32> [coeffs, frames]
+    let (ncoeff, nframes) = (arr.nrows(), arr.ncols());
+    if ncoeff == 0 || nframes == 0 {
+        return None;
+    }
+    let mut out = vec![0.0f32; ncoeff];
+    for (c, o) in out.iter_mut().enumerate() {
+        let mut s = 0.0f32;
+        for f in 0..nframes {
+            s += arr[[c, f]];
+        }
+        *o = s / nframes as f32;
+    }
+    Some(out)
 }
 
-impl Default for VowelConfig {
-    fn default() -> Self {
-        Self {
-            voicing_threshold: 0.012,
-            speaker_scale: 1.25,
-        }
+/// RMS of a window (used by the voicing gate and level checks).
+pub fn rms(window: &[f32]) -> f32 {
+    if window.is_empty() {
+        return 0.0;
+    }
+    (window.iter().map(|x| x * x).sum::<f32>() / window.len() as f32).sqrt()
+}
+
+// ---- Calibration model -------------------------------------------------------
+
+/// Bumped whenever the on-disk calibration shape changes. Older files (including
+/// the pre-MFCC formant format, which had no `version`) are treated as "not
+/// calibrated" and the child is asked to recalibrate.
+pub const CALIBRATION_VERSION: u32 = 2;
+
+/// One vowel's MFCC template: per-dimension mean and variance over the
+/// (channel-normalized) calibration frames.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VowelTemplate {
+    pub mean: Vec<f32>,
+    pub var: Vec<f32>,
+}
+
+/// A profile's calibrated vowel detector: six MFCC templates plus the channel
+/// (mic) estimate they were built against.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VowelCalibration {
+    pub version: u32,
+    /// One template per vowel, in [`VOWELS`] order.
+    pub templates: Vec<VowelTemplate>,
+    /// Mean MFCC across all calibration frames — the microphone/channel estimate
+    /// subtracted from every template, and used to seed the live detector's
+    /// running channel mean.
+    pub channel_mean: Vec<f32>,
+    pub n_mfcc: usize,
+    /// Sample rate the templates were built at (informational).
+    pub sample_rate: u32,
+    /// Input device used at calibration, for the "you changed mics" warning.
+    #[serde(default)]
+    pub input_device: Option<String>,
+    pub created: u64,
+}
+
+impl VowelCalibration {
+    /// A loaded calibration is usable only if it matches the current version and
+    /// dimensionality and has all six templates.
+    pub fn is_valid(&self) -> bool {
+        self.version == CALIBRATION_VERSION
+            && self.n_mfcc == N_MFCC
+            && self.templates.len() == VOWELS.len()
+            && self.channel_mean.len() == N_MFCC
+            && self
+                .templates
+                .iter()
+                .all(|t| t.mean.len() == N_MFCC && t.var.len() == N_MFCC)
     }
 }
+
+/// Minimum voiced MFCC frames before a vowel capture is accepted.
+pub const MIN_CAPTURE_SAMPLES: usize = 10;
+
+/// Accumulates per-frame MFCC vectors while a child holds a vowel. Unvoiced
+/// frames are simply never pushed by the caller.
+#[derive(Default)]
+pub struct CalibrationCapture {
+    frames: Vec<Vec<f32>>,
+}
+
+impl CalibrationCapture {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Feed one [`mfcc_frame`] result; `None` (unvoiced / failed) is ignored.
+    pub fn push(&mut self, frame: Option<Vec<f32>>) {
+        if let Some(f) = frame {
+            self.frames.push(f);
+        }
+    }
+
+    pub fn count(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn clear(&mut self) {
+        self.frames.clear();
+    }
+
+    /// The captured frames (consumed when a vowel is accepted).
+    pub fn take(&mut self) -> Vec<Vec<f32>> {
+        std::mem::take(&mut self.frames)
+    }
+}
+
+/// Per-dimension mean over a set of vectors.
+fn mean_vec(frames: &[Vec<f32>], dims: usize) -> Vec<f32> {
+    let mut mean = vec![0.0f32; dims];
+    if frames.is_empty() {
+        return mean;
+    }
+    for f in frames {
+        for (m, &x) in mean.iter_mut().zip(f.iter()) {
+            *m += x;
+        }
+    }
+    for m in &mut mean {
+        *m /= frames.len() as f32;
+    }
+    mean
+}
+
+/// Build one template from a vowel's frames after subtracting the shared channel
+/// mean. Drops frames far from the centroid (glide-in/out, throat clears) before
+/// computing mean + variance. A small variance floor keeps the distance stable.
+fn build_template(frames: &[Vec<f32>], channel_mean: &[f32]) -> VowelTemplate {
+    let dims = N_MFCC;
+    // Channel-normalize.
+    let cmn: Vec<Vec<f32>> = frames
+        .iter()
+        .map(|f| {
+            (0..dims)
+                .map(|i| f.get(i).copied().unwrap_or(0.0) - channel_mean[i])
+                .collect()
+        })
+        .collect();
+
+    // Trim frames beyond 1.5x the median distance from the centroid.
+    let centroid = mean_vec(&cmn, dims);
+    let mut dists: Vec<f32> = cmn
+        .iter()
+        .map(|f| {
+            f.iter()
+                .zip(&centroid)
+                .map(|(a, b)| (a - b) * (a - b))
+                .sum::<f32>()
+                .sqrt()
+        })
+        .collect();
+    let med = {
+        let mut d = dists.clone();
+        d.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        d.get(d.len() / 2).copied().unwrap_or(0.0)
+    };
+    let cutoff = (med * 1.5).max(1e-6);
+    let kept: Vec<&Vec<f32>> = cmn
+        .iter()
+        .zip(dists.drain(..))
+        .filter(|(_, d)| *d <= cutoff)
+        .map(|(f, _)| f)
+        .collect();
+    let kept: Vec<Vec<f32>> = if kept.len() >= MIN_CAPTURE_SAMPLES {
+        kept.into_iter().cloned().collect()
+    } else {
+        cmn.clone()
+    };
+
+    let mean = mean_vec(&kept, dims);
+    let mut var = vec![0.0f32; dims];
+    for f in &kept {
+        for i in 0..dims {
+            let e = f[i] - mean[i];
+            var[i] += e * e;
+        }
+    }
+    let n = kept.len().max(1) as f32;
+    for v in &mut var {
+        *v = (*v / n).max(VAR_FLOOR);
+    }
+    VowelTemplate { mean, var }
+}
+
+/// Variance floor: no MFCC dimension is treated as more certain than this, so a
+/// nearly-constant coefficient can't dominate the distance.
+const VAR_FLOOR: f32 = 0.25;
+
+/// Build a full calibration from six vowels' captured MFCC frames (in [`VOWELS`]
+/// order). Returns `None` if any vowel has too few frames.
+pub fn build_calibration(
+    per_vowel: &[Vec<Vec<f32>>],
+    sample_rate: u32,
+    input_device: Option<String>,
+    created: u64,
+) -> Option<VowelCalibration> {
+    if per_vowel.len() != VOWELS.len() {
+        return None;
+    }
+    if per_vowel.iter().any(|f| f.len() < MIN_CAPTURE_SAMPLES) {
+        return None;
+    }
+    // Channel estimate = mean MFCC across every calibration frame.
+    let all: Vec<Vec<f32>> = per_vowel.iter().flatten().cloned().collect();
+    let channel_mean = mean_vec(&all, N_MFCC);
+
+    let templates: Vec<VowelTemplate> = per_vowel
+        .iter()
+        .map(|frames| build_template(frames, &channel_mean))
+        .collect();
+
+    Some(VowelCalibration {
+        version: CALIBRATION_VERSION,
+        templates,
+        channel_mean,
+        n_mfcc: N_MFCC,
+        sample_rate,
+        input_device,
+        created,
+    })
+}
+
+// ---- Live detection ----------------------------------------------------------
+
+/// Softmax temperature over negative distances. Sets how peaky the per-vowel
+/// scores are; the show/margin thresholds (in settings) decide when to commit.
+const SOFTMAX_TEMP: f32 = 12.0;
+/// How fast the running channel mean tracks the input (per voiced frame).
+const CHANNEL_ALPHA: f32 = 0.02;
 
 /// Outcome of analysing one window.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct VowelResult {
-    /// Estimated `(F1, F2)` in Hz, or `None` when unvoiced.
-    pub formants: Option<(f32, f32)>,
     /// Per-vowel match in `0.0..=1.0`, indexed like [`VOWELS`]. All zero when
-    /// unvoiced.
+    /// unvoiced or uncalibrated.
     pub scores: [f32; 6],
-    /// The instantaneous best match, or `None` when unvoiced. (The bundled
-    /// visualizer derives its own best from *smoothed* scores; this raw value is
-    /// exposed for other consumers and tests.)
+    /// Instantaneous best match (raw argmax), or `None` when there's nothing to
+    /// match. The visualizer applies smoothing + show/margin thresholds on top of
+    /// `scores`, so it reads these only in tests / other consumers.
     #[allow(dead_code)]
     pub best: Option<Vowel>,
+    /// Top score.
+    #[allow(dead_code)]
+    pub confidence: f32,
+    /// Top score minus the runner-up — the separation the toy is built around.
+    #[allow(dead_code)]
+    pub margin: f32,
 }
 
 impl VowelResult {
     fn silent() -> Self {
         Self {
-            formants: None,
             scores: [0.0; 6],
             best: None,
+            confidence: 0.0,
+            margin: 0.0,
         }
     }
 }
 
-const ANALYSIS_RATE: u32 = 8_000; // Nyquist ~4 kHz covers F1..F3; low order = robust roots
-const FMIN: f32 = 150.0;
-const FMAX: f32 = 3200.0;
-const MAX_BANDWIDTH: f32 = 600.0; // wider poles are spectral shaping, not formants
-/// Formant poles sit near the unit circle. This floor rejects wide/degenerate
-/// roots (including any the root finder fails to converge).
-const MIN_POLE_RADIUS: f64 = 0.5;
-const SCORE_SIGMA: f32 = 0.35; // spread of the match scores, in log-frequency units
-
-/// Analyse a window of mono samples and return the vowel match.
-pub fn analyze(samples: &[f32], fs: u32, cfg: &VowelConfig) -> VowelResult {
-    if samples.len() < 256 || fs == 0 {
-        return VowelResult::silent();
-    }
-
-    // Voicing gate on the raw window.
-    let rms = (samples.iter().map(|x| x * x).sum::<f32>() / samples.len() as f32).sqrt();
-    if rms < cfg.voicing_threshold {
-        return VowelResult::silent();
-    }
-
-    let (sig, fs_a) = decimate(samples, fs);
-    if sig.len() < 64 {
-        return VowelResult::silent();
-    }
-    let order = (2 + (fs_a / 1000) as usize).clamp(8, 14);
-
-    let pre = preemphasis_and_window(&sig);
-    let r = autocorrelation(&pre, order);
-    if r[0] <= 0.0 {
-        return VowelResult::silent();
-    }
-    let a = levinson(&r, order);
-
-    let formants = formant_freqs(&a, fs_a as f32);
-    let (f1, f2) = match (formants.first(), formants.get(1)) {
-        (Some(&f1), Some(&f2)) => (f1, f2),
-        _ => return VowelResult::silent(),
-    };
-
-    let (scores, best) = classify(f1, f2, cfg.speaker_scale);
-    VowelResult {
-        formants: Some((f1, f2)),
-        scores,
-        best,
-    }
+/// Stateful vowel detector: holds the active profile's templates and a running
+/// channel-mean estimate for cepstral-mean normalization. One lives in the vowel
+/// visualizer; calibration builds the templates it consumes.
+#[derive(Default)]
+pub struct VowelDetector {
+    templates: Option<Vec<VowelTemplate>>,
+    channel_ema: Option<Vec<f32>>,
 }
 
-/// Downsample to ~[`ANALYSIS_RATE`], keeping the LPC order sane and focusing on
-/// the formant band. A biquad low-pass below the new Nyquist prevents high
-/// frequencies from aliasing into the formants. Returns the signal and new rate.
-fn decimate(samples: &[f32], fs: u32) -> (Vec<f32>, u32) {
-    let factor = (fs / ANALYSIS_RATE).max(1) as usize;
-    if factor == 1 {
-        return (samples.to_vec(), fs);
+impl VowelDetector {
+    pub fn new() -> Self {
+        Self::default()
     }
-    let fs_a = fs / factor as u32;
-    let filtered = lowpass(samples, fs as f32, 0.45 * fs_a as f32);
-    let out: Vec<f32> = filtered.iter().step_by(factor).copied().collect();
-    (out, fs_a)
-}
 
-/// RBJ biquad low-pass (Butterworth Q), applied forward as a simple anti-alias.
-fn lowpass(x: &[f32], fs: f32, fc: f32) -> Vec<f32> {
-    let w0 = 2.0 * PI * fc / fs;
-    let (sin, cos) = (w0.sin(), w0.cos());
-    let alpha = sin / (2.0 * std::f32::consts::FRAC_1_SQRT_2); // Q = 1/sqrt(2)
-    let a0 = 1.0 + alpha;
-    let (b0, b1, b2) = (
-        (1.0 - cos) / 2.0 / a0,
-        (1.0 - cos) / a0,
-        (1.0 - cos) / 2.0 / a0,
-    );
-    let (a1, a2) = (-2.0 * cos / a0, (1.0 - alpha) / a0);
-    let (mut x1, mut x2, mut y1, mut y2) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
-    x.iter()
-        .map(|&xn| {
-            let yn = b0 * xn + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
-            x2 = x1;
-            x1 = xn;
-            y2 = y1;
-            y1 = yn;
-            yn
-        })
-        .collect()
-}
-
-/// Pre-emphasis (boost the higher formants) then a Hamming window.
-fn preemphasis_and_window(x: &[f32]) -> Vec<f32> {
-    let n = x.len();
-    let mut out = Vec::with_capacity(n);
-    let mut prev = x[0];
-    for (i, &s) in x.iter().enumerate() {
-        let emph = s - 0.63 * prev;
-        prev = s;
-        let w = 0.54 - 0.46 * (2.0 * PI * i as f32 / (n as f32 - 1.0)).cos();
-        out.push(emph * w);
-    }
-    out
-}
-
-fn autocorrelation(x: &[f32], p: usize) -> Vec<f32> {
-    (0..=p)
-        .map(|k| {
-            x[..x.len() - k]
-                .iter()
-                .zip(&x[k..])
-                .map(|(a, b)| a * b)
-                .sum()
-        })
-        .collect()
-}
-
-/// Levinson-Durbin recursion. Returns `a[0..=order]` with `a[0] = 1`, defining
-/// `A(z) = sum a[k] z^-k`; the envelope is `1 / |A|`.
-fn levinson(r: &[f32], order: usize) -> Vec<f32> {
-    let mut a = vec![0.0f32; order + 1];
-    a[0] = 1.0;
-    let mut err = r[0];
-    for i in 1..=order {
-        let mut acc = r[i];
-        for j in 1..i {
-            acc += a[j] * r[i - j];
-        }
-        let k = -acc / err;
-        // Update a[1..i] from the previous iteration's values (clone avoids the
-        // in-place symmetric-aliasing pitfall).
-        let prev = a.clone();
-        for j in 1..i {
-            a[j] = prev[j] + k * prev[i - j];
-        }
-        a[i] = k;
-        err *= 1.0 - k * k;
-        if err <= 0.0 {
-            break;
-        }
-    }
-    a
-}
-
-/// Formant frequencies (Hz, ascending) from the roots of the LPC polynomial.
-/// Each conjugate pole pair is a resonance: its angle gives the frequency and its
-/// radius the bandwidth. Narrow-band poles in the formant range are formants;
-/// wide-band poles (spectral tilt) are rejected. Unlike envelope peak-picking,
-/// this cleanly separates close formants such as `/a/`'s F1 and F2.
-fn formant_freqs(a: &[f32], fs: f32) -> Vec<f32> {
-    let coeffs: Vec<Complex<f64>> = a.iter().map(|&x| Complex::new(x as f64, 0.0)).collect();
-    // Every stable conjugate pole in the formant band, as (frequency, bandwidth).
-    let mut poles: Vec<(f32, f32)> = Vec::new();
-    for z in durand_kerner(&coeffs) {
-        if z.im <= 0.0 {
-            continue; // one root per conjugate pair
-        }
-        let radius = z.norm();
-        if !(MIN_POLE_RADIUS..1.0).contains(&radius) {
-            continue; // must be a resonant pole near (but inside) the unit circle
-        }
-        let freq = z.arg() as f32 * fs / (2.0 * PI);
-        let bandwidth = -(fs / PI) * radius.ln() as f32;
-        if (FMIN..=FMAX).contains(&freq) {
-            poles.push((freq, bandwidth));
-        }
-    }
-    poles.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
-
-    // Prefer the narrow (resonant) poles; if close formants have merged into
-    // fewer than two, fall back to the lowest in-band poles so F1/F2 still exist.
-    let narrow: Vec<f32> = poles
-        .iter()
-        .filter(|(_, bw)| *bw < MAX_BANDWIDTH)
-        .map(|(f, _)| *f)
-        .collect();
-    if narrow.len() >= 2 {
-        narrow
-    } else {
-        poles.into_iter().map(|(f, _)| f).collect()
-    }
-}
-
-/// Durand-Kerner (Weierstrass) simultaneous root finder for the polynomial
-/// `a[0] z^p + a[1] z^(p-1) + ... + a[p]`.
-fn durand_kerner(a: &[Complex<f64>]) -> Vec<Complex<f64>> {
-    let p = a.len() - 1;
-    if p == 0 {
-        return Vec::new();
-    }
-    // Spread initial guesses around a circle, offset to break symmetry.
-    let mut roots: Vec<Complex<f64>> = (0..p)
-        .map(|k| Complex::from_polar(0.8, 2.0 * std::f64::consts::PI * k as f64 / p as f64 + 0.35))
-        .collect();
-    for _ in 0..200 {
-        let mut delta_max = 0.0f64;
-        for i in 0..p {
-            let numer = horner(a, roots[i]);
-            let mut denom = Complex::new(1.0, 0.0);
-            for j in 0..p {
-                if j != i {
-                    denom *= roots[i] - roots[j];
-                }
+    /// Install (or clear) the active calibration. Seeds the running channel mean
+    /// from the calibration so early frames match well before it adapts.
+    pub fn set_calibration(&mut self, cal: Option<&VowelCalibration>) {
+        match cal {
+            Some(c) if c.is_valid() => {
+                self.templates = Some(c.templates.clone());
+                self.channel_ema = Some(c.channel_mean.clone());
             }
-            if denom.norm() < 1e-30 {
-                continue;
+            _ => {
+                self.templates = None;
+                self.channel_ema = None;
             }
-            let step = numer / denom;
-            roots[i] -= step;
-            delta_max = delta_max.max(step.norm());
-        }
-        if delta_max < 1e-10 {
-            break;
         }
     }
-    roots
-}
 
-/// Horner evaluation of `a[0] z^p + a[1] z^(p-1) + ... + a[p]`.
-fn horner(a: &[Complex<f64>], z: Complex<f64>) -> Complex<f64> {
-    let mut acc = a[0];
-    for c in &a[1..] {
-        acc = acc * z + c;
+    pub fn is_calibrated(&self) -> bool {
+        self.templates.is_some()
     }
-    acc
+
+    /// Analyse a window: voicing gate, MFCC, channel normalization, classify.
+    pub fn analyze(&mut self, window: &[f32], fs: u32, voicing_threshold: f32) -> VowelResult {
+        if rms(window) < voicing_threshold {
+            return VowelResult::silent();
+        }
+        let Some(templates) = self.templates.as_ref() else {
+            return VowelResult::silent();
+        };
+        let Some(raw) = mfcc_frame(window, fs) else {
+            return VowelResult::silent();
+        };
+
+        // Update the running channel mean, then normalize this frame by it.
+        let ema = self.channel_ema.get_or_insert_with(|| raw.clone());
+        if ema.len() != raw.len() {
+            *ema = raw.clone();
+        }
+        for (e, &x) in ema.iter_mut().zip(raw.iter()) {
+            *e = *e * (1.0 - CHANNEL_ALPHA) + x * CHANNEL_ALPHA;
+        }
+        let cmn: Vec<f32> = raw.iter().zip(ema.iter()).map(|(&x, &m)| x - m).collect();
+
+        classify(&cmn, templates)
+    }
 }
 
-/// Score every vowel from the measured `(F1, F2)` and return the best.
-fn classify(f1: f32, f2: f32, scale: f32) -> ([f32; 6], Option<Vowel>) {
+/// Score `cmn` against each template by diagonal-Mahalanobis distance, softmax
+/// the negative distances into `0..=1` scores, and report the best + margin.
+fn classify(cmn: &[f32], templates: &[VowelTemplate]) -> VowelResult {
+    let mut dists = [f32::MAX; 6];
+    for (i, t) in templates.iter().enumerate().take(6) {
+        let mut d = 0.0f32;
+        for k in 0..N_MFCC {
+            let e = cmn.get(k).copied().unwrap_or(0.0) - t.mean[k];
+            d += e * e / t.var[k];
+        }
+        dists[i] = d;
+    }
+    // Softmax over -distance/temp.
+    let min_d = dists.iter().copied().fold(f32::MAX, f32::min);
     let mut scores = [0.0f32; 6];
-    let mut best = (0usize, f32::MIN);
-    for (i, v) in VOWELS.iter().enumerate() {
-        let (p1, p2) = v.prototype();
-        let (p1, p2) = (p1 * scale, p2 * scale);
-        // Distance in log-frequency space (scale-robust, perceptually saner).
-        let d1 = (f1 / p1).ln();
-        let d2 = (f2 / p2).ln();
-        let d = (d1 * d1 + d2 * d2).sqrt();
-        let s = (-(d * d) / (2.0 * SCORE_SIGMA * SCORE_SIGMA)).exp();
-        scores[i] = s;
-        if s > best.1 {
-            best = (i, s);
+    let mut sum = 0.0f32;
+    for (s, &d) in scores.iter_mut().zip(dists.iter()) {
+        let v = (-(d - min_d) / SOFTMAX_TEMP).exp();
+        *s = v;
+        sum += v;
+    }
+    if sum > 0.0 {
+        for s in &mut scores {
+            *s /= sum;
         }
     }
-    (scores, Some(VOWELS[best.0]))
+
+    // Best and runner-up.
+    let mut best = 0usize;
+    for i in 1..6 {
+        if scores[i] > scores[best] {
+            best = i;
+        }
+    }
+    let second = (0..6)
+        .filter(|&i| i != best)
+        .map(|i| scores[i])
+        .fold(0.0f32, f32::max);
+    VowelResult {
+        scores,
+        best: Some(VOWELS[best]),
+        confidence: scores[best],
+        margin: scores[best] - second,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A one-pole-pair resonator (formant) applied in place.
+    const FS: u32 = 44_100;
+
+    /// A one-pole-pair resonator (formant), applied in place.
     fn resonate(x: &mut [f32], f: f32, fs: u32, r: f32) {
-        let theta = 2.0 * PI * f / fs as f32;
+        let theta = 2.0 * std::f32::consts::PI * f / fs as f32;
         let a1 = 2.0 * r * theta.cos();
         let a2 = -r * r;
         let (mut y1, mut y2) = (0.0f32, 0.0f32);
@@ -368,20 +490,19 @@ mod tests {
         }
     }
 
-    /// Synthesise a vowel: a 120 Hz glottal impulse train through resonators at
-    /// F1/F2/F3 (a minimal source-filter model).
-    fn synth(f1: f32, f2: f32, f3: f32, fs: u32, n: usize) -> Vec<f32> {
+    /// Synthesise a vowel: an `f0` glottal impulse train through F1/F2/F3
+    /// resonators (a minimal source-filter model). `f0 = 300` mimics a child.
+    fn synth(f0: f32, f1: f32, f2: f32, f3: f32, n: usize) -> Vec<f32> {
         let mut x = vec![0.0f32; n];
-        let period = (fs as f32 / 120.0) as usize;
+        let period = (FS as f32 / f0) as usize;
         let mut i = 0;
         while i < n {
             x[i] = 1.0;
             i += period.max(1);
         }
-        resonate(&mut x, f1, fs, 0.97);
-        resonate(&mut x, f2, fs, 0.96);
-        resonate(&mut x, f3, fs, 0.95);
-        // Normalise to a sensible amplitude.
+        resonate(&mut x, f1, FS, 0.99);
+        resonate(&mut x, f2, FS, 0.99);
+        resonate(&mut x, f3, FS, 0.985);
         let peak = x.iter().fold(0.0f32, |m, v| m.max(v.abs())).max(1e-6);
         for s in &mut x {
             *s /= peak;
@@ -389,59 +510,146 @@ mod tests {
         x
     }
 
-    fn cfg() -> VowelConfig {
-        // scale 1.0: synth at the adult prototypes, so classification is exact.
-        VowelConfig {
-            voicing_threshold: 0.001,
-            speaker_scale: 1.0,
+    /// Child-ish formants (Hz) — higher than adult (short vocal tract).
+    fn formants(v: Vowel) -> (f32, f32, f32) {
+        match v {
+            Vowel::A => (1000.0, 1600.0, 3600.0),
+            Vowel::E => (700.0, 2400.0, 3600.0),
+            Vowel::I => (400.0, 3000.0, 3800.0),
+            Vowel::O => (700.0, 1200.0, 3400.0),
+            Vowel::U => (450.0, 1000.0, 3200.0),
+            Vowel::Y => (550.0, 2100.0, 3600.0),
         }
     }
 
-    fn detect_synth(v: Vowel, fs: u32) -> VowelResult {
-        let (f1, f2) = v.prototype();
-        let sig = synth(f1, f2, 2800.0, fs, 4096);
-        analyze(&sig, fs, &cfg())
+    /// A microphone-coloration filter applied to a signal in place.
+    type Color<'a> = Option<&'a dyn Fn(&mut [f32])>;
+
+    /// A vowel window (last 2048 samples), optionally passed through `color`.
+    fn vowel_window(v: Vowel, jitter: f32, color: Color) -> Vec<f32> {
+        let (f1, f2, f3) = formants(v);
+        let mut sig = synth(300.0, f1 * jitter, f2 * jitter, f3, 4096);
+        if let Some(c) = color {
+            c(&mut sig);
+        }
+        sig[sig.len() - 2048..].to_vec()
+    }
+
+    /// Capture several jittered frames per vowel and build a calibration.
+    fn synth_calibration(color: Color) -> VowelCalibration {
+        let mut per_vowel: Vec<Vec<Vec<f32>>> = Vec::new();
+        for &v in &VOWELS {
+            let mut frames = Vec::new();
+            for k in 0..14 {
+                let jitter = 1.0 + (k as f32 - 7.0) * 0.006;
+                let w = vowel_window(v, jitter, color);
+                frames.push(mfcc_frame(&w, FS).expect("mfcc"));
+            }
+            per_vowel.push(frames);
+        }
+        build_calibration(&per_vowel, FS, Some("synth".into()), 0).expect("calibration")
+    }
+
+    fn detector(cal: &VowelCalibration) -> VowelDetector {
+        let mut d = VowelDetector::new();
+        d.set_calibration(Some(cal));
+        d
     }
 
     #[test]
-    fn recovers_formants_for_a() {
-        let res = detect_synth(Vowel::A, 16_000);
-        let (f1, f2) = res.formants.expect("voiced");
-        let (p1, p2) = Vowel::A.prototype();
-        assert!((f1 - p1).abs() / p1 < 0.18, "F1 {f1} vs {p1}");
-        assert!((f2 - p2).abs() / p2 < 0.18, "F2 {f2} vs {p2}");
-    }
-
-    #[test]
-    fn classifies_each_vowel_at_16k() {
-        for v in VOWELS {
-            let res = detect_synth(v, 16_000);
+    fn classifies_each_calibrated_vowel() {
+        let cal = synth_calibration(None);
+        let mut det = detector(&cal);
+        for &v in &VOWELS {
+            let w = vowel_window(v, 1.0, None);
+            let res = det.analyze(&w, FS, 0.001);
             assert_eq!(res.best, Some(v), "misclassified {:?}", v.label());
+            assert!(
+                res.margin > 0.1,
+                "weak margin for {:?}: {}",
+                v.label(),
+                res.margin
+            );
         }
     }
 
     #[test]
-    fn classifies_through_decimation_at_44k() {
-        // 44.1 kHz exercises the decimation + anti-alias path (the real hardware
-        // case), which must classify every vowel correctly.
-        for v in VOWELS {
-            let res = detect_synth(v, 44_100);
-            assert_eq!(res.best, Some(v), "misclassified {:?} at 44k", v.label());
+    fn gain_invariant() {
+        // Overall level (mic gain) must not change the vowel: c0 is dropped and
+        // CMN removes channel offset.
+        let cal = synth_calibration(None);
+        let mut det = detector(&cal);
+        for &v in &VOWELS {
+            let mut w = vowel_window(v, 1.0, None);
+            for s in &mut w {
+                *s *= 0.2;
+            }
+            assert_eq!(det.analyze(&w, FS, 0.0001).best, Some(v), "{:?}", v.label());
+        }
+    }
+
+    #[test]
+    fn coloration_cancels_when_same_on_both_sides() {
+        // A fixed mic coloration applied to BOTH calibration and live input must
+        // cancel — the reason a mic frequency-sweep is unnecessary.
+        let tilt = |x: &mut [f32]| {
+            let mut prev = 0.0f32;
+            for s in x.iter_mut() {
+                let y = *s - 0.5 * prev;
+                prev = *s;
+                *s = y;
+            }
+        };
+        let cal = synth_calibration(Some(&tilt));
+        let mut det = detector(&cal);
+        for &v in &VOWELS {
+            let w = vowel_window(v, 1.0, Some(&tilt));
+            assert_eq!(det.analyze(&w, FS, 0.001).best, Some(v), "{:?}", v.label());
         }
     }
 
     #[test]
     fn silence_is_unvoiced() {
-        let res = analyze(&vec![0.0; 4096], 16_000, &VowelConfig::default());
+        let cal = synth_calibration(None);
+        let mut det = detector(&cal);
+        let res = det.analyze(&vec![0.0; 4096], FS, 0.01);
         assert!(res.best.is_none());
-        assert!(res.formants.is_none());
+        assert_eq!(res.scores, [0.0; 6]);
     }
 
     #[test]
-    fn best_score_is_highest() {
-        let res = detect_synth(Vowel::I, 16_000);
-        let best_idx = VOWELS.iter().position(|v| *v == res.best.unwrap()).unwrap();
-        let max = res.scores.iter().cloned().fold(f32::MIN, f32::max);
-        assert_eq!(res.scores[best_idx], max);
+    fn uncalibrated_detects_nothing() {
+        let mut det = VowelDetector::new();
+        let w = vowel_window(Vowel::A, 1.0, None);
+        assert!(det.analyze(&w, FS, 0.001).best.is_none());
+    }
+
+    #[test]
+    fn capture_needs_minimum_frames() {
+        let mut c = CalibrationCapture::new();
+        for _ in 0..(MIN_CAPTURE_SAMPLES - 1) {
+            c.push(Some(vec![0.0; N_MFCC]));
+        }
+        assert!(c.count() < MIN_CAPTURE_SAMPLES);
+        c.push(Some(vec![0.0; N_MFCC]));
+        assert_eq!(c.count(), MIN_CAPTURE_SAMPLES);
+        c.push(None); // unvoiced ignored
+        assert_eq!(c.count(), MIN_CAPTURE_SAMPLES);
+    }
+
+    #[test]
+    fn build_calibration_rejects_thin_vowels() {
+        let mut per_vowel: Vec<Vec<Vec<f32>>> = vec![vec![vec![0.0; N_MFCC]; 20]; 6];
+        per_vowel[2].truncate(3); // one vowel too thin
+        assert!(build_calibration(&per_vowel, FS, None, 0).is_none());
+    }
+
+    #[test]
+    fn calibration_validity_checks_shape() {
+        let cal = synth_calibration(None);
+        assert!(cal.is_valid());
+        let mut bad = cal.clone();
+        bad.version = 0;
+        assert!(!bad.is_valid());
     }
 }

@@ -11,6 +11,7 @@ use crate::util::{format_timestamp, new_uid, now_secs, short_uid};
 
 const PROFILE_MANIFEST: &str = "profile.json";
 const AVATAR_FILE: &str = "avatar.png";
+const CALIBRATION_FILE: &str = "calibration.json";
 const SESSIONS_DIR: &str = "sessions";
 const AVATAR_SIZE: u32 = 256;
 const MAX_NAME_LEN: usize = 80;
@@ -191,6 +192,28 @@ impl Profile {
         self.save_manifest()
     }
 
+    fn calibration_path(dir: &Path) -> PathBuf {
+        dir.join(CALIBRATION_FILE)
+    }
+
+    /// Load this profile's vowel calibration, if it has been calibrated with the
+    /// current format. Missing, unreadable, or outdated (e.g. the pre-MFCC
+    /// formant format) files simply mean "not calibrated".
+    pub fn load_calibration(&self) -> Option<crate::audio::vowel::VowelCalibration> {
+        let content = std::fs::read_to_string(Self::calibration_path(&self.dir)).ok()?;
+        serde_json::from_str::<crate::audio::vowel::VowelCalibration>(&content)
+            .ok()
+            .filter(|c| c.is_valid())
+    }
+
+    /// Persist a vowel calibration for this profile.
+    pub fn save_calibration(&self, cal: &crate::audio::vowel::VowelCalibration) -> Result<()> {
+        let json = serde_json::to_string_pretty(cal).context("Failed to serialize calibration")?;
+        std::fs::write(Self::calibration_path(&self.dir), json)
+            .context("Failed to write calibration.json")?;
+        Ok(())
+    }
+
     fn sessions_dir(&self) -> PathBuf {
         self.dir.join(SESSIONS_DIR)
     }
@@ -291,6 +314,31 @@ mod tests {
         assert_eq!(slug("../../etc/passwd"), "etc-passwd");
         assert_eq!(slug("***"), "profile");
         assert_eq!(slug("Łukasz 7"), "ukasz-7");
+    }
+
+    #[test]
+    fn calibration_round_trips() {
+        use crate::audio::vowel::{N_MFCC, VOWELS, build_calibration};
+        let profile = Profile::create("Cal Kid", None).unwrap();
+        let dir = profile.dir.clone();
+        assert!(profile.load_calibration().is_none(), "starts uncalibrated");
+
+        // Six vowels' worth of distinct MFCC-shaped frames.
+        let per_vowel: Vec<Vec<Vec<f32>>> = (0..VOWELS.len())
+            .map(|v| (0..20).map(|_| vec![v as f32; N_MFCC]).collect())
+            .collect();
+        let cal =
+            build_calibration(&per_vowel, 44_100, Some("Test Mic".into()), 123).expect("built");
+        profile.save_calibration(&cal).unwrap();
+
+        let loaded = Profile::load(dir.clone())
+            .unwrap()
+            .load_calibration()
+            .expect("calibration loads back");
+        assert_eq!(loaded, cal);
+        assert!(loaded.is_valid());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

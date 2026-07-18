@@ -29,6 +29,10 @@ pub trait Visualizer {
     /// Fill with a representative pattern for screenshots (no live audio needed).
     /// Default is a no-op; visualizers that can, override it.
     fn demo_fill(&mut self, _num_bars: usize) {}
+    /// Supply the active profile's vowel calibration (`None` = uncalibrated, use
+    /// the scaled reference set). Default is a no-op; the vowel visualizer
+    /// overrides it.
+    fn set_calibration(&mut self, _calibration: Option<crate::audio::vowel::VowelCalibration>) {}
 }
 
 /// The default visualizer: a retro dot-matrix FFT spectrum.

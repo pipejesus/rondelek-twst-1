@@ -19,6 +19,10 @@
   "sessions.title": "Séances",
   "sessions.new": "Nouvelle séance",
   "sessions.edit": "Modifier le profil",
+  "sessions.calibrate": "Calibrer la voix",
+  "calibrate.title": "Calibrer la voix",
+  "calibrate.say": "Dis et tiens ce son :",
+  "calibrate.cancel": "Annuler",
   "sessions.none": "Aucune séance — commencez-en une.",
   "sessions.back": "Profils",
   "session.rec": "REC",
@@ -37,5 +41,12 @@
   "config.auto": "Auto (défaut système)",
   "config.active": "Actif :",
   "config.fallback": "secours",
-  "profiles.settings": "Paramètres"
+  "profiles.settings": "Paramètres",
+  "calibrate.overview_hint": "Touchez chaque son et enregistrez-le",
+  "calibrate.record": "Maintenir pour enregistrer",
+  "calibrate.recording": "Enregistrement…",
+  "calibrate.recorded": "Enregistré",
+  "calibrate.back": "Retour",
+  "calibrate.save": "Enregistrer",
+  "calibrate.record_hint": "Maintenez le bouton (ou Espace) en prononçant le son"
 }

@@ -19,6 +19,10 @@
   "sessions.title": "Sitzungen",
   "sessions.new": "Neue Sitzung",
   "sessions.edit": "Profil bearbeiten",
+  "sessions.calibrate": "Stimme kalibrieren",
+  "calibrate.title": "Stimme kalibrieren",
+  "calibrate.say": "Sprich und halte diesen Laut:",
+  "calibrate.cancel": "Abbrechen",
   "sessions.none": "Noch keine Sitzungen — starte eine neue.",
   "sessions.back": "Profile",
   "session.rec": "REC",
@@ -37,5 +41,12 @@
   "config.auto": "Automatisch (Systemstandard)",
   "config.active": "Aktiv:",
   "config.fallback": "Ersatz",
-  "profiles.settings": "Einstellungen"
+  "profiles.settings": "Einstellungen",
+  "calibrate.overview_hint": "Tippe jeden Laut an und nimm ihn auf",
+  "calibrate.record": "Zum Aufnehmen halten",
+  "calibrate.recording": "Aufnahme…",
+  "calibrate.recorded": "Aufgenommen",
+  "calibrate.back": "Zurück",
+  "calibrate.save": "Speichern",
+  "calibrate.record_hint": "Halte die Taste (oder Leertaste), während du den Laut sagst"
 }

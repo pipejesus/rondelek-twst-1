@@ -2,7 +2,7 @@
 
 Audio sampler for children with hearing implants: record short sounds onto pads
 and play them back, turning speech/hearing practice into a game. Built in Rust +
-egui + cpal, targeting macOS, Linux, Windows and Android.
+egui + cpal, targeting macOS, Linux and Windows (desktop only).
 
 ## Commands
 
@@ -51,7 +51,7 @@ src/
   session/
     mod.rs          Session folder model + session.json manifest (incl. uid)
   camera/
-    mod.rs          desktop webcam capture (nokhwa); Android stubbed
+    mod.rs          desktop webcam capture (nokhwa)
   audio/
     capture.rs      cpal mic stream; folds interleaved frames to mono
     playback.rs     cpal output stream; per-frame mixing + linear resampling
@@ -97,10 +97,11 @@ assets/
 - Pads: keys `1-4 / Q-R / A-F`; `Space` toggles REC. In REC mode hold a pad to record,
   release (or `Esc`) to stop. In play mode, tap to play.
 - The square button just left of REC cycles the active visualizer (spectrum ↔ vowel meter).
+- Sessions screen: "Calibrate voice" runs per-child vowel calibration (a/i/u corners).
 - `Ctrl+Shift+D` dev panel · `Ctrl+Shift+T` light/dark · `Ctrl+Shift+S` screenshot.
 - Env (testing/kiosk/screenshots): `RONDELEK_LANG=<code>`, `RONDELEK_PROFILE=<dir>`
   (jump to a profile's Sessions), `RONDELEK_SESSION=<dir>` (jump into a session),
-  `RONDELEK_SCREEN=newprofile`, `RONDELEK_SIZE=WxH`, `RONDELEK_VIZ=<n>` (select
+  `RONDELEK_SCREEN=newprofile|editprofile|calibrate`, `RONDELEK_SIZE=WxH`, `RONDELEK_VIZ=<n>` (select
   visualizer index), `RONDELEK_SHOT=<png>` (capture a few frames in and exit).
 
 ## Design notes
@@ -109,5 +110,4 @@ assets/
   JSON via `dirs`. Fonts, translations and flags are embedded in the binary.
 - No global state — everything is owned by the `App` struct. The sampler is drawn via
   a cloned `Painter`; the start/profile screens use ordinary egui widgets.
-- Deferred work (Android camera, AVIF, more languages, session search, notes) is in
-  `TODO.md`.
+- Deferred work (AVIF, more languages, session search, notes) is in `TODO.md`.

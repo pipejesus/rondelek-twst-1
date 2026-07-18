@@ -13,6 +13,7 @@ profiles/
   <slug>-<short-uid>/            one child
     profile.json                 { uid, name, avatar, created }
     avatar.png                   optional, square, 256px
+    calibration.json             optional, per-child vowel calibration
     sessions/
       2026-07-01_22-11-06/       one practice run (timestamped folder)
         session.json             { uid, name, created, modified, pads[] }
@@ -37,6 +38,16 @@ flowchart TD
     sess --> pad[PadEntry x NUM_SAMPLES]
     pad --> wav[pad_NN.wav if recorded]
 ```
+
+### Calibration
+
+`calibration.json` (`vowel::VowelCalibration`, written after a child runs voice
+calibration) holds six **MFCC templates** (`mean` + `var` per vowel, indexed like
+`vowel::VOWELS`), the `channel_mean` (mic estimate removed from every template),
+`n_mfcc`, `sample_rate`, the `input_device` used, a format `version`, and `created`.
+Absent or an older `version` (e.g. the pre-MFCC formant format) reads as "not
+calibrated" — the child is asked to recalibrate. See
+[The visualizer → Calibration](visualizer.md#calibration).
 
 ### Manifests
 
