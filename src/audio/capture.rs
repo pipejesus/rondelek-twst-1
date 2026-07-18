@@ -1,5 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use cpal::traits::{DeviceTrait, StreamTrait};
+use cpal::{InputCallbackInfo, SampleFormat};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,7 +14,11 @@ pub struct Capture {
 }
 
 impl Capture {
-    /// Build an input stream on `device`, folding multi-channel frames to mono.
+    /// Build an input stream on `device`, converting whatever the hardware's
+    /// native sample format is to mono `f32`. Hardware mics are commonly `i16`
+    /// or `i32`, **not** `f32` — building an `f32`-only stream fails outright on
+    /// those (e.g. "sample format f32 is not supported"), which is why every real
+    /// mic must be opened in its native format and converted here.
     pub fn open(device: &cpal::Device) -> Result<Self> {
         let current_device = device
             .description()
@@ -26,44 +31,58 @@ impl Capture {
             .context("Failed to get default input config")?;
 
         let sample_rate: u32 = supported.sample_rate();
-        let channels = supported.channels();
+        let channels = supported.channels().max(1) as usize;
+        let sample_format = supported.sample_format();
 
         let buffer = Arc::new(Mutex::new(VecDeque::with_capacity(8192)));
-        let buf_clone = Arc::clone(&buffer);
-
         let alive = Arc::new(AtomicBool::new(true));
-        let alive_cb = Arc::clone(&alive);
 
         let config = cpal::StreamConfig {
-            channels,
+            channels: supported.channels(),
             sample_rate: supported.sample_rate(),
             buffer_size: cpal::BufferSize::Default,
         };
 
-        let channels = channels.max(1) as usize;
-
-        let stream = device
-            .build_input_stream(
-                config,
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    if let Ok(mut buf) = buf_clone.lock() {
-                        // Multi-channel frames are folded to mono; the
-                        // visualizer/recorder only ever see one sample per frame.
-                        for frame in data.chunks(channels) {
-                            if buf.len() > 32768 {
-                                let _ = buf.pop_front();
+        // One arm per hardware sample format: build a typed input stream and fold
+        // each interleaved frame down to a single mono `f32` sample.
+        macro_rules! build {
+            ($t:ty, $to_f32:expr) => {{
+                let buf = Arc::clone(&buffer);
+                let alive_cb = Arc::clone(&alive);
+                let conv: fn($t) -> f32 = $to_f32;
+                device.build_input_stream(
+                    config.clone(),
+                    move |data: &[$t], _: &InputCallbackInfo| {
+                        if let Ok(mut b) = buf.lock() {
+                            for frame in data.chunks(channels) {
+                                let frame_f32: Vec<f32> = frame.iter().map(|&s| conv(s)).collect();
+                                if b.len() > 32768 {
+                                    let _ = b.pop_front();
+                                }
+                                b.push_back(fold_to_mono(&frame_f32));
                             }
-                            buf.push_back(fold_to_mono(frame));
                         }
-                    }
-                },
-                move |err| {
-                    alive_cb.store(false, Ordering::Relaxed);
-                    eprintln!("Capture error: {err}");
-                },
-                None,
-            )
-            .context("Failed to build input stream")?;
+                    },
+                    move |err| {
+                        alive_cb.store(false, Ordering::Relaxed);
+                        eprintln!("Capture error: {err}");
+                    },
+                    None,
+                )
+            }};
+        }
+
+        let stream = match sample_format {
+            SampleFormat::F32 => build!(f32, |s| s),
+            SampleFormat::I16 => build!(i16, |s| s as f32 / 32768.0),
+            SampleFormat::I32 => build!(i32, |s| s as f32 / 2_147_483_648.0),
+            SampleFormat::I8 => build!(i8, |s| s as f32 / 128.0),
+            SampleFormat::U16 => build!(u16, |s| (s as f32 - 32768.0) / 32768.0),
+            SampleFormat::U8 => build!(u8, |s| (s as f32 - 128.0) / 128.0),
+            SampleFormat::F64 => build!(f64, |s| s as f32),
+            other => return Err(anyhow!("Unsupported input sample format: {other:?}")),
+        }
+        .context("Failed to build input stream")?;
 
         stream.play().context("Failed to start input stream")?;
 

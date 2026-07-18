@@ -15,23 +15,14 @@ fn default_visualizer_floor_db() -> f32 {
 fn default_vowel_voicing_threshold() -> f32 {
     0.012
 }
-fn default_vowel_speaker_scale() -> f32 {
-    1.25
-}
 fn default_vowel_smoothing() -> f32 {
     0.5
 }
-fn default_vowel_mode() -> VowelMode {
-    VowelMode::Practice
+fn default_vowel_show_threshold() -> f32 {
+    0.4
 }
-
-/// How the vowel detector scores against a calibrated profile.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum VowelMode {
-    /// Correct targets scaled to the child's voice — tracks drift (therapy).
-    Practice,
-    /// The child's own produced vowels — forgiving recognition (games).
-    Play,
+fn default_vowel_margin_threshold() -> f32 {
+    0.15
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -51,16 +42,16 @@ pub struct Settings {
     /// Vowel detector: RMS below this reads as silence / unvoiced.
     #[serde(default = "default_vowel_voicing_threshold")]
     pub vowel_voicing_threshold: f32,
-    /// Vowel detector: scales adult formant prototypes to the speaker (~1.25 for kids).
-    #[serde(default = "default_vowel_speaker_scale")]
-    pub vowel_speaker_scale: f32,
     /// Vowel visualizer: match-meter smoothing (0 = snappy, → 1 = sluggish).
     #[serde(default = "default_vowel_smoothing")]
     pub vowel_smoothing: f32,
-    /// Which calibrated target set the vowel detector matches against.
-    #[serde(default = "default_vowel_mode")]
-    pub vowel_mode: VowelMode,
-    pub show_dev_panel: bool,
+    /// Vowel visualizer: a vowel lights up only when its smoothed match clears this.
+    #[serde(default = "default_vowel_show_threshold")]
+    pub vowel_show_threshold: f32,
+    /// Vowel visualizer: and only when it beats the runner-up by this margin
+    /// (the firm separation between the child's own vowels).
+    #[serde(default = "default_vowel_margin_threshold")]
+    pub vowel_margin_threshold: f32,
     /// UI language code. Defaults to the detected system language on first run.
     #[serde(default = "default_language")]
     pub language: String,
@@ -83,10 +74,9 @@ impl Default for Settings {
             visualizer_floor_db: default_visualizer_floor_db(),
             active_visualizer: 0,
             vowel_voicing_threshold: default_vowel_voicing_threshold(),
-            vowel_speaker_scale: default_vowel_speaker_scale(),
             vowel_smoothing: default_vowel_smoothing(),
-            vowel_mode: default_vowel_mode(),
-            show_dev_panel: false,
+            vowel_show_threshold: default_vowel_show_threshold(),
+            vowel_margin_threshold: default_vowel_margin_threshold(),
             language: default_language(),
             input_device: None,
             output_device: None,
@@ -148,7 +138,6 @@ mod tests {
             "visualizer_smoothing": 0.7,
             "visualizer_decay": 0.4,
             "visualizer_num_bars": 36,
-            "show_dev_panel": false,
             "language": "en"
         }"#;
         let s: Settings = serde_json::from_str(json).unwrap();
@@ -160,8 +149,10 @@ mod tests {
 
     #[test]
     fn device_fields_round_trip() {
-        let mut s = Settings::default();
-        s.output_device = Some("Speakers".to_string());
+        let s = Settings {
+            output_device: Some("Speakers".to_string()),
+            ..Settings::default()
+        };
         let json = serde_json::to_string(&s).unwrap();
         let back: Settings = serde_json::from_str(&json).unwrap();
         assert_eq!(back.output_device, Some("Speakers".to_string()));

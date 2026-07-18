@@ -22,11 +22,7 @@
   "sessions.calibrate": "Kalibruj głos",
   "calibrate.title": "Kalibracja głosu",
   "calibrate.say": "Powiedz i przytrzymaj głoskę:",
-  "calibrate.hold": "Trzymaj równo…",
-  "calibrate.start": "Start",
-  "calibrate.ready_hint": "Gdy gotowe, naciśnij Start i przytrzymaj głoskę",
   "calibrate.cancel": "Anuluj",
-  "calibrate.retry": "Ponów",
   "sessions.none": "Brak sesji — rozpocznij nową.",
   "sessions.back": "Profile",
   "session.rec": "REC",
@@ -45,5 +41,12 @@
   "config.auto": "Automatyczne (domyślne systemowe)",
   "config.active": "Aktywne:",
   "config.fallback": "zastępcze",
-  "profiles.settings": "Ustawienia"
+  "profiles.settings": "Ustawienia",
+  "calibrate.overview_hint": "Dotknij każdej głoski i nagraj ją",
+  "calibrate.record": "Przytrzymaj, aby nagrać",
+  "calibrate.recording": "Nagrywanie…",
+  "calibrate.recorded": "Nagrano",
+  "calibrate.back": "Wstecz",
+  "calibrate.save": "Zapisz",
+  "calibrate.record_hint": "Przytrzymaj przycisk (lub Spację), gdy mówisz głoskę"
 }

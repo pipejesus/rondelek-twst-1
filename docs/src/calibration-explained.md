@@ -7,95 +7,81 @@ phonetician trying the app with a child. For the implementation, see
 
 ## What a vowel is, to the app
 
-When you say a vowel, your mouth acts as a small echo chamber whose shape produces
-two characteristic resonances. The app measures those two numbers and uses them to
-place every vowel as a **dot on a 2‑D map**:
+Every vowel has a characteristic **sound‑shape** — the pattern of which pitches are
+loud and which are quiet when you hold the sound. `ee` and `oo` *feel* different
+because that pattern is different. The app captures that whole pattern as a compact
+"fingerprint" for each vowel.
 
-```
-        front  ←—  tongue  —→  back
-close   i · · · · · · y · · · · · u     ← mouth nearly closed
- ↑      ·                         ·
- |             e            o
- ↓                  a                    ← mouth wide open
-        (how open the mouth is, top→bottom)
-```
-
-- **Left–right** ≈ how far forward the tongue sits.
-- **Up–down** ≈ how open the mouth is.
-
-So "detecting a vowel" simply means: *which dot is the voice sitting closest to
+So "detecting a vowel" simply means: *which stored fingerprint does the voice match
 right now?*
 
-> **For clinicians:** the two numbers are the first two **formants**, F1 (≈ vowel
-> height/openness) and F2 (≈ backness). The "map" is the familiar F1–F2 vowel
-> space. Calibration is a form of **speaker normalization** anchored on the
-> point (corner) vowels.
+> **For clinicians:** the fingerprint is a vector of **MFCCs** (mel‑frequency
+> cepstral coefficients) — the standard, robust description of a speech spectral
+> envelope. We deliberately do **not** track formants (F1/F2). Estimating formants
+> from a child's high‑pitched, short‑vocal‑tract voice is a known ill‑posed problem
+> (LPC reports false formants at high f0), and it was the source of the detector's
+> earlier unreliability. Comparing envelope *shapes* sidesteps that entirely.
 
 ## The problem calibration solves
 
-Everyone's map is a **different size**. A young child's vocal tract is smaller, so
-their whole map is "zoomed" compared with an adult's — the *same* vowel lands on
-*different* numbers. If the app judges a child against an adult‑sized map, even a
-perfectly pronounced vowel can look "wrong." (This is exactly what made an early
-version confuse one child's **y** with **i**.)
+Everyone's voice is different, and so is every microphone and room. The app can't
+know in advance what *this* child's `a` sounds like on *this* laptop. So instead of
+guessing from a textbook, it **learns the child's six vowels directly**, once, and
+then recognises the child against their own recordings.
 
-## What calibration deliberately does **not** do
-
-Two tempting approaches — both rejected:
-
-1. **Record the child's *current* vowels and treat them as the targets.**
-   ❌ No. If we saved a child's current, mixed‑up **y** and labelled it "correct
-   y," the app would happily say *"nice y!"* every time they said it wrong. That
-   rewards the mistake and defeats the entire point of practice.
-
-2. **Have a trained adult record the "true" vowels.**
-   ❌ No. A trained adult's voice is a *different‑sized* map. A child could
-   pronounce a vowel perfectly and still "miss" the adult's exact numbers simply
-   because their mouth is smaller. Comparing a child to an adult recording was the
-   original bug, not the fix.
+There is exactly **one** job here: *recognise what the child said, based on their
+calibration.* Making the child's vowels better over time is the **therapist's**
+work, not the toy's — you simply re‑calibrate as the child's productions improve, and
+the app's reference improves with them.
 
 ## What calibration actually does
 
-It measures **only the size and shape of the child's personal map**, then places
-the **correct** vowel targets onto *that* map.
+The app asks the child to say **all six vowels** (`a e i o u y`), one at a time,
+holding each briefly. For each vowel it collects several fingerprints and stores
+their average as that vowel's **template**. Detection then compares the live voice to
+those six templates and lights up the nearest one — but only when it's a clear
+winner, so a half‑formed sound reads as "no vowel" rather than a flickering guess.
 
-To do it, the app asks the child to say **all six vowels** (`a e i o u y`), one at
-a time, holding each briefly. From those six it works out how big and stretched
-*this child's* map is — its centre and spread. It then takes the **textbook‑correct
-positions of the six vowels** and redraws them at the right spots for a map of that
-size.
+**The tailor analogy.** It's like a tailor taking your measurements so clothes fit
+*you*, rather than assuming everyone is the same size. As the child grows and their
+speech sharpens, you take the measurements again.
 
-> **For clinicians:** the six‑vowel fit is a **Lobanov‑style** per‑formant
-> z‑score/de‑normalization — more robust for the interior vowels (`e`, `o`) than a
-> 3‑corner fit. Matching is done on the **Bark** scale.
+## Why the microphone "cancels out" (and why there's no sweep)
 
-**The tailor analogy.** It's like a tailor taking measurements and then cutting the
-*correct* pattern to fit *your* body. We don't copy your slouch (the child's current
-mispronunciation), and we don't force you into someone else's suit (the adult
-reference). We tailor the *right* target to *you*.
+A cheap microphone colours the sound — it boosts some pitches and dips others. You
+might expect that to ruin recognition. It doesn't, because the child is always
+compared to **their own templates recorded on the same microphone**. The mic
+colours the templates and the live voice *the same way*, so the colour cancels when
+they're compared. (The app also removes a running estimate of the microphone's
+colour from every frame — "cepstral‑mean normalization" — which cancels most of what
+remains, even across a mic change.)
 
-## Two modes from one calibration
+That's why the app has **no microphone frequency‑sweep calibration**: it would add a
+lot of machinery to flatten something that already cancels.
 
-The same six recordings power two ways of using the app:
+What *does* matter is the **level**: audio that clips (too loud) or is buried in noise
+(too quiet) has a distorted shape. So calibration and the settings panel show a live
+**level meter** with "too quiet" / "clipping" warnings — watch it while you record.
 
-- **Practice mode (therapy)** — targets are the **correct** vowels, scaled to the
-  child. The app only says "that's a good `e`" when the child actually reaches a
-  correct `e`, so it can reveal — and help correct — a drift like the `y`/`i` mix.
-- **Play mode (games)** — targets are the vowels the child **actually produces**.
-  Detection is forgiving and responsive, so a child's voice can drive a game (e.g.
-  steering a ball) without being judged for correctness. This intentionally
-  *accepts* the child's current sounds — it's for fun and engagement, not therapy.
+> **For clinicians:** matching is a nearest‑template classifier over the MFCC
+> vectors (diagonal‑covariance / Mahalanobis distance), with a confidence **and
+> margin** gate so recognition is a firm decision. Templates are stored with the
+> mic's channel mean removed; the live detector keeps its own running channel mean.
 
-## Why Practice mode fixes the y/i confusion
+## Practical notes for the microphone
 
-In Practice mode the **`y` target sits at the correct central‑high spot — sized for
-that child's voice.** So the app only recognises "y" when the child moves their
-tongue to the correct place. It won't cheat by accepting an old, `i`‑like `y`, and
-it won't unfairly reject a good `y` for being "too small" for an adult. **It holds
-the correct standard, in the child's size.**
+- Use a **consistent, decent** microphone at a **steady distance**. Consistency
+  matters more than quality.
+- If you **change microphones** (or move to a very different room), **re‑calibrate**.
+  The app records which mic was used and warns you in Settings → Calibration when the
+  current mic differs.
+- Re‑calibrate whenever the child's vowels have clearly improved — that's how the
+  app's standard tracks the child.
 
-That's the whole idea in one sentence:
+## What changed from earlier versions
 
-> **Measure the child's voice *size* from all six vowels, then — in Practice mode —
-> judge each vowel against the *correct* target scaled to that size (Play mode
-> instead recognises the child's own vowels, for games).**
+Earlier builds tried to *measure formants* and offered two modes ("Practice" vs
+"Play") with different targets. Both the formant approach and the split were removed:
+formants are unreliable for children, and the toy now has a single, honest job —
+recognise the child against their own calibration. This page and the code reflect
+that single MFCC‑template path.

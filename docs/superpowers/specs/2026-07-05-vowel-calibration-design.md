@@ -1,7 +1,15 @@
 # Vowel Detector Calibration — Design & Plan
 
+> **⚠️ SUPERSEDED (2026-07-18).** This formant-based, two-mode (Practice/Play)
+> design has been replaced by a single **MFCC template-matching** path. The
+> detector no longer estimates formants (unreliable for children), there is one
+> detection path (recognise the child against their own calibration), and there is
+> no `speaker_scale` fallback — calibration is required. See
+> [How calibration works](../../src/calibration-explained.md) and
+> [The visualizer](../../src/visualizer.md). Kept for historical context only.
+
 **Date:** 2026-07-05
-**Status:** Plan — ready to execute next session
+**Status:** Superseded (see banner above)
 **Builds on:** the vowel detector (`src/audio/vowel.rs`) + `VowelVisualizer`.
 
 ## Why

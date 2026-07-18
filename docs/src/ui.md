@@ -48,8 +48,8 @@ The start / profile / session-list screens use ordinary `egui` widgets
 ## Theming & fonts
 
 - **Theme** (`config/theme.rs`) is a palette + spacing struct with light and dark
-  variants (`theme_light` / `theme_dark`), toggled with `Ctrl+Shift+T` and persisted
-  in settings.
+  variants (`theme_light` / `theme_dark`), toggled in Settings → Appearance and
+  persisted in settings.
 - **Font**: Space Grotesk (OFL) is embedded in the binary and installed as the
   default proportional + monospace family; `egui`'s default fonts remain as a
   fallback so Cyrillic/Greek still render.
@@ -68,12 +68,16 @@ The start / profile / session-list screens use ordinary `egui` widgets
 > When you add or change any user-facing string you must update `en.json` **and**
 > every seeded locale. See [Contributing](contributing.md) and `AGENTS.md`.
 
-## Config panel, dev panel & camera
+## Config panel & camera
 
-- **Config panel** (`ui/config_panel.rs`) — the F12 Settings window (audio device
-  selectors).
-- **Dev panel** (`ui/dev_panel.rs`) — `Ctrl+Shift+D`, hidden tuning controls
-  (visualizer knobs, theme, volume).
+- **Config panel** (`ui/config_panel.rs`) — the one `F12` Settings window, with
+  vertical tabs: **Audio** (device selectors + live input level meter), **Detection**
+  (voicing / show / margin / smoothing), **Visualizer** (spectrum knobs),
+  **Appearance** (theme, volume, language), **Calibration** (status, mic, recalibrate).
+  This replaced both the old audio-only window and the hidden `Ctrl+Shift+D` dev
+  panel — there is now exactly one place to configure everything.
+- **Level meter** (`ui/level_meter.rs`) — a small input-level bar (too-quiet /
+  clipping warnings) shown during calibration and in the Audio tab.
 - **Camera** (`camera/mod.rs`) — a modal live-preview for avatar capture, rendered
   at the webcam's native aspect ratio with a centred square crop guide. Frames are
   decoded to RGBA and downscaled for the preview; see the module docs.

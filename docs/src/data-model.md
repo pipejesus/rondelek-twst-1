@@ -42,10 +42,11 @@ flowchart TD
 ### Calibration
 
 `calibration.json` (`vowel::VowelCalibration`, written after a child runs voice
-calibration) holds two `(F1, F2)` target sets, indexed like `vowel::VOWELS`, plus
-`created`: **`measured`** — the child's own six vowels (used by *Play* mode) — and
-**`practice`** — the correct references mapped into the child's voice-space (used by
-*Practice* mode). Absent = the child uses the scaled reference set. See
+calibration) holds six **MFCC templates** (`mean` + `var` per vowel, indexed like
+`vowel::VOWELS`), the `channel_mean` (mic estimate removed from every template),
+`n_mfcc`, `sample_rate`, the `input_device` used, a format `version`, and `created`.
+Absent or an older `version` (e.g. the pre-MFCC formant format) reads as "not
+calibrated" — the child is asked to recalibrate. See
 [The visualizer → Calibration](visualizer.md#calibration).
 
 ### Manifests

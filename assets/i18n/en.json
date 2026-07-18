@@ -22,11 +22,7 @@
   "sessions.calibrate": "Calibrate voice",
   "calibrate.title": "Calibrate voice",
   "calibrate.say": "Say and hold this sound:",
-  "calibrate.hold": "Keep it steady…",
-  "calibrate.start": "Start",
-  "calibrate.ready_hint": "When ready, press Start and hold the sound",
   "calibrate.cancel": "Cancel",
-  "calibrate.retry": "Retry",
   "sessions.none": "No sessions yet — start a new one.",
   "sessions.back": "Profiles",
   "session.rec": "REC",
@@ -45,5 +41,12 @@
   "config.auto": "Auto (system default)",
   "config.active": "Active:",
   "config.fallback": "fallback",
-  "profiles.settings": "Settings"
+  "profiles.settings": "Settings",
+  "calibrate.overview_hint": "Tap each sound and record it",
+  "calibrate.record": "Hold to record",
+  "calibrate.recording": "Recording…",
+  "calibrate.recorded": "Recorded",
+  "calibrate.back": "Back",
+  "calibrate.save": "Save",
+  "calibrate.record_hint": "Hold the button (or Space) while you say the sound"
 }

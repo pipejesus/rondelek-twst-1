@@ -18,12 +18,14 @@ builds.
 | `cpal` | Cross-platform audio I/O: the input (capture) and output (playback) streams and their callbacks. |
 | `hound` | WAV encode/decode for recorded samples (`audio/sample.rs`). |
 | `rustfft` | FFT for the spectrum visualizer (`ui/visualizer.rs`). |
+| `spectrograms` | MFCC feature extraction for vowel detection (`audio/vowel.rs`); pure-Rust FFT backend. |
+| `non-empty-slice` | Non-empty slice/`nzu!` types required by the `spectrograms` API. |
 
 ## Camera & images
 
 | Crate | Role |
 |-------|------|
-| `nokhwa` | Desktop webcam capture for avatars (`input-native`; not compiled on Android). |
+| `nokhwa` | Desktop webcam capture for avatars (`input-native`). |
 | `image` | Decode / resize / encode images — avatar processing and camera frames (`jpeg`, `png`, `webp`). |
 | `rfd` | Native file-open dialog for uploading an avatar. |
 

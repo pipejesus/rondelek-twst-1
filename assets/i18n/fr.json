@@ -22,11 +22,7 @@
   "sessions.calibrate": "Calibrer la voix",
   "calibrate.title": "Calibrer la voix",
   "calibrate.say": "Dis et tiens ce son :",
-  "calibrate.hold": "Garde-le stable…",
-  "calibrate.start": "Démarrer",
-  "calibrate.ready_hint": "Quand tu es prêt, appuie sur Démarrer et tiens le son",
   "calibrate.cancel": "Annuler",
-  "calibrate.retry": "Réessayer",
   "sessions.none": "Aucune séance — commencez-en une.",
   "sessions.back": "Profils",
   "session.rec": "REC",
@@ -45,5 +41,12 @@
   "config.auto": "Auto (défaut système)",
   "config.active": "Actif :",
   "config.fallback": "secours",
-  "profiles.settings": "Paramètres"
+  "profiles.settings": "Paramètres",
+  "calibrate.overview_hint": "Touchez chaque son et enregistrez-le",
+  "calibrate.record": "Maintenir pour enregistrer",
+  "calibrate.recording": "Enregistrement…",
+  "calibrate.recorded": "Enregistré",
+  "calibrate.back": "Retour",
+  "calibrate.save": "Enregistrer",
+  "calibrate.record_hint": "Maintenez le bouton (ou Espace) en prononçant le son"
 }

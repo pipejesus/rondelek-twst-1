@@ -86,26 +86,3 @@ jobs:
         with:
           files: ${{ env.ASSET }}
           generate_release_notes: true
-
-  # --------------------------------------------------------------------------
-  # Android build — STUB. The crate already has `cfg(not(target_os="android"))`
-  # branches, so an Android target is planned. This job is intentionally
-  # disabled until the toolchain is wired up.
-  #
-  # To flesh out later:
-  #   1. Change `if: false` to `if: always()` (or a tag condition).
-  #   2. Set up the Android NDK + a Rust android target (aarch64-linux-android).
-  #   3. Use cargo-ndk / cargo-apk to produce an .apk/.aab.
-  #   4. Add a signing keystore via repo secrets and sign the artifact.
-  #   5. Upload it with softprops/action-gh-release like the desktop jobs.
-  # --------------------------------------------------------------------------
-  android:
-    name: android (stub — disabled)
-    runs-on: ubuntu-latest
-    if: false
-    steps:
-      - uses: actions/checkout@v4
-      - name: Placeholder
-        run: |
-          echo "Android release is not wired up yet — see the comment block in release.yml."
-          exit 1

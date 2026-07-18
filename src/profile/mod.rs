@@ -196,11 +196,14 @@ impl Profile {
         dir.join(CALIBRATION_FILE)
     }
 
-    /// Load this profile's vowel calibration, if it has been calibrated.
-    /// Missing or unreadable files simply mean "not calibrated".
+    /// Load this profile's vowel calibration, if it has been calibrated with the
+    /// current format. Missing, unreadable, or outdated (e.g. the pre-MFCC
+    /// formant format) files simply mean "not calibrated".
     pub fn load_calibration(&self) -> Option<crate::audio::vowel::VowelCalibration> {
         let content = std::fs::read_to_string(Self::calibration_path(&self.dir)).ok()?;
-        serde_json::from_str(&content).ok()
+        serde_json::from_str::<crate::audio::vowel::VowelCalibration>(&content)
+            .ok()
+            .filter(|c| c.is_valid())
     }
 
     /// Persist a vowel calibration for this profile.
@@ -315,18 +318,17 @@ mod tests {
 
     #[test]
     fn calibration_round_trips() {
-        use crate::audio::vowel::{VowelCalibration, default_prototypes, practice_targets};
+        use crate::audio::vowel::{N_MFCC, VOWELS, build_calibration};
         let profile = Profile::create("Cal Kid", None).unwrap();
         let dir = profile.dir.clone();
         assert!(profile.load_calibration().is_none(), "starts uncalibrated");
 
-        let mut measured = default_prototypes(1.3);
-        measured[0].0 += 20.0; // a little per-vowel variation
-        let cal = VowelCalibration {
-            practice: practice_targets(&measured),
-            measured,
-            created: 123,
-        };
+        // Six vowels' worth of distinct MFCC-shaped frames.
+        let per_vowel: Vec<Vec<Vec<f32>>> = (0..VOWELS.len())
+            .map(|v| (0..20).map(|_| vec![v as f32; N_MFCC]).collect())
+            .collect();
+        let cal =
+            build_calibration(&per_vowel, 44_100, Some("Test Mic".into()), 123).expect("built");
         profile.save_calibration(&cal).unwrap();
 
         let loaded = Profile::load(dir.clone())
@@ -334,6 +336,7 @@ mod tests {
             .load_calibration()
             .expect("calibration loads back");
         assert_eq!(loaded, cal);
+        assert!(loaded.is_valid());
 
         std::fs::remove_dir_all(&dir).ok();
     }

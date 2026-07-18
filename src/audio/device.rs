@@ -65,24 +65,34 @@ pub fn needs_rebuild(current: Option<&str>, alive: bool, target: &str) -> bool {
     }
 }
 
-/// Names of all available output devices (best-effort; empty on error).
+/// De-duplicate names, preserving first-seen order. The ALSA host enumerates each
+/// physical card through many PCM "hints" (front, plughw, sysdefault, …), so a
+/// single microphone otherwise shows up a dozen times in the picker.
+fn dedup_preserving_order(names: impl Iterator<Item = String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    names.filter(|n| seen.insert(n.clone())).collect()
+}
+
+/// Names of all available output devices (best-effort; empty on error). Duplicate
+/// names (same device via different backends/PCMs) are collapsed to one.
 pub fn list_output_devices() -> Vec<String> {
     let host = cpal::default_host();
     match host.output_devices() {
-        Ok(devs) => devs
-            .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
-            .collect(),
+        Ok(devs) => dedup_preserving_order(
+            devs.filter_map(|d| d.description().ok().map(|desc| desc.name().to_string())),
+        ),
         Err(_) => Vec::new(),
     }
 }
 
-/// Names of all available input devices (best-effort; empty on error).
+/// Names of all available input devices (best-effort; empty on error). Duplicate
+/// names (same device via different backends/PCMs) are collapsed to one.
 pub fn list_input_devices() -> Vec<String> {
     let host = cpal::default_host();
     match host.input_devices() {
-        Ok(devs) => devs
-            .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
-            .collect(),
+        Ok(devs) => dedup_preserving_order(
+            devs.filter_map(|d| d.description().ok().map(|desc| desc.name().to_string())),
+        ),
         Err(_) => Vec::new(),
     }
 }
@@ -117,6 +127,30 @@ pub fn input_device_by_name(name: &str) -> Option<cpal::Device> {
             .map(|desc| desc.name() == name)
             .unwrap_or(false)
     })
+}
+
+/// Resolve a preference to an actual capture device **handle**. `Auto` (and a
+/// pinned-but-missing device) resolve to the system default device *directly* —
+/// crucially **not** by looking its name up in `input_devices()`, because on some
+/// hosts (ALSA/PipeWire) the default device's name ("Default Audio Device") is not
+/// present in the enumerated list, so a name lookup would fail.
+pub fn resolve_input(pref: &DevicePref, available: &[String]) -> Option<cpal::Device> {
+    match pref {
+        DevicePref::Pinned(name) if available.iter().any(|d| d == name) => {
+            input_device_by_name(name)
+        }
+        _ => cpal::default_host().default_input_device(),
+    }
+}
+
+/// Resolve a preference to an actual output device handle (see [`resolve_input`]).
+pub fn resolve_output(pref: &DevicePref, available: &[String]) -> Option<cpal::Device> {
+    match pref {
+        DevicePref::Pinned(name) if available.iter().any(|d| d == name) => {
+            output_device_by_name(name)
+        }
+        _ => cpal::default_host().default_output_device(),
+    }
 }
 
 #[cfg(test)]
@@ -173,6 +207,16 @@ mod tests {
     #[test]
     fn no_rebuild_when_alive_and_on_target() {
         assert!(!needs_rebuild(Some("A"), true, "A"));
+    }
+
+    #[test]
+    fn dedup_collapses_repeats_preserving_order() {
+        let out = dedup_preserving_order(
+            ["Mic", "Mic", "USB", "Mic", "USB"]
+                .into_iter()
+                .map(String::from),
+        );
+        assert_eq!(out, vec!["Mic".to_string(), "USB".to_string()]);
     }
 
     #[test]

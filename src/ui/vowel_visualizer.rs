@@ -1,48 +1,55 @@
-//! A developer-facing vowel visualizer: shows the currently detected Polish
-//! vowel as a large letter plus a match meter per vowel. It validates the
-//! [`crate::audio::vowel`] detector end-to-end; a playful kid-facing view will
-//! be built on the same detector later.
+//! The vowel view: shows the detected Polish vowel as a large letter plus a
+//! match meter per vowel. It runs the single [`crate::audio::vowel`] detector
+//! against the active profile's calibration — there is no uncalibrated fallback,
+//! so an uncalibrated profile is told to calibrate first.
 
 use egui::{Align2, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
-use crate::audio::vowel::{self, VOWELS, VowelConfig, VowelResult};
-use crate::config::{Settings, Theme, VowelMode};
+use crate::audio::vowel::{self, VOWELS, VowelDetector, VowelResult};
+use crate::config::{Settings, Theme};
 use crate::ui::visualizer::{AudioFrame, Visualizer};
 use crate::util::lerp;
 
-/// Analysis window (samples) — ~45 ms at 44.1 kHz, long enough for stable
-/// formants, short enough to track a changing vowel.
+/// Analysis window (samples) — ~45 ms at 44.1 kHz, long enough for a stable
+/// envelope, short enough to track a changing vowel.
 const WINDOW: usize = 2048;
-/// A vowel is only shown when its smoothed match clears this, so noise between
-/// utterances reads as "no vowel" rather than a flickering guess.
-const SHOW_THRESHOLD: f32 = 0.18;
 
 pub struct VowelVisualizer {
     /// Smoothed per-vowel match, indexed like [`VOWELS`].
     scores: [f32; 6],
-    /// Last detected `(F1, F2)` in Hz, for the on-screen debug readout.
-    formants: Option<(f32, f32)>,
-    /// Active profile's calibration, if calibrated.
-    calibration: Option<vowel::VowelCalibration>,
+    /// The single stateful detector (templates + running channel mean).
+    detector: VowelDetector,
+    /// Whether the active profile is calibrated (drives the status line).
+    calibrated: bool,
 }
 
 impl VowelVisualizer {
     pub fn new() -> Self {
         Self {
             scores: [0.0; 6],
-            formants: None,
-            calibration: None,
+            detector: VowelDetector::new(),
+            calibrated: false,
         }
     }
 
-    /// Index of the strongest vowel if it clears the show threshold.
-    fn best_index(&self) -> Option<usize> {
+    /// Index of the strongest vowel — but only when it clears the show threshold
+    /// *and* beats the runner-up by the margin threshold, so recognition is a
+    /// firm decision rather than a flickering guess.
+    fn best_index(&self, settings: &Settings) -> Option<usize> {
         let (idx, &val) = self
             .scores
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())?;
-        (val >= SHOW_THRESHOLD).then_some(idx)
+        let second = self
+            .scores
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != idx)
+            .map(|(_, &s)| s)
+            .fold(0.0f32, f32::max);
+        (val >= settings.vowel_show_threshold && (val - second) >= settings.vowel_margin_threshold)
+            .then_some(idx)
     }
 }
 
@@ -69,39 +76,26 @@ impl Visualizer for VowelVisualizer {
         };
         let window = &src[src.len().saturating_sub(WINDOW)..];
 
-        // Calibrated: pick the target set for the current mode. Uncalibrated:
-        // fall back to the scaled reference set (Speaker-scale slider).
-        let prototypes = match &self.calibration {
-            Some(cal) => match settings.vowel_mode {
-                VowelMode::Practice => cal.practice,
-                VowelMode::Play => cal.measured,
-            },
-            None => vowel::default_prototypes(settings.vowel_speaker_scale),
-        };
-        let cfg = VowelConfig {
-            voicing_threshold: settings.vowel_voicing_threshold,
-            prototypes,
-        };
-        let VowelResult {
-            formants, scores, ..
-        } = vowel::analyze(window, rate, &cfg);
+        let VowelResult { scores, .. } =
+            self.detector
+                .analyze(window, rate, settings.vowel_voicing_threshold);
 
         // Ease the meters toward the new match (toward zero when unvoiced).
         let a = 1.0 - settings.vowel_smoothing.clamp(0.0, 0.98);
         for (s, &target) in self.scores.iter_mut().zip(scores.iter()) {
             *s = lerp(*s, target, a);
         }
-        self.formants = formants;
     }
 
     fn demo_fill(&mut self, _num_bars: usize) {
         // A representative "a" detection, so screenshots show the view alive.
         self.scores = [0.92, 0.34, 0.10, 0.52, 0.08, 0.22]; // a e i o u y
-        self.formants = Some((720.0, 1200.0));
+        self.calibrated = true;
     }
 
     fn set_calibration(&mut self, calibration: Option<vowel::VowelCalibration>) {
-        self.calibration = calibration;
+        self.detector.set_calibration(calibration.as_ref());
+        self.calibrated = self.detector.is_calibrated();
     }
 
     fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, settings: &Settings) {
@@ -111,17 +105,14 @@ impl Visualizer for VowelVisualizer {
         let pad = (rect.width().min(rect.height()) * 0.06).clamp(6.0, 18.0);
         let inner = rect.shrink(pad);
 
-        // Calibration status, top-left — so it's never ambiguous which targets
-        // (and mode) are active.
-        let (status, status_color) = match &self.calibration {
-            Some(_) => {
-                let mode = match settings.vowel_mode {
-                    VowelMode::Practice => "Practice",
-                    VowelMode::Play => "Play",
-                };
-                (format!("Calibrated ✓ · {mode}"), theme.visualizer_bar_high)
-            }
-            None => ("Not calibrated".to_string(), theme.text_secondary),
+        // Calibration status, top-left.
+        let (status, status_color) = if self.calibrated {
+            ("Calibrated ✓".to_string(), theme.visualizer_bar_high)
+        } else {
+            (
+                "Not calibrated — set up the child's voice first".to_string(),
+                theme.text_secondary,
+            )
         };
         painter.text(
             inner.left_top(),
@@ -131,29 +122,20 @@ impl Visualizer for VowelVisualizer {
             status_color,
         );
 
-        // Left third: the big detected letter + F1/F2 debug readout.
+        // Left third: the big detected letter.
         let split = inner.left() + inner.width() * 0.34;
         let left = Rect::from_min_max(inner.min, Pos2::new(split, inner.bottom()));
-        let best = self.best_index();
+        let best = self.best_index(settings);
 
         let letter = best.map_or("–", |i| VOWELS[i].label());
         let letter_color = best.map_or(theme.text_secondary, |_| theme.visualizer_bar_high);
         painter.text(
-            Pos2::new(left.center().x, left.top() + left.height() * 0.40),
+            Pos2::new(left.center().x, left.center().y),
             Align2::CENTER_CENTER,
             letter,
             FontId::proportional((left.height() * 0.5).clamp(24.0, 140.0)),
             letter_color,
         );
-        if let Some((f1, f2)) = self.formants {
-            painter.text(
-                Pos2::new(left.center().x, left.bottom() - 10.0),
-                Align2::CENTER_BOTTOM,
-                format!("F1 {f1:.0}  F2 {f2:.0} Hz"),
-                FontId::monospace((left.height() * 0.09).clamp(9.0, 15.0)),
-                theme.text_secondary,
-            );
-        }
 
         // Right two-thirds: one horizontal match meter per vowel.
         let bars = Rect::from_min_max(Pos2::new(split + pad, inner.top()), inner.max);

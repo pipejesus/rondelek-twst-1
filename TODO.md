@@ -3,12 +3,9 @@
 Tracked items intentionally left for later batches.
 
 ## Avatars / camera
-- **Android webcam capture.** Desktop capture uses `nokhwa` (`src/camera/`); the
-  Android path is stubbed (`CameraSession::open` returns "unavailable"). Implement
-  via the Android camera APIs (CameraX / NDK) when the Android build is set up.
 - **AVIF avatar input.** Currently PNG/JPG/WebP only (pure-Rust, portable). AVIF
   decoding needs a native library (dav1d) — revisit if there's demand and the
-  Android/Windows build cost is acceptable.
+  Windows build cost is acceptable.
 
 ## Internationalization
 - **Remaining European languages.** Framework + picker already list ~36 languages;

@@ -22,11 +22,7 @@
   "sessions.calibrate": "Калібрувати голос",
   "calibrate.title": "Калібрування голосу",
   "calibrate.say": "Скажи й потримай цей звук:",
-  "calibrate.hold": "Тримай рівно…",
-  "calibrate.start": "Почати",
-  "calibrate.ready_hint": "Коли готові, натисніть Почати й потримайте звук",
   "calibrate.cancel": "Скасувати",
-  "calibrate.retry": "Повторити",
   "sessions.none": "Сесій ще немає — почніть нову.",
   "sessions.back": "Профілі",
   "session.rec": "REC",
@@ -45,5 +41,12 @@
   "config.auto": "Авто (системний за замовчуванням)",
   "config.active": "Активний:",
   "config.fallback": "резервний",
-  "profiles.settings": "Налаштування"
+  "profiles.settings": "Налаштування",
+  "calibrate.overview_hint": "Торкніться кожного звуку та запишіть його",
+  "calibrate.record": "Утримуйте, щоб записати",
+  "calibrate.recording": "Запис…",
+  "calibrate.recorded": "Записано",
+  "calibrate.back": "Назад",
+  "calibrate.save": "Зберегти",
+  "calibrate.record_hint": "Утримуйте кнопку (або Пробіл), вимовляючи звук"
 }

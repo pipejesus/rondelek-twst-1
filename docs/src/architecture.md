@@ -11,7 +11,7 @@ audio callback threads owned by `cpal`.
 frame, so the loop runs continuously (needed for smooth audio metering and camera
 preview). Each frame:
 
-1. Handle global keys (F12 settings, screenshot, dev panel, theme toggle).
+1. Handle global keys (F12 settings, screenshot).
 2. Dispatch to the current screen's draw function.
 3. On the sampler screen, also pump audio (`maintain_audio`, `drain_capture`).
 
@@ -89,7 +89,7 @@ src/
   main.rs        entry point, window options, RONDELEK_* env overrides
   app.rs         App struct, screen state machine, the per-frame loop, all screens
   audio/         capture, playback, sample (WAV), device enumeration + watchdog
-  camera/        desktop webcam capture (nokhwa); Android stubbed
+  camera/        desktop webcam capture (nokhwa)
   config/        layout constants, theme, user settings (JSON)
   i18n/          runtime translations, language list, flags, locale detection
   profile/       Profile + profile.json, library root, avatars, session listing

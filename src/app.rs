@@ -2,9 +2,7 @@ use egui::{Align2, Color32, Key, Pos2, Rect, Sense, Ui, Vec2};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::audio::vowel::{
-    self, CalibrationCapture, VowelCalibration, VowelConfig, practice_targets,
-};
+use crate::audio::vowel::{self, CalibrationCapture};
 use crate::audio::{Capture, Playback, Sample, device};
 use crate::config::{
     self, NUM_SAMPLES, PadKind, REC_PAD, ROUNDING_PAD, SAMPLE_PADS, Settings, Theme,
@@ -13,7 +11,7 @@ use crate::i18n::{self, EUROPEAN_LANGS, I18n};
 use crate::profile::{self, Profile, SessionInfo};
 use crate::session::Session;
 use crate::ui::{
-    AudioFrame, ConfigPanel, DevPanel, Pad, PadMode, Renderer, SpectrumVisualizer, Visualizer,
+    AudioFrame, ConfigPanel, Pad, PadMode, Renderer, SpectrumVisualizer, Visualizer,
     VowelVisualizer, compute_layout, draw_keycap, draw_kid_face, gloss_overlay,
 };
 use crate::util::now_secs;
@@ -39,29 +37,29 @@ enum AppScreen {
     Session,
 }
 
-/// Voiced frames to collect per vowel before it is accepted and we advance.
-const CALIB_TARGET: usize = 24;
+/// Voiced MFCC frames that count a vowel as "well recorded" (drives the progress
+/// bar). At ~60 fps this is roughly a second of held sound. The child may hold
+/// longer; only [`vowel::MIN_CAPTURE_SAMPLES`] are strictly required.
+const CALIB_TARGET: usize = 45;
 
-/// Whether we're waiting for the child to begin the current vowel, or actively
-/// capturing it. Capture only runs in `Listening`, so each vowel has a clear
-/// start the user controls (no auto-jumping mid-sound).
-#[derive(Clone, Copy, PartialEq)]
-enum CalibPhase {
-    Ready,
-    Listening,
-}
-
-/// State of the guided calibration flow. All six vowels are captured (in
-/// `vowel::VOWELS` order) so both detection modes can be derived.
+/// State of the calibration flow. The child records each of the six vowels
+/// (`vowel::VOWELS` order) by **holding** a record button — no auto-advance — and
+/// can re-record any vowel. Overview screen when `selected` is `None`; the
+/// per-vowel record screen when it is `Some(i)`.
 struct CalibrationState {
-    /// Which vowel we're on (index into `vowel::VOWELS`).
-    step: usize,
-    phase: CalibPhase,
-    capture: CalibrationCapture,
-    /// Vowels measured so far, in `vowel::VOWELS` order.
-    measured: Vec<(f32, f32)>,
-    /// Latest live formant estimate, for on-screen feedback.
-    live_formants: Option<(f32, f32)>,
+    /// Per-vowel captured MFCC frames, in `vowel::VOWELS` order. Empty = not yet
+    /// recorded. Re-recording overwrites the vowel's entry.
+    captured: Vec<Vec<Vec<f32>>>,
+    /// The vowel currently open for recording; `None` = overview grid.
+    selected: Option<usize>,
+    /// True while the user holds the record button (push-to-talk).
+    recording: bool,
+    /// MFCC frames for the in-progress recording of `selected`.
+    current: CalibrationCapture,
+    /// Latest input level (peak, 0..=1), for the on-screen meter.
+    live_level: f32,
+    /// Whether the current window reads as voiced, for feedback.
+    live_voiced: bool,
 }
 
 /// Whether the profile form is creating a new profile or editing an existing one.
@@ -90,7 +88,6 @@ pub struct App {
     theme: Theme,
     visualizers: Vec<Box<dyn Visualizer>>,
     active_visualizer: usize,
-    dev_panel: DevPanel,
     config_panel: ConfigPanel,
     settings: Settings,
     settings_path: PathBuf,
@@ -112,6 +109,9 @@ pub struct App {
 
     // Vowel calibration flow (per profile).
     calib: Option<CalibrationState>,
+    /// The current profile's loaded calibration (cached; drives the config
+    /// panel's Calibration tab without re-reading disk each frame).
+    current_calibration: Option<vowel::VowelCalibration>,
 
     // Texture caches.
     tex_cache: HashMap<PathBuf, egui::TextureHandle>,
@@ -122,6 +122,8 @@ pub struct App {
     recording_sample_idx: usize,
     accumulated_samples: Vec<f32>,
     playback_monitor: Vec<f32>,
+    /// Latest input peak (0..=1) for the config/calibration level meter.
+    input_peak: f32,
     capture_rate: u32,
     audio_status: String,
     audio_retry_timer: f32,
@@ -201,7 +203,6 @@ impl App {
             ],
             // Clamp in case a newer config selected a visualizer we no longer have.
             active_visualizer: settings.active_visualizer.min(1),
-            dev_panel: DevPanel::new(),
             config_panel: ConfigPanel::new(),
             settings,
             settings_path,
@@ -218,6 +219,7 @@ impl App {
             form_error: None,
             camera: None,
             calib: None,
+            current_calibration: None,
             tex_cache: HashMap::new(),
             flag_cache: HashMap::new(),
             record_mode: false,
@@ -225,6 +227,7 @@ impl App {
             recording_sample_idx: 0,
             accumulated_samples: Vec::new(),
             playback_monitor: Vec::new(),
+            input_peak: 0.0,
             capture_rate,
             audio_status: String::new(),
             audio_retry_timer: 0.0,
@@ -252,6 +255,13 @@ impl App {
         }
         if std::env::var("RONDELEK_SCREEN").as_deref() == Ok("calibrate") {
             app.begin_calibration();
+            // Harness: jump straight into a vowel's record screen.
+            if let Ok(v) = std::env::var("RONDELEK_CALIB_VOWEL")
+                && let Ok(i) = v.parse::<usize>()
+                && let Some(s) = app.calib.as_mut()
+            {
+                s.selected = Some(i.min(vowel::VOWELS.len() - 1));
+            }
         }
         if let Ok(path) = std::env::var("RONDELEK_SESSION") {
             app.open_session_dir(PathBuf::from(path));
@@ -295,7 +305,7 @@ impl App {
                         .map(|p| p.is_alive())
                         .unwrap_or(false);
                     if device::needs_rebuild(current, alive, &target.name) {
-                        match device::output_device_by_name(&target.name) {
+                        match device::resolve_output(&pref, &available) {
                             Some(dev) => match Playback::open(&dev) {
                                 Ok(pb) => self.playback = Some(pb),
                                 Err(e) => {
@@ -337,7 +347,7 @@ impl App {
                     let current = self.capture.as_ref().map(|c| c.current_device());
                     let alive = self.capture.as_ref().map(|c| c.is_alive()).unwrap_or(false);
                     if device::needs_rebuild(current, alive, &target.name) {
-                        match device::input_device_by_name(&target.name) {
+                        match device::resolve_input(&pref, &available) {
                             Some(dev) => match Capture::open(&dev) {
                                 Ok(cap) => {
                                     self.capture_rate = cap.sample_rate();
@@ -443,6 +453,7 @@ impl App {
             .map(Capture::drain)
             .unwrap_or_default();
         if !mic.is_empty() {
+            self.input_peak = mic.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
             self.accumulated_samples.extend_from_slice(&mic);
             trim_rolling(&mut self.accumulated_samples, self.capture_rate);
             if self.recording_active && self.recording_sample_idx < self.samples.len() {
@@ -555,6 +566,7 @@ impl App {
         for viz in &mut self.visualizers {
             viz.set_calibration(cal.clone());
         }
+        self.current_calibration = cal;
     }
 
     // ---- vowel calibration ---------------------------------------------
@@ -565,34 +577,35 @@ impl App {
             return;
         }
         self.calib = Some(CalibrationState {
-            step: 0,
-            phase: CalibPhase::Ready,
-            capture: CalibrationCapture::new(),
-            measured: Vec::new(),
-            live_formants: None,
+            captured: vec![Vec::new(); vowel::VOWELS.len()],
+            selected: None,
+            recording: false,
+            current: CalibrationCapture::new(),
+            live_level: 0.0,
+            live_voiced: false,
         });
         self.accumulated_samples.clear();
         self.screen = AppScreen::Calibrate;
     }
 
-    /// Finish: derive personalised targets from the captured corners, save them
-    /// to the profile, and return to the Sessions screen.
+    /// Finish: build MFCC templates from the six captured vowels, save them to
+    /// the profile, and return to the Sessions screen.
     fn finish_calibration(&mut self) {
         if let Some(state) = self.calib.take()
-            && state.measured.len() == vowel::VOWELS.len()
+            && state.captured.len() == vowel::VOWELS.len()
             && let Some(profile) = self.current_profile.as_ref()
         {
-            let mut measured = [(0.0f32, 0.0f32); 6];
-            for (slot, m) in measured.iter_mut().zip(state.measured.iter()) {
-                *slot = *m;
-            }
-            let cal = VowelCalibration {
-                practice: practice_targets(&measured),
-                measured,
-                created: now_secs(),
-            };
-            if let Err(e) = profile.save_calibration(&cal) {
-                eprintln!("Failed to save calibration: {e}");
+            let device = self
+                .capture
+                .as_ref()
+                .map(|c| c.current_device().to_string());
+            match vowel::build_calibration(&state.captured, self.capture_rate, device, now_secs()) {
+                Some(cal) => {
+                    if let Err(e) = profile.save_calibration(&cal) {
+                        eprintln!("Failed to save calibration: {e}");
+                    }
+                }
+                None => eprintln!("Calibration incomplete — not enough voiced audio per vowel"),
             }
         }
         self.calib = None;
@@ -600,21 +613,10 @@ impl App {
         self.screen = AppScreen::Sessions;
     }
 
-    /// Begin capturing the current vowel: flush stale audio (so the previous
-    /// vowel can't bleed in) and switch to the listening phase.
-    fn start_listening(&mut self) {
-        self.accumulated_samples.clear();
-        if let Some(state) = self.calib.as_mut() {
-            state.capture.clear();
-            state.phase = CalibPhase::Listening;
-        }
-    }
-
-    /// Pull the mic and, **only while listening**, feed the current corner's
-    /// capture. Returns the live formant estimate for display. When a corner is
-    /// captured it stops at the next `Ready` phase so the user starts the next
-    /// vowel deliberately (rather than auto-jumping mid-sound).
-    fn pump_calibration(&mut self) -> Option<(f32, f32)> {
+    /// Pull the mic each frame. While the user is **holding** the record button
+    /// (`state.recording`), feed voiced MFCC frames into the in-progress capture.
+    /// There is no auto-advance — recording only happens while held.
+    fn pump_calibration(&mut self) {
         let dt = 1.0 / 60.0;
         self.maintain_audio(dt);
         let mic = self
@@ -627,81 +629,75 @@ impl App {
             trim_rolling(&mut self.accumulated_samples, self.capture_rate);
         }
 
-        let listening = matches!(
-            self.calib.as_ref().map(|s| s.phase),
-            Some(CalibPhase::Listening)
-        );
-        if !listening {
-            return None;
-        }
-
         let window =
             &self.accumulated_samples[self.accumulated_samples.len().saturating_sub(2048)..];
-        let cfg = VowelConfig {
-            voicing_threshold: self.settings.vowel_voicing_threshold,
-            prototypes: vowel::default_prototypes(self.settings.vowel_speaker_scale),
-        };
-        let formants = vowel::analyze(window, self.capture_rate, &cfg).formants;
+        let voiced = vowel::rms(window) >= self.settings.vowel_voicing_threshold;
+        let level = window.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+        self.input_peak = level;
 
-        let mut finished = false;
+        let recording = self
+            .calib
+            .as_ref()
+            .is_some_and(|s| s.recording && s.selected.is_some());
+        let frame = if recording && voiced {
+            vowel::mfcc_frame(window, self.capture_rate)
+        } else {
+            None
+        };
         if let Some(state) = self.calib.as_mut() {
-            state.live_formants = formants;
-            state.capture.push(formants);
-            if state.capture.count() >= CALIB_TARGET
-                && let Some(measured) = state.capture.result()
-            {
-                state.measured.push(measured);
-                state.capture.clear();
-                state.step += 1;
-                if state.measured.len() == vowel::VOWELS.len() {
-                    finished = true;
-                } else {
-                    // Wait for the user to start the next vowel.
-                    state.phase = CalibPhase::Ready;
-                }
+            state.live_level = level;
+            state.live_voiced = voiced;
+            if recording {
+                state.current.push(frame);
             }
         }
-        if finished {
-            self.finish_calibration();
-        }
-        formants
     }
 
     fn draw_calibrate(&mut self, ui: &mut Ui) {
         ui.ctx().request_repaint();
-        let live = self.pump_calibration();
-        // pump_calibration may have finished and switched screens.
+        self.pump_calibration();
         if self.screen != AppScreen::Calibrate {
             return;
         }
-        let (step, count, phase) = match self.calib.as_ref() {
-            Some(s) => (
-                s.step.min(vowel::VOWELS.len() - 1),
-                s.capture.count(),
-                s.phase,
-            ),
+        let selected = match self.calib.as_ref() {
+            Some(s) => s.selected,
             None => {
                 self.screen = AppScreen::Sessions;
                 return;
             }
         };
+        match selected {
+            None => self.draw_calibrate_overview(ui),
+            Some(i) => self.draw_calibrate_record(ui, i),
+        }
+    }
 
+    /// Overview: a grid of the six vowels showing which are recorded. Tap one to
+    /// record (or re-record) it; Save is enabled once all six are captured.
+    fn draw_calibrate_overview(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
-        let target = vowel::VOWELS[step];
-        let progress = (count as f32 / CALIB_TARGET as f32).clamp(0.0, 1.0);
 
-        let mut start = false;
+        let recorded: Vec<bool> = self
+            .calib
+            .as_ref()
+            .map(|s| {
+                s.captured
+                    .iter()
+                    .map(|f| f.len() >= vowel::MIN_CAPTURE_SAMPLES)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let all_recorded =
+            recorded.len() == vowel::VOWELS.len() && recorded.iter().all(|&b| b);
+
+        let done = Color32::from_rgb(0x3C, 0xB0, 0x4B);
+        let mut open: Option<usize> = None;
         let mut cancel = false;
-        let mut retry = false;
-
-        // Space starts the current sound when ready (handy for an adult helper).
-        if phase == CalibPhase::Ready && ui.input(|i| i.key_pressed(Key::Space)) {
-            start = true;
-        }
+        let mut save = false;
 
         ui.vertical_centered(|ui| {
-            ui.add_space((full.height() * 0.10).min(64.0));
+            ui.add_space((full.height() * 0.08).min(48.0));
             ui.label(
                 egui::RichText::new(self.i18n.t("calibrate.title"))
                     .color(self.theme.text_primary)
@@ -710,11 +706,123 @@ impl App {
             );
             ui.add_space(6.0);
             ui.label(
-                egui::RichText::new(format!("{} / {}", step + 1, vowel::VOWELS.len()))
+                egui::RichText::new(self.i18n.t("calibrate.overview_hint"))
                     .color(self.theme.text_secondary)
-                    .size(14.0),
+                    .size(15.0),
             );
-            ui.add_space(20.0);
+            ui.add_space(24.0);
+
+            for row in 0..2 {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(3.0 * 104.0, 104.0),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        for col in 0..3 {
+                            let i = row * 3 + col;
+                            let is_done = recorded.get(i).copied().unwrap_or(false);
+                            let letter = vowel::VOWELS[i].label();
+                            let text = if is_done {
+                                format!("{letter}\n✓")
+                            } else {
+                                letter.to_string()
+                            };
+                            let fill = if is_done { done } else { self.theme.pad_play_bg };
+                            let txt_color = if is_done {
+                                Color32::WHITE
+                            } else {
+                                self.theme.text_primary
+                            };
+                            let btn = egui::Button::new(
+                                egui::RichText::new(text).color(txt_color).size(34.0).strong(),
+                            )
+                            .fill(fill)
+                            .min_size(egui::vec2(96.0, 96.0));
+                            if ui.add(btn).clicked() {
+                                open = Some(i);
+                            }
+                        }
+                    },
+                );
+                ui.add_space(10.0);
+            }
+
+            ui.add_space(18.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(320.0, 44.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    if ui
+                        .add_sized(
+                            [150.0, 44.0],
+                            egui::Button::new(self.i18n.t("calibrate.cancel")),
+                        )
+                        .clicked()
+                    {
+                        cancel = true;
+                    }
+                    let save_btn = egui::Button::new(
+                        egui::RichText::new(self.i18n.t("calibrate.save")).color(Color32::WHITE),
+                    )
+                    .fill(ORANGE);
+                    if ui
+                        .add_enabled(all_recorded, egui::Button::min_size(save_btn, [150.0, 44.0].into()))
+                        .clicked()
+                    {
+                        save = true;
+                    }
+                },
+            );
+        });
+
+        if let Some(i) = open {
+            if let Some(s) = self.calib.as_mut() {
+                s.selected = Some(i);
+                s.recording = false;
+                s.current.clear();
+            }
+            self.accumulated_samples.clear();
+        } else if save && all_recorded {
+            self.finish_calibration();
+        } else if cancel {
+            self.calib = None;
+            self.screen = AppScreen::Sessions;
+        }
+    }
+
+    /// Record one vowel by **holding** the record button (or Space). No
+    /// auto-advance: capture runs only while held; releasing commits the take.
+    fn draw_calibrate_record(&mut self, ui: &mut Ui, i: usize) {
+        let full = ui.max_rect();
+        ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
+
+        let (was_recording, count, level, voiced, already) = self
+            .calib
+            .as_ref()
+            .map(|s| {
+                (
+                    s.recording,
+                    s.current.count(),
+                    s.live_level,
+                    s.live_voiced,
+                    s.captured
+                        .get(i)
+                        .map(|f| f.len() >= vowel::MIN_CAPTURE_SAMPLES)
+                        .unwrap_or(false),
+                )
+            })
+            .unwrap_or((false, 0, 0.0, false, false));
+
+        let target = vowel::VOWELS[i];
+        let progress = (count as f32 / CALIB_TARGET as f32).clamp(0.0, 1.0);
+        let recording_red = Color32::from_rgb(0xD6, 0x3A, 0x2E);
+
+        // Holding either the button or Space records.
+        let mut holding = ui.input(|inp| inp.key_down(Key::Space));
+        let mut back = false;
+        let mut cancel = false;
+
+        ui.vertical_centered(|ui| {
+            ui.add_space((full.height() * 0.08).min(48.0));
             ui.label(
                 egui::RichText::new(self.i18n.t("calibrate.say"))
                     .color(self.theme.text_secondary)
@@ -727,83 +835,108 @@ impl App {
                     .size(96.0)
                     .strong(),
             );
-            ui.add_space(16.0);
+            ui.add_space(14.0);
 
-            match phase {
-                CalibPhase::Ready => {
-                    let start_btn = egui::Button::new(
-                        egui::RichText::new(self.i18n.t("calibrate.start")).color(Color32::WHITE),
-                    )
-                    .fill(ORANGE);
-                    if ui.add_sized([220.0, 44.0], start_btn).clicked() {
-                        start = true;
-                    }
-                    ui.add_space(6.0);
+            let rec_label = if was_recording {
+                self.i18n.t("calibrate.recording")
+            } else {
+                self.i18n.t("calibrate.record")
+            };
+            let rec_btn = egui::Button::new(
+                egui::RichText::new(rec_label).color(Color32::WHITE).size(18.0),
+            )
+            .fill(if was_recording { recording_red } else { ORANGE })
+            .min_size(egui::vec2(240.0, 56.0));
+            let resp = ui.add(rec_btn);
+            if resp.is_pointer_button_down_on() {
+                holding = true;
+            }
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(self.i18n.t("calibrate.record_hint"))
+                    .color(self.theme.text_secondary)
+                    .size(13.0),
+            );
+
+            ui.add_space(12.0);
+            if was_recording {
+                ui.add_sized([300.0, 16.0], egui::ProgressBar::new(progress).fill(ORANGE));
+                ui.add_space(6.0);
+                crate::ui::level_meter(ui, level, 300.0);
+                if !voiced {
                     ui.label(
-                        egui::RichText::new(self.i18n.t("calibrate.ready_hint"))
+                        egui::RichText::new("(keep the sound going…)")
                             .color(self.theme.text_secondary)
-                            .size(13.0),
+                            .size(12.0),
                     );
                 }
-                CalibPhase::Listening => {
-                    ui.add_sized([300.0, 18.0], egui::ProgressBar::new(progress).fill(ORANGE));
-                    ui.add_space(6.0);
-                    ui.label(
-                        egui::RichText::new(self.i18n.t("calibrate.hold"))
-                            .color(self.theme.text_secondary)
-                            .size(13.0),
-                    );
-                    if let Some((f1, f2)) = live {
-                        ui.add_space(4.0);
-                        ui.label(
-                            egui::RichText::new(format!("F1 {f1:.0}  F2 {f2:.0} Hz"))
-                                .color(self.theme.text_secondary)
-                                .monospace(),
-                        );
-                    }
-                }
+            } else if already {
+                ui.label(
+                    egui::RichText::new(format!("{} ✓", self.i18n.t("calibrate.recorded")))
+                        .color(Color32::from_rgb(0x3C, 0xB0, 0x4B))
+                        .size(15.0),
+                );
             }
 
-            ui.add_space(24.0);
+            ui.add_space(20.0);
             ui.allocate_ui_with_layout(
-                egui::vec2(300.0, 40.0),
+                egui::vec2(320.0, 44.0),
                 egui::Layout::left_to_right(egui::Align::Center),
                 |ui| {
                     if ui
+                        .add_sized([150.0, 44.0], egui::Button::new(self.i18n.t("calibrate.back")))
+                        .clicked()
+                    {
+                        back = true;
+                    }
+                    if ui
                         .add_sized(
-                            [145.0, 40.0],
+                            [150.0, 44.0],
                             egui::Button::new(self.i18n.t("calibrate.cancel")),
                         )
                         .clicked()
                     {
                         cancel = true;
                     }
-                    if phase == CalibPhase::Listening
-                        && ui
-                            .add_sized(
-                                [145.0, 40.0],
-                                egui::Button::new(self.i18n.t("calibrate.retry")),
-                            )
-                            .clicked()
-                    {
-                        retry = true;
-                    }
                 },
             );
         });
 
-        if start {
-            self.start_listening();
+        // A click on Back/Cancel shouldn't also count as a hold this frame.
+        if back || cancel {
+            holding = false;
+        }
+
+        // Apply hold-state edges: press = fresh take; release = commit if enough.
+        let press_edge = holding && !was_recording;
+        let release_edge = !holding && was_recording;
+        let enough = count >= vowel::MIN_CAPTURE_SAMPLES;
+        if let Some(s) = self.calib.as_mut() {
+            s.recording = holding;
+            if press_edge {
+                s.current.clear();
+            }
+            if release_edge {
+                if enough {
+                    s.captured[i] = s.current.take();
+                } else {
+                    s.current.clear();
+                }
+            }
+        }
+        if press_edge {
+            self.accumulated_samples.clear();
+        }
+
+        if back {
+            if let Some(s) = self.calib.as_mut() {
+                s.selected = None;
+                s.recording = false;
+                s.current.clear();
+            }
         } else if cancel {
             self.calib = None;
             self.screen = AppScreen::Sessions;
-        } else if retry {
-            // Discard this attempt and wait for the user to start it again.
-            self.accumulated_samples.clear();
-            if let Some(s) = self.calib.as_mut() {
-                s.capture.clear();
-                s.phase = CalibPhase::Ready;
-            }
         }
     }
 
@@ -1537,20 +1670,6 @@ impl App {
         if ui.input(|i| i.key_pressed(Key::Escape)) && self.recording_active {
             self.stop_recording();
         }
-        if ui.input(|i| i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(Key::D)) {
-            self.dev_panel.toggle();
-            self.settings.show_dev_panel = self.dev_panel.visible;
-            self.save_settings();
-        }
-        if ui.input(|i| i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(Key::T)) {
-            self.settings.dark_mode = !self.settings.dark_mode;
-            self.theme = if self.settings.dark_mode {
-                config::theme_dark()
-            } else {
-                config::theme_light()
-            };
-            self.save_settings();
-        }
 
         let full_bounds = ui.max_rect();
         let layout = compute_layout(full_bounds);
@@ -1690,9 +1809,6 @@ impl App {
                 color,
             );
         }
-
-        self.dev_panel
-            .show(ui.ctx(), &mut self.settings, &mut self.theme);
     }
 }
 
@@ -1807,11 +1923,49 @@ impl eframe::App for App {
             AppScreen::Session => self.draw_session(ui),
         }
 
-        if self
-            .config_panel
-            .show(ui.ctx(), &mut self.settings, &self.i18n)
-        {
-            self.save_settings();
+        if self.config_panel.visible {
+            // Keep the level meter live even on screens that don't drain the mic.
+            if !matches!(self.screen, AppScreen::Session | AppScreen::Calibrate) {
+                let mic = self
+                    .capture
+                    .as_mut()
+                    .map(Capture::drain)
+                    .unwrap_or_default();
+                if !mic.is_empty() {
+                    self.input_peak = mic.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+                }
+            }
+            let cal_info = crate::ui::CalInfo {
+                calibrated: self.current_calibration.is_some(),
+                created: self.current_calibration.as_ref().map_or(0, |c| c.created),
+                mic: self
+                    .current_calibration
+                    .as_ref()
+                    .and_then(|c| c.input_device.clone()),
+                current_device: self
+                    .capture
+                    .as_ref()
+                    .map(|c| c.current_device().to_string()),
+            };
+            let outcome = self.config_panel.show(
+                ui.ctx(),
+                &mut self.settings,
+                &mut self.theme,
+                &self.i18n,
+                self.input_peak,
+                &cal_info,
+            );
+            if outcome.changed {
+                self.save_settings();
+            }
+            if let Some(code) = outcome.chosen_language {
+                self.set_language(&code);
+                self.save_settings();
+            }
+            if outcome.recalibrate {
+                self.config_panel.visible = false;
+                self.begin_calibration();
+            }
         }
 
         self.save_pending_screenshot(ui.ctx());
