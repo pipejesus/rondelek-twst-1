@@ -662,7 +662,6 @@ impl App {
     }
 
     fn draw_calibrate(&mut self, ui: &mut Ui) {
-        ui.ctx().request_repaint();
         self.pump_calibration();
         if self.screen != AppScreen::Calibrate {
             return;
@@ -1912,7 +1911,16 @@ fn draw_crop_guide(p: &egui::Painter, sq: Rect) {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        ui.ctx().request_repaint();
+        // Repaint policy: animated screens tick at ~60 FPS (vsync still paces
+        // the actual paints); static screens idle at a slow heartbeat. Input
+        // events wake egui immediately either way, so the UI stays responsive.
+        let animating = matches!(self.screen, AppScreen::Session | AppScreen::Calibrate)
+            || self.config_panel.visible
+            || self.camera.is_some()
+            || self.auto_shot.is_some();
+        let delay = if animating { 16 } else { 100 };
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(delay));
         self.frame_count += 1;
 
         if ui.input(|i| i.key_pressed(Key::F12)) {
