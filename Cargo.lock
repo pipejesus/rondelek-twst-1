@@ -3434,6 +3434,7 @@ dependencies = [
  "spectrograms",
  "sys-locale",
  "uuid",
+ "winit",
  "zip",
 ]
 

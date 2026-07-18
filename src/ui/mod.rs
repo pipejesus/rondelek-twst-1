@@ -14,6 +14,6 @@ pub use level_meter::level_meter;
 pub use pad::{Pad, PadMode};
 pub use renderer::Renderer;
 pub use skin::Skin;
-pub use visualizer::{AudioFrame, SpectrumVisualizer, Visualizer};
+pub use visualizer::{AudioFrame, OffVisualizer, SpectrumVisualizer, Visualizer};
 pub use vowel_visualizer::VowelVisualizer;
 pub use widgets::{draw_kid_face, gloss_overlay};

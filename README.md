@@ -162,6 +162,22 @@ The repo's [`skins/index.json`](skins/index.json) catalogs skins available here.
 
 ---
 
+## Performance note (Linux/Wayland)
+
+winit's Wayland backend busy-spins between compositor frame callbacks, which
+can burn a full CPU core while the sampler screen animates. If fans spin up,
+launch with the `--x11` flag to run under XWayland instead, which blocks
+properly on vsync:
+
+```sh
+cargo run --release -- --x11
+```
+
+Static screens idle at a slow repaint heartbeat on either backend, so the fix
+matters mainly for the sampler/calibration screens.
+
+---
+
 ## Handy environment variables
 
 Useful for testing, demos, and screenshots — they jump straight to a screen and

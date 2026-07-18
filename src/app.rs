@@ -9,7 +9,8 @@ use crate::i18n::{self, EUROPEAN_LANGS, I18n};
 use crate::profile::{self, Profile, SessionInfo};
 use crate::session::Session;
 use crate::ui::{
-    self, AudioFrame, ConfigPanel, Pad, PadMode, Renderer, Skin, SpectrumVisualizer, Visualizer,
+    self, AudioFrame, ConfigPanel, OffVisualizer, Pad, PadMode, Renderer, Skin,
+    SpectrumVisualizer, Visualizer,
     VowelVisualizer, compute_layout, draw_kid_face, gloss_overlay,
     skin::{ButtonTex, draw_cover},
 };
@@ -208,9 +209,10 @@ impl App {
             visualizers: vec![
                 Box::new(SpectrumVisualizer::new()),
                 Box::new(VowelVisualizer::new()),
+                Box::new(OffVisualizer),
             ],
             // Clamp in case a newer config selected a visualizer we no longer have.
-            active_visualizer: settings.active_visualizer.min(1),
+            active_visualizer: settings.active_visualizer.min(2),
             config_panel: ConfigPanel::new(),
             settings,
             settings_path,
@@ -662,7 +664,6 @@ impl App {
     }
 
     fn draw_calibrate(&mut self, ui: &mut Ui) {
-        ui.ctx().request_repaint();
         self.pump_calibration();
         if self.screen != AppScreen::Calibrate {
             return;
@@ -1912,7 +1913,17 @@ fn draw_crop_guide(p: &egui::Painter, sq: Rect) {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        ui.ctx().request_repaint();
+        // Repaint policy: animated screens tick at ~30 FPS — plenty for
+        // meters and the recording pulse, and half the tessellation work of
+        // 60 (this is not a game). Static screens idle at a slow heartbeat.
+        // Input events wake egui immediately either way.
+        let animating = matches!(self.screen, AppScreen::Session | AppScreen::Calibrate)
+            || self.config_panel.visible
+            || self.camera.is_some()
+            || self.auto_shot.is_some();
+        let delay = if animating { 33 } else { 100 };
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(delay));
         self.frame_count += 1;
 
         if ui.input(|i| i.key_pressed(Key::F12)) {

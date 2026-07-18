@@ -12,7 +12,6 @@ pub enum PadMode {
 pub enum PadState {
     Idle,
     Pressed,
-    Animating,
 }
 
 pub struct Pad {
@@ -24,8 +23,6 @@ pub struct Pad {
     pub sample_idx: usize,
     pub has_sample: bool,
     pub is_recording: bool,
-    /// 0 = fully raised, 1 = fully pressed. Smoothly animated for a tactile feel.
-    press: f32,
     /// Free-running phase used for the recording pulse.
     pulse_t: f32,
 }
@@ -41,11 +38,12 @@ impl Pad {
             sample_idx: def.sample_idx,
             has_sample: false,
             is_recording: false,
-            press: 0.0,
             pulse_t: 0.0,
         }
     }
 
+    /// No press animation by design: the key snaps between its idle and
+    /// pressed artwork, like a real button.
     pub fn update(&mut self, activated: bool, dt: f32) -> (bool, bool) {
         let mut just_activated = false;
         let mut just_released = false;
@@ -59,25 +57,11 @@ impl Pad {
             }
             PadState::Pressed => {
                 if !activated {
-                    self.state = PadState::Animating;
+                    self.state = PadState::Idle;
                     just_released = true;
                 }
             }
-            PadState::Animating => {
-                if self.press <= 0.001 {
-                    self.state = PadState::Idle;
-                }
-            }
         }
-
-        // Animate the press depth toward its target (snappy on the way down).
-        let target = if self.state == PadState::Pressed {
-            1.0
-        } else {
-            0.0
-        };
-        let speed = if target > self.press { 22.0 } else { 14.0 };
-        self.press += (target - self.press) * (speed * dt).min(1.0);
 
         self.pulse_t = (self.pulse_t + dt) % 1000.0;
 
@@ -95,21 +79,23 @@ impl Pad {
             PadKind::Function => &skin.rec,
             PadKind::Sample => &skin.pads[self.sample_idx.min(skin.pads.len() - 1)],
         };
-        let tex = if self.press > 0.5 {
+        let pressed = self.state == PadState::Pressed;
+        let tex = if pressed {
             &button.pressed
         } else {
             &button.idle
         };
 
-        // Soft drop shadow, fading as the pad is pressed. Inset to stay behind
-        // the artwork (skin images carry a transparent margin).
-        let shadow_a = (36.0 * (1.0 - self.press)) as u8;
-        painter.rect_filled(
-            rect.shrink(size * 0.05)
-                .translate(Vec2::new(0.0, (size * 0.045).clamp(3.0, 9.0))),
-            CornerRadius::same((size * 0.16).min(255.0) as u8),
-            Color32::from_rgba_premultiplied(0, 0, 0, shadow_a),
-        );
+        // Soft drop shadow while the key is raised. Inset to stay behind the
+        // artwork (skin images carry a transparent margin).
+        if !pressed {
+            painter.rect_filled(
+                rect.shrink(size * 0.05)
+                    .translate(Vec2::new(0.0, (size * 0.045).clamp(3.0, 9.0))),
+                CornerRadius::same((size * 0.16).min(255.0) as u8),
+                Color32::from_rgba_premultiplied(0, 0, 0, 36),
+            );
+        }
 
         // Record mode: tint sample pads toward the record colour.
         let tint = if self.kind == PadKind::Sample && self.mode == PadMode::Record {
@@ -119,14 +105,13 @@ impl Pad {
         } else {
             Color32::WHITE
         };
-        let sink = Vec2::new(0.0, size * 0.02 * self.press);
-        painter.image(tex.id(), rect.translate(sink), uv_full(), tint);
+        painter.image(tex.id(), rect, uv_full(), tint);
 
         // Status LED (sample pads only).
         if self.kind == PadKind::Sample {
             let led_r = (size * 0.045).clamp(3.0, 6.0);
             let inset = size * 0.14;
-            let led_pos = Pos2::new(rect.right() - inset, rect.top() + inset) + sink;
+            let led_pos = Pos2::new(rect.right() - inset, rect.top() + inset);
             let led_color = if self.has_sample {
                 theme.led_full
             } else {
