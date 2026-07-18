@@ -1913,14 +1913,15 @@ fn draw_crop_guide(p: &egui::Painter, sq: Rect) {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        // Repaint policy: animated screens tick at ~60 FPS (vsync still paces
-        // the actual paints); static screens idle at a slow heartbeat. Input
-        // events wake egui immediately either way, so the UI stays responsive.
+        // Repaint policy: animated screens tick at ~30 FPS — plenty for
+        // meters and the recording pulse, and half the tessellation work of
+        // 60 (this is not a game). Static screens idle at a slow heartbeat.
+        // Input events wake egui immediately either way.
         let animating = matches!(self.screen, AppScreen::Session | AppScreen::Calibrate)
             || self.config_panel.visible
             || self.camera.is_some()
             || self.auto_shot.is_some();
-        let delay = if animating { 16 } else { 100 };
+        let delay = if animating { 33 } else { 100 };
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(delay));
         self.frame_count += 1;
