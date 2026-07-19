@@ -8,6 +8,7 @@
 //! centred at draw time, so any monitor works.
 
 use super::{VoiceGame, VoiceInput};
+use crate::audio::vowel::VOWELS;
 use raylib::prelude::*;
 
 // Logical canvas.
@@ -23,20 +24,7 @@ const DUCK_H: f32 = 58.0;
 const GRAVITY: f32 = 2100.0;
 const JUMP_V: f32 = 1000.0;
 
-// Vowel indices in VOWELS order (a, e, i, o, u, y).
-const VOWEL_JUMP: usize = 0; // "a"
-const VOWEL_DUCK: usize = 1; // "e"
-
-// Base Pastel palette.
-const CREAM: Color = Color::new(251, 242, 228, 255);
-const PEACH: Color = Color::new(246, 220, 198, 255);
-const MINT: Color = Color::new(198, 229, 211, 255);
-const MINT_DARK: Color = Color::new(154, 197, 172, 255);
-const ROSE: Color = Color::new(245, 169, 188, 255);
-const LILAC: Color = Color::new(201, 184, 232, 255);
-const SKY: Color = Color::new(169, 212, 239, 255);
-const BUTTER: Color = Color::new(245, 226, 158, 255);
-const CHARCOAL: Color = Color::new(74, 68, 60, 255);
+use super::{BUTTER, CHARCOAL, CREAM, LILAC, MINT, MINT_DARK, PEACH, ROSE, SKY};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -79,10 +67,13 @@ pub struct Runner {
     last_scores: [f32; 6],
     last_held: Option<usize>,
     last_level: f32,
+    /// Therapist-chosen controls (indices into VOWELS).
+    jump_vowel: usize,
+    duck_vowel: usize,
 }
 
 impl Runner {
-    pub fn new() -> Self {
+    pub fn new(jump_vowel: usize, duck_vowel: usize) -> Self {
         Self {
             hero_y: GROUND_Y - HERO_H,
             vy: 0.0,
@@ -99,6 +90,8 @@ impl Runner {
             last_scores: [0.0; 6],
             last_held: None,
             last_level: 0.0,
+            jump_vowel,
+            duck_vowel,
         }
     }
 
@@ -154,8 +147,8 @@ impl VoiceGame for Runner {
         self.last_level = input.level;
 
         // --- hero ---
-        self.ducking = input.held == Some(VOWEL_DUCK) && self.on_ground;
-        if input.onset == Some(VOWEL_JUMP) && self.on_ground {
+        self.ducking = input.held == Some(self.duck_vowel) && self.on_ground;
+        if input.onset == Some(self.jump_vowel) && self.on_ground {
             self.vy = -JUMP_V;
             self.on_ground = false;
         }
@@ -270,8 +263,8 @@ impl VoiceGame for Runner {
         for o in &self.obstacles {
             let (rx, ry, rw, rh) = obstacle_rect(o);
             let (body, letter) = match o.kind {
-                Kind::Jump => (ROSE, "a"),
-                Kind::Duck => (LILAC, "e"),
+                Kind::Jump => (ROSE, VOWELS[self.jump_vowel].label()),
+                Kind::Duck => (LILAC, VOWELS[self.duck_vowel].label()),
             };
             let alpha = if o.bounced { 180 } else { 255 };
             let body = Color::new(body.r, body.g, body.b, alpha);
@@ -401,8 +394,8 @@ mod tests {
 
     #[test]
     fn onset_a_jumps_and_lands() {
-        let mut r = Runner::new();
-        r.update(&input(Some(VOWEL_JUMP), Some(VOWEL_JUMP)), 1.0 / 60.0);
+        let mut r = Runner::new(0, 1);
+        r.update(&input(Some(0), Some(0)), 1.0 / 60.0);
         assert!(!r.on_ground);
         // Simulate ~1.5 s: must land again.
         for _ in 0..90 {
@@ -414,8 +407,8 @@ mod tests {
 
     #[test]
     fn holding_e_ducks_only_while_held() {
-        let mut r = Runner::new();
-        r.update(&input(Some(VOWEL_DUCK), None), 1.0 / 60.0);
+        let mut r = Runner::new(0, 1);
+        r.update(&input(Some(1), None), 1.0 / 60.0);
         assert!(r.ducking);
         r.update(&input(None, None), 1.0 / 60.0);
         assert!(!r.ducking);
@@ -423,7 +416,7 @@ mod tests {
 
     #[test]
     fn passed_obstacle_awards_star_and_bumped_one_does_not() {
-        let mut r = Runner::new();
+        let mut r = Runner::new(0, 1);
         // Plant a low block just right of the hero, ducked out of spawn flow.
         r.spawn_timer = 999.0;
         r.obstacles.push(Obstacle {
@@ -441,7 +434,7 @@ mod tests {
             let close = !jumped && r.obstacles.first().is_some_and(|o| o.x < HERO_X + 110.0);
             let i = if close {
                 jumped = true;
-                input(Some(VOWEL_JUMP), Some(VOWEL_JUMP))
+                input(Some(0), Some(0))
             } else {
                 input(None, None)
             };
@@ -451,7 +444,7 @@ mod tests {
         assert_eq!(r.stars, 1);
 
         // Same again but without jumping: collision bounces it, no star.
-        let mut r = Runner::new();
+        let mut r = Runner::new(0, 1);
         r.spawn_timer = 999.0;
         r.obstacles.push(Obstacle {
             x: HERO_X + 200.0,

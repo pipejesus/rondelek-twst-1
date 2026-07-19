@@ -24,6 +24,10 @@ pub struct VoiceBridge {
     level: f32,
     held: Option<usize>,
     refractory: f32,
+    /// When set, only these two vowels compete for the gate — the therapist's
+    /// chosen controls. All other vowels are ignored entirely, which removes
+    /// close-pair confusion (e.g. e vs y) from the game.
+    focus: Option<[usize; 2]>,
     // Copied thresholds (the game process never re-reads settings mid-run).
     voicing_threshold: f32,
     smoothing: f32,
@@ -50,11 +54,17 @@ impl VoiceBridge {
             level: 0.0,
             held: None,
             refractory: 0.0,
+            focus: None,
             voicing_threshold: settings.vowel_voicing_threshold,
             smoothing: settings.vowel_smoothing,
             show_threshold: settings.vowel_show_threshold,
             margin_threshold: settings.vowel_margin_threshold,
         }
+    }
+
+    /// Restrict the gate to two chosen vowels (therapist's control mapping).
+    pub fn set_focus(&mut self, pair: [usize; 2]) {
+        self.focus = Some(pair);
     }
 
     /// Drain the mic, update the detector, and derive this frame's input.
@@ -86,8 +96,14 @@ impl VoiceBridge {
             }
         }
 
-        let active =
-            kb_held.or_else(|| gate(&self.scores, self.show_threshold, self.margin_threshold));
+        let active = kb_held.or_else(|| {
+            gate(
+                &self.scores,
+                self.show_threshold,
+                self.margin_threshold,
+                self.focus,
+            )
+        });
         let onset = self.step_edge(active, dt);
         VoiceInput {
             held: active,
@@ -115,18 +131,38 @@ impl VoiceBridge {
 
 /// The on/off decision on smoothed scores — the same rule as the sampler's
 /// vowel visualizer: loudest vowel wins only if it clears the show threshold
-/// AND beats the runner-up by the margin.
-fn gate(scores: &[f32; 6], show_threshold: f32, margin_threshold: f32) -> Option<usize> {
-    let (idx, &val) = scores
-        .iter()
-        .enumerate()
-        .max_by(|a, b| a.1.total_cmp(b.1))?;
-    let second = scores
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| *i != idx)
-        .map(|(_, &v)| v)
-        .fold(0.0f32, f32::max);
+/// AND beats the runner-up by the margin. With a `focus` pair, only those two
+/// vowels compete (the margin is between them alone), so an unchosen
+/// sound-alike can never steal the detection.
+fn gate(
+    scores: &[f32; 6],
+    show_threshold: f32,
+    margin_threshold: f32,
+    focus: Option<[usize; 2]>,
+) -> Option<usize> {
+    let (idx, val, second) = match focus {
+        Some([a, b]) => {
+            let (i, j) = if scores[a] >= scores[b] {
+                (a, b)
+            } else {
+                (b, a)
+            };
+            (i, scores[i], scores[j])
+        }
+        None => {
+            let (idx, &val) = scores
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.total_cmp(b.1))?;
+            let second = scores
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != idx)
+                .map(|(_, &v)| v)
+                .fold(0.0f32, f32::max);
+            (idx, val, second)
+        }
+    };
     (val >= show_threshold && (val - second) >= margin_threshold).then_some(idx)
 }
 
@@ -149,6 +185,7 @@ mod tests {
                 level: 0.0,
                 held: None,
                 refractory: 0.0,
+                focus: None,
                 voicing_threshold: 0.012,
                 smoothing: 0.5,
                 show_threshold: 0.4,
@@ -159,9 +196,25 @@ mod tests {
 
     #[test]
     fn gate_requires_threshold_and_margin() {
-        assert_eq!(gate(&[0.3, 0.0, 0.0, 0.0, 0.0, 0.0], 0.4, 0.15), None);
-        assert_eq!(gate(&[0.6, 0.5, 0.0, 0.0, 0.0, 0.0], 0.4, 0.15), None);
-        assert_eq!(gate(&[0.6, 0.2, 0.0, 0.0, 0.0, 0.0], 0.4, 0.15), Some(0));
+        assert_eq!(gate(&[0.3, 0.0, 0.0, 0.0, 0.0, 0.0], 0.4, 0.15, None), None);
+        assert_eq!(gate(&[0.6, 0.5, 0.0, 0.0, 0.0, 0.0], 0.4, 0.15, None), None);
+        assert_eq!(
+            gate(&[0.6, 0.2, 0.0, 0.0, 0.0, 0.0], 0.4, 0.15, None),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn focused_gate_ignores_unchosen_sound_alike() {
+        // The kid says "e" but "y" scores even higher (the e/y confusion).
+        // Unfocused: margin fails, nothing detected.
+        let scores = [0.0, 0.55, 0.0, 0.05, 0.0, 0.62];
+        assert_eq!(gate(&scores, 0.4, 0.15, None), None);
+        // Focused on a+e (jump/duck): y is out of the running, e wins clean.
+        assert_eq!(gate(&scores, 0.4, 0.15, Some([0, 1])), Some(1));
+        // And an unchosen vowel alone can't trigger anything: only "y" voiced.
+        let only_y = [0.0, 0.05, 0.0, 0.0, 0.0, 0.9];
+        assert_eq!(gate(&only_y, 0.4, 0.15, Some([0, 1])), None);
     }
 
     #[test]
