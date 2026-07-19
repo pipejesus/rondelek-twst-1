@@ -1,19 +1,28 @@
-//! "Vowel Runner" — the first voice game. The hero runs on their own; the kid
-//! only speaks: say **a** to jump over low blocks, hold **e** to duck under
-//! high bars. Misses never kill — the obstacle just bounces away with a
-//! wobble; every cleared obstacle earns a star. Visuals follow the Base
-//! Pastel skin palette so the game feels like part of the toy.
+//! "Vowel Runner" — the first voice game, now in 2.5D. The hero runs on their
+//! own; the kid only speaks: say one vowel to jump over low blocks, hold
+//! another to duck under high bars. Misses never kill — the obstacle just
+//! bounces away; every cleared obstacle earns a star.
 //!
-//! All positions are in a fixed 1280x720 logical canvas, uniformly scaled and
-//! centred at draw time, so any monitor works.
+//! Rendering: a fixed perspective camera slightly above and beside the action,
+//! everything built from chunky 3D bricks ("pixels became big and 3-D").
+//! Parallax layers scroll by hand-tuned factors of the travelled distance:
+//! clouds 0.10, mountains 0.25 (fog shader), bushes 0.55, ground 1.0. The
+//! hero placeholder brick is drawn under a comic-style toon shader — the same
+//! slot the dragon GLB model will use later. HUD (letter signs, meter, stars)
+//! stays crisp 2D, projected over the scene.
+//!
+//! Gameplay math is untouched from the 2D version: `update()` works in the
+//! same 1280x720 logical space (100 logical px = 1 world unit at draw time),
+//! so physics, collisions and their tests are identical.
 
 use super::{VoiceGame, VoiceInput};
 use crate::audio::vowel::VOWELS;
 use raylib::prelude::*;
 
-// Logical canvas.
+use super::{BUTTER, CHARCOAL, CREAM, LILAC, MINT_DARK, PEACH, ROSE, SKY};
+
+// Logical canvas (gameplay space, matches the 2D version).
 const LW: f32 = 1280.0;
-const LH: f32 = 720.0;
 const GROUND_Y: f32 = 560.0;
 
 // Hero.
@@ -24,12 +33,24 @@ const DUCK_H: f32 = 58.0;
 const GRAVITY: f32 = 2100.0;
 const JUMP_V: f32 = 1000.0;
 
-use super::{BUTTER, CHARCOAL, CREAM, LILAC, MINT, MINT_DARK, PEACH, ROSE, SKY};
+// Logical px per world unit.
+const PPU: f32 = 100.0;
+
+// 2.5D palette additions.
+const GRASS: Color = Color::new(139, 205, 130, 255);
+const GRASS_DARK: Color = Color::new(110, 176, 105, 255);
+const DIRT: Color = Color::new(173, 128, 94, 255);
+const DIRT_DARK: Color = Color::new(128, 92, 66, 255);
+const BUSH_A: Color = Color::new(96, 168, 110, 255);
+const BUSH_B: Color = Color::new(74, 146, 92, 255);
+const MOUNT_A: Color = Color::new(151, 165, 196, 255);
+const MOUNT_B: Color = Color::new(126, 142, 178, 255);
+const CLOUD_WHITE: Color = Color::new(255, 253, 247, 255);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
-    Jump, // low block: jump over (say "a")
-    Duck, // high bar: duck under (say "e")
+    Jump, // low block: jump over
+    Duck, // high bar: duck under
 }
 
 struct Obstacle {
@@ -49,6 +70,13 @@ struct Sparkle {
     age: f32,
 }
 
+/// GPU-side resources, loaded in `init` (absent in unit tests — no window).
+struct Gfx {
+    camera: Camera3D,
+    toon: Shader,
+    fog: Shader,
+}
+
 pub struct Runner {
     hero_y: f32, // hero top edge when standing on ground = GROUND_Y - height
     vy: f32,
@@ -62,6 +90,8 @@ pub struct Runner {
     /// Hero squash feedback after a bump (seconds remaining).
     squash: f32,
     t: f32,
+    /// Distance travelled (logical px) — drives all parallax offsets.
+    dist: f32,
     rng: u64,
     // Copied from the latest VoiceInput so draw() can show live feedback.
     last_scores: [f32; 6],
@@ -70,6 +100,7 @@ pub struct Runner {
     /// Therapist-chosen controls (indices into VOWELS).
     jump_vowel: usize,
     duck_vowel: usize,
+    gfx: Option<Gfx>,
 }
 
 impl Runner {
@@ -86,12 +117,14 @@ impl Runner {
             spawn_timer: 1.2,
             squash: 0.0,
             t: 0.0,
+            dist: 0.0,
             rng: 0x2545_F491_4F6C_DD1D,
             last_scores: [0.0; 6],
             last_held: None,
             last_level: 0.0,
             jump_vowel,
             duck_vowel,
+            gfx: None,
         }
     }
 
@@ -138,13 +171,78 @@ fn overlaps(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32), shrink: f32) -> bo
     ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah
 }
 
+// ---- logical px -> world units --------------------------------------------
+
+/// World x of a logical-pixel x (screen centre -> 0).
+fn wx(x_px: f32) -> f32 {
+    (x_px - LW / 2.0) / PPU
+}
+/// World y of a logical-pixel y (ground top -> 0, up positive).
+fn wy(y_px: f32) -> f32 {
+    (GROUND_Y - y_px) / PPU
+}
+/// Centre + size of a logical rect as world vectors (at depth z, thickness d).
+fn wrect(r: (f32, f32, f32, f32), z: f32, depth: f32) -> (Vector3, Vector3) {
+    let (x, y, w, h) = r;
+    (
+        Vector3::new(wx(x + w / 2.0), wy(y + h / 2.0), z),
+        Vector3::new(w / PPU, h / PPU, depth),
+    )
+}
+
+/// Deterministic per-tile hash in 0..1 (world-stable procedural content).
+fn hash01(k: i64, salt: u64) -> f32 {
+    let mut h = (k as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt;
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+    h ^= h >> 29;
+    (h & 0xFFFF) as f32 / 65535.0
+}
+
+/// Visible half-width (world units) of a layer at depth `z` for our camera —
+/// used to know which procedural tiles are on screen.
+fn half_span(z: f32) -> f32 {
+    // camera z 12.5, fovy 45 deg, 16:9 -> half-width = (12.5 - z) * tan(22.5) * aspect
+    (12.5 - z) * 0.4142 * (16.0 / 9.0) + 2.0
+}
+
 impl VoiceGame for Runner {
+    fn init(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
+        let toon = rl.load_shader_from_memory(
+            thread,
+            Some(include_str!("../../assets/shaders/base.vs")),
+            Some(include_str!("../../assets/shaders/toon.fs")),
+        );
+        let mut fog = rl.load_shader_from_memory(
+            thread,
+            None,
+            Some(include_str!("../../assets/shaders/fog.fs")),
+        );
+        let loc_color = fog.get_shader_location("fogColor");
+        let loc_amount = fog.get_shader_location("fogAmount");
+        // Fog toward the sky wash; constant per layer, so set once.
+        fog.set_shader_value(loc_color, [0.965, 0.87, 0.8, 1.0f32]);
+        fog.set_shader_value(loc_amount, 0.45f32);
+
+        self.gfx = Some(Gfx {
+            camera: Camera3D::perspective(
+                Vector3::new(0.9, 2.2, 12.5),
+                Vector3::new(0.0, 1.0, 0.0),
+                Vector3::Y,
+                45.0,
+            ),
+            toon,
+            fog,
+        });
+    }
+
     fn update(&mut self, input: &VoiceInput, dt: f32) {
         self.t += dt;
         self.squash = (self.squash - dt).max(0.0);
         self.last_scores = input.scores;
         self.last_held = input.held;
         self.last_level = input.level;
+        self.dist += self.speed * dt;
 
         // --- hero ---
         self.ducking = input.held == Some(self.duck_vowel) && self.on_ground;
@@ -212,7 +310,7 @@ impl VoiceGame for Runner {
         if starred {
             self.speed = (self.speed + 8.0).min(500.0);
         }
-        self.obstacles.retain(|o| o.x > -200.0 && o.fly_y < LH);
+        self.obstacles.retain(|o| o.x > -200.0 && o.fly_y < 720.0);
         for s in &mut self.sparkles {
             s.age += dt;
             s.y -= 60.0 * dt;
@@ -221,126 +319,315 @@ impl VoiceGame for Runner {
     }
 
     fn draw(&mut self, d: &mut RaylibDrawHandle, w: i32, h: i32) {
-        d.clear_background(CREAM);
-        let scale = (w as f32 / LW).min(h as f32 / LH);
-        let ox = (w as f32 - LW * scale) / 2.0;
-        let oy = (h as f32 - LH * scale) / 2.0;
-        // Logical → screen helpers.
-        let sx = |x: f32| (ox + x * scale) as i32;
-        let sy = |y: f32| (oy + y * scale) as i32;
-        let sl = |v: f32| (v * scale) as i32;
-        let rect = |x: f32, y: f32, rw: f32, rh: f32| Rectangle {
-            x: ox + x * scale,
-            y: oy + y * scale,
-            width: rw * scale,
-            height: rh * scale,
+        let Some(gfx) = &mut self.gfx else {
+            return; // headless (unit tests) — nothing to draw with
         };
+        let camera = gfx.camera;
 
-        // Sky wash + drifting clouds (parallax at half speed).
+        // Sky wash behind everything.
+        d.clear_background(CREAM);
         d.draw_rectangle_gradient_v(0, 0, w, h, CREAM, PEACH);
-        for (i, base_x) in [180.0f32, 620.0, 1030.0].iter().enumerate() {
-            let cx = (base_x - (self.t * self.speed * 0.12) % (LW + 300.0) + LW + 300.0)
-                % (LW + 300.0)
-                - 150.0;
-            let cy = 110.0 + i as f32 * 55.0;
-            let c = Color::new(255, 255, 255, 170);
-            d.draw_circle(sx(cx), sy(cy), 34.0 * scale, c);
-            d.draw_circle(sx(cx + 34.0), sy(cy + 10.0), 26.0 * scale, c);
-            d.draw_circle(sx(cx - 34.0), sy(cy + 12.0), 24.0 * scale, c);
-        }
 
-        // Ground: mint band with scrolling dashes for a sense of speed.
-        d.draw_rectangle(0, sy(GROUND_Y), w, h - sy(GROUND_Y), MINT);
-        d.draw_rectangle(0, sy(GROUND_Y), w, sl(6.0), MINT_DARK);
-        let dash_shift = (self.t * self.speed) % 90.0;
-        let mut x = -dash_shift;
-        while x < LW {
-            d.draw_rectangle_rounded(rect(x, GROUND_Y + 34.0, 44.0, 8.0), 1.0, 4, MINT_DARK);
-            x += 90.0;
-        }
+        let dist_u = self.dist / PPU;
+        {
+            let mut c3 = d.begin_mode3D(camera);
 
-        // Obstacles + their letter signs.
-        for o in &self.obstacles {
-            let (rx, ry, rw, rh) = obstacle_rect(o);
-            let (body, letter) = match o.kind {
-                Kind::Jump => (ROSE, VOWELS[self.jump_vowel].label()),
-                Kind::Duck => (LILAC, VOWELS[self.duck_vowel].label()),
-            };
-            let alpha = if o.bounced { 180 } else { 255 };
-            let body = Color::new(body.r, body.g, body.b, alpha);
-            d.draw_rectangle_rounded(rect(rx, ry, rw, rh), 0.35, 6, body);
-            if o.kind == Kind::Duck && !o.bounced {
-                // Posts holding the bar, so "go under" reads visually.
-                d.draw_rectangle_rounded(
-                    rect(rx + 6.0, ry + rh, 10.0, GROUND_Y - ry - rh),
-                    1.0,
-                    4,
-                    LILAC,
-                );
-                d.draw_rectangle_rounded(
-                    rect(rx + rw - 16.0, ry + rh, 10.0, GROUND_Y - ry - rh),
-                    1.0,
-                    4,
-                    LILAC,
-                );
+            // --- clouds (z -14, factor 0.10): massive, gentle, blocky ------
+            {
+                let z = -14.0;
+                let period = 16.0;
+                let off = dist_u * 0.10 + self.t * 0.12;
+                let span = half_span(z);
+                let k0 = ((off - span) / period).floor() as i64;
+                let k1 = ((off + span) / period).ceil() as i64;
+                for k in k0..=k1 {
+                    let cx = k as f32 * period - off;
+                    let cy = 4.2 + hash01(k, 11) * 2.4;
+                    let s = 1.0 + hash01(k, 12) * 0.8;
+                    let c = CLOUD_WHITE;
+                    c3.draw_cube(Vector3::new(cx, cy, z), 2.6 * s, 1.0 * s, 1.0, c);
+                    c3.draw_cube(
+                        Vector3::new(cx - 1.5 * s, cy - 0.3, z),
+                        1.4 * s,
+                        0.8 * s,
+                        1.0,
+                        c,
+                    );
+                    c3.draw_cube(
+                        Vector3::new(cx + 1.5 * s, cy - 0.25, z),
+                        1.2 * s,
+                        0.7 * s,
+                        1.0,
+                        c,
+                    );
+                    c3.draw_cube(
+                        Vector3::new(cx + 0.4 * s, cy + 0.55 * s, z),
+                        1.3 * s,
+                        0.7 * s,
+                        1.0,
+                        c,
+                    );
+                }
             }
-            if !o.bounced {
-                // Letter sign floating above: what to say.
-                let sign = rect(rx + rw / 2.0 - 44.0, ry - 120.0, 88.0, 88.0);
-                d.draw_rectangle_rounded(sign, 0.3, 6, Color::new(255, 255, 255, 235));
-                d.draw_rectangle_rounded_lines(sign, 0.3, 6, CHARCOAL);
-                let fs = sl(64.0);
-                let tw = d.measure_text(letter, fs);
-                d.draw_text(
-                    letter,
-                    sx(rx + rw / 2.0) - tw / 2,
-                    sy(ry - 120.0 + 12.0),
-                    fs,
+
+            // --- mountains (z -9, factor 0.25): stepped pyramids in fog ----
+            {
+                let mut fogm = c3.begin_shader_mode(&mut gfx.fog);
+                let z = -9.0;
+                let period = 5.2;
+                let off = dist_u * 0.25;
+                let span = half_span(z);
+                let k0 = ((off - span) / period).floor() as i64;
+                let k1 = ((off + span) / period).ceil() as i64;
+                for k in k0..=k1 {
+                    let cx = k as f32 * period - off + (hash01(k, 21) - 0.5) * 2.0;
+                    let tiers = 2 + (hash01(k, 22) * 3.0) as i32;
+                    let base_w = 3.0 + hash01(k, 23) * 2.2;
+                    let tier_h = 0.85;
+                    let col = if hash01(k, 24) > 0.5 {
+                        MOUNT_A
+                    } else {
+                        MOUNT_B
+                    };
+                    for i in 0..tiers {
+                        let tw = base_w * (1.0 - i as f32 / tiers as f32).max(0.25);
+                        fogm.draw_cube(
+                            Vector3::new(cx, tier_h * (i as f32 + 0.5), z),
+                            tw,
+                            tier_h,
+                            1.6,
+                            col,
+                        );
+                    }
+                }
+            }
+
+            // --- bushes (z -4, factor 0.55): clusters of green blocks ------
+            {
+                let z = -4.0;
+                let period = 2.4;
+                let off = dist_u * 0.55;
+                let span = half_span(z);
+                let k0 = ((off - span) / period).floor() as i64;
+                let k1 = ((off + span) / period).ceil() as i64;
+                for k in k0..=k1 {
+                    if hash01(k, 31) < 0.25 {
+                        continue; // gaps between bushes
+                    }
+                    let cx = k as f32 * period - off + (hash01(k, 32) - 0.5) * 1.2;
+                    let n = 3 + (hash01(k, 33) * 4.0) as i32;
+                    for j in 0..n {
+                        let jj = k.wrapping_mul(16).wrapping_add(j as i64);
+                        let s = 0.35 + hash01(jj, 34) * 0.4;
+                        let bx = cx + (hash01(jj, 35) - 0.5) * 1.3;
+                        let by = s / 2.0 + hash01(jj, 36) * 0.5;
+                        let col = if hash01(jj, 37) > 0.5 { BUSH_A } else { BUSH_B };
+                        // Bush blocks funnel through one draw call so the
+                        // user's textures can swap in later (mesh + material).
+                        c3.draw_cube(Vector3::new(bx, by, z), s, s, s, col);
+                    }
+                }
+            }
+
+            // --- ground (factor 1.0): grass caps + dirt cross-section ------
+            {
+                let period = 1.0;
+                let off = dist_u;
+                let span = half_span(1.5);
+                let k0 = ((off - span) / period).floor() as i64;
+                let k1 = ((off + span) / period).ceil() as i64;
+                for k in k0..=k1 {
+                    let cx = k as f32 * period - off;
+                    let g = 1.0 + (hash01(k, 41) - 0.5) * 0.12;
+                    let grass = Color::new(
+                        (GRASS.r as f32 * g) as u8,
+                        (GRASS.g as f32 * g) as u8,
+                        (GRASS.b as f32 * g) as u8,
+                        255,
+                    );
+                    // Grass cap block.
+                    c3.draw_cube(Vector3::new(cx, -0.14, 0.0), period, 0.28, 3.0, grass);
+                    // Dirt body below (the Mario-style underground, its front
+                    // face is the visible cross-section).
+                    let dg = 1.0 + (hash01(k, 42) - 0.5) * 0.14;
+                    let dirt = Color::new(
+                        (DIRT.r as f32 * dg) as u8,
+                        (DIRT.g as f32 * dg) as u8,
+                        (DIRT.b as f32 * dg) as u8,
+                        255,
+                    );
+                    c3.draw_cube(Vector3::new(cx, -1.23, 0.0), period, 1.9, 3.0, dirt);
+                    // Darker speckle stones embedded in the cross-section.
+                    if hash01(k, 43) > 0.45 {
+                        let sy = -0.55 - hash01(k, 44) * 1.2;
+                        let ss = 0.14 + hash01(k, 45) * 0.16;
+                        c3.draw_cube(
+                            Vector3::new(cx + (hash01(k, 46) - 0.5) * 0.6, sy, 1.4),
+                            ss,
+                            ss,
+                            0.25,
+                            DIRT_DARK,
+                        );
+                    }
+                    // Grass edge highlight on top, blocky dashes.
+                    if hash01(k, 47) > 0.6 {
+                        c3.draw_cube(
+                            Vector3::new(cx, 0.02, 1.3),
+                            period * 0.5,
+                            0.06,
+                            0.3,
+                            GRASS_DARK,
+                        );
+                    }
+                }
+            }
+
+            // --- obstacles (hero plane z 0) --------------------------------
+            for o in &self.obstacles {
+                let alpha = if o.bounced { 200 } else { 255 };
+                match o.kind {
+                    Kind::Jump => {
+                        let (pos, size) = wrect(obstacle_rect(o), 0.0, 0.6);
+                        let c = Color::new(ROSE.r, ROSE.g, ROSE.b, alpha);
+                        c3.draw_cube_v(pos, size, c);
+                        c3.draw_cube_wires_v(pos, size, MINT_DARK);
+                    }
+                    Kind::Duck => {
+                        let (pos, size) = wrect(obstacle_rect(o), 0.0, 0.6);
+                        let c = Color::new(LILAC.r, LILAC.g, LILAC.b, alpha);
+                        c3.draw_cube_v(pos, size, c);
+                        c3.draw_cube_wires_v(pos, size, MINT_DARK);
+                        if !o.bounced {
+                            // Posts holding the bar.
+                            let (rx, ry, rw, rh) = obstacle_rect(o);
+                            for px in [rx + 8.0, rx + rw - 8.0] {
+                                let post_top = ry + rh;
+                                let post_h = GROUND_Y - post_top;
+                                c3.draw_cube(
+                                    Vector3::new(wx(px), wy(post_top + post_h / 2.0), 0.0),
+                                    0.1,
+                                    post_h / PPU,
+                                    0.1,
+                                    LILAC,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- hero: cardboard brick under the toon shader ---------------
+            {
+                let mut toonm = c3.begin_shader_mode(&mut gfx.toon);
+                let (hx, hy, hw, hh) = {
+                    let h = if self.ducking { DUCK_H } else { HERO_H };
+                    let top = if self.on_ground && self.ducking {
+                        GROUND_Y - DUCK_H
+                    } else {
+                        self.hero_y
+                    };
+                    (HERO_X - HERO_W / 2.0, top, HERO_W, h)
+                };
+                let squash = 1.0 - 0.18 * (self.squash / 0.35);
+                let vis_h = hh * squash;
+                let body = (hx, hy + hh - vis_h, hw, vis_h);
+                let (pos, size) = wrect(body, 0.0, 0.35);
+                toonm.draw_cube_v(pos, size, SKY);
+
+                // Face: small dark blocks on the front of the brick.
+                let front = 0.35 / 2.0 + 0.03;
+                let eye_y = wy(body.1 + vis_h * 0.30);
+                for ex in [hx + hw * 0.30, hx + hw * 0.70] {
+                    toonm.draw_cube(
+                        Vector3::new(wx(ex), eye_y, front),
+                        0.09,
+                        0.09,
+                        0.06,
+                        CHARCOAL,
+                    );
+                }
+                // Mouth grows when the kid's voice registers (or stirs with
+                // any sound at all — babbling is progress too).
+                let mouth = if self.last_held.is_some() {
+                    0.22
+                } else {
+                    0.09 + 0.10 * self.last_level.clamp(0.0, 1.0)
+                };
+                toonm.draw_cube(
+                    Vector3::new(wx(hx + hw * 0.5), wy(body.1 + vis_h * 0.58), front),
+                    mouth,
+                    mouth,
+                    0.06,
                     CHARCOAL,
                 );
+                // Scissoring feet while grounded.
+                if self.on_ground {
+                    let phase = (self.t * 10.0).sin();
+                    for (side, p) in [(-1.0f32, phase), (1.0, -phase)] {
+                        toonm.draw_cube(
+                            Vector3::new(
+                                wx(hx + hw * 0.5) + side * 0.22,
+                                0.07 + p.max(0.0) * 0.07,
+                                0.12,
+                            ),
+                            0.2,
+                            0.14,
+                            0.3,
+                            SKY,
+                        );
+                    }
+                }
+            }
+
+            // --- star sparkles as rising blocks ----------------------------
+            for s in &self.sparkles {
+                let a = (255.0 * (1.0 - s.age)) as u8;
+                let c = Color::new(BUTTER.r, BUTTER.g, BUTTER.b, a);
+                let sz = 0.18 + 0.22 * s.age;
+                c3.draw_cube(Vector3::new(wx(s.x), wy(s.y), 0.4), sz, sz, sz, c);
             }
         }
 
-        // Hero: chunky rounded body with a face; squashes on bump, leans when
-        // ducking, legs scissor while running.
-        let (hx, hy, hw, hh) = self.hero_rect();
-        let squash = 1.0 - 0.18 * (self.squash / 0.35);
-        let body = rect(hx, hy + hh * (1.0 - squash), hw, hh * squash);
-        d.draw_rectangle_rounded(body, 0.45, 8, SKY);
-        // Legs (only while grounded).
-        if self.on_ground {
-            let phase = (self.t * 10.0).sin();
-            let leg =
-                |off: f32, p: f32| rect(hx + hw / 2.0 + off - 8.0, GROUND_Y - 4.0 + p, 16.0, 12.0);
-            d.draw_rectangle_rounded(leg(-20.0, phase.max(0.0) * -6.0), 1.0, 4, SKY);
-            d.draw_rectangle_rounded(leg(20.0, (-phase).max(0.0) * -6.0), 1.0, 4, SKY);
-        }
-        // Face.
-        let face_y = hy + hh * (1.0 - squash) + hh * squash * 0.32;
-        let eye_r = 5.0 * scale;
-        d.draw_circle(sx(hx + hw * 0.32), sy(face_y), eye_r, CHARCOAL);
-        d.draw_circle(sx(hx + hw * 0.68), sy(face_y), eye_r, CHARCOAL);
-        // Mouth: opens wide while a vowel registers — the hero "speaks" along.
-        let mouth_y = face_y + 22.0;
-        // Any sound at all makes the mouth stir — babbling is progress too.
-        let mouth_r = if self.last_held.is_some() {
-            13.0
-        } else {
-            5.0 + 5.0 * self.last_level.clamp(0.0, 1.0)
-        };
-        d.draw_circle(sx(hx + hw * 0.5), sy(mouth_y), mouth_r * scale, CHARCOAL);
+        // --- HUD: crisp 2D over the 3D scene -------------------------------
+        let scale = (w as f32 / LW).min(h as f32 / 720.0);
+        let sl = |v: f32| (v * scale) as i32;
 
-        // Star sparkles.
-        for s in &self.sparkles {
-            let a = (255.0 * (1.0 - s.age)) as u8;
-            let c = Color::new(BUTTER.r, BUTTER.g, BUTTER.b, a);
-            let r = (10.0 + 8.0 * s.age) * scale;
-            d.draw_circle(sx(s.x), sy(s.y), r, c);
+        // Letter signs above live obstacles, projected from world space.
+        for o in &self.obstacles {
+            if o.bounced {
+                continue;
+            }
+            let (rx, ry, rw, _) = obstacle_rect(o);
+            let anchor = Vector3::new(wx(rx + rw / 2.0), wy(ry) + 1.15, 0.0);
+            let sp = d.get_world_to_screen(anchor, camera);
+            if sp.x < -100.0 || sp.x > w as f32 + 100.0 {
+                continue;
+            }
+            let letter = match o.kind {
+                Kind::Jump => VOWELS[self.jump_vowel].label(),
+                Kind::Duck => VOWELS[self.duck_vowel].label(),
+            };
+            let side = 88.0 * scale;
+            let sign = Rectangle {
+                x: sp.x - side / 2.0,
+                y: sp.y - side / 2.0,
+                width: side,
+                height: side,
+            };
+            d.draw_rectangle_rounded(sign, 0.3, 6, Color::new(255, 255, 255, 235));
+            d.draw_rectangle_rounded_lines(sign, 0.3, 6, CHARCOAL);
+            let fs = sl(64.0);
+            let tw = d.measure_text(letter, fs);
+            d.draw_text(
+                letter,
+                sp.x as i32 - tw / 2,
+                (sign.y + 12.0 * scale) as i32,
+                fs,
+                CHARCOAL,
+            );
         }
 
-        // Star counter: big and centred, a little below the top edge — right
-        // where the kid is already looking, so chasing points needs no focus
-        // switch. Sits above the obstacle signs and the hero's jump apex.
+        // Star counter: big and centred, where the kid is already looking.
         let txt = format!("{}", self.stars);
         let fs = sl(84.0);
         let tw = d.measure_text(&txt, fs);
@@ -348,7 +635,7 @@ impl VoiceGame for Runner {
         let gap = sl(24.0);
         let total = (star_r * 2.0) as i32 + gap + tw;
         let left = (w - total) / 2;
-        let cy = sy(120.0);
+        let cy = sl(120.0);
         d.draw_circle(left + star_r as i32, cy, star_r, BUTTER);
         d.draw_circle_lines(left + star_r as i32, cy, star_r, CHARCOAL);
         d.draw_text(
@@ -359,22 +646,38 @@ impl VoiceGame for Runner {
             CHARCOAL,
         );
 
-        // Vowel meter strip, bottom-centre: six mini bars with labels.
+        // Vowel meter strip, bottom-centre.
         let labels = ["a", "e", "i", "o", "u", "y"];
-        let strip_w = 6.0 * 64.0;
-        let strip_x = LW / 2.0 - strip_w / 2.0;
+        let strip_w = 6.0 * 64.0 * scale;
+        let strip_x = w as f32 / 2.0 - strip_w / 2.0;
         for i in 0..6 {
-            let bx = strip_x + i as f32 * 64.0;
+            let bx = strip_x + i as f32 * 64.0 * scale;
             let level = self.last_scores[i].clamp(0.0, 1.0);
-            let bh = 10.0 + 44.0 * level;
+            let bh = (10.0 + 44.0 * level) * scale;
             let active = self.last_held == Some(i);
             let c = if active {
                 BUTTER
             } else {
-                Color::new(255, 255, 255, 160)
+                Color::new(255, 255, 255, 170)
             };
-            d.draw_rectangle_rounded(rect(bx, LH - 40.0 - bh, 40.0, bh), 0.5, 4, c);
-            d.draw_text(labels[i], sx(bx + 14.0), sy(LH - 32.0), sl(22.0), CHARCOAL);
+            d.draw_rectangle_rounded(
+                Rectangle {
+                    x: bx,
+                    y: h as f32 - 40.0 * scale - bh,
+                    width: 40.0 * scale,
+                    height: bh,
+                },
+                0.5,
+                4,
+                c,
+            );
+            d.draw_text(
+                labels[i],
+                (bx + 14.0 * scale) as i32,
+                h - sl(32.0),
+                sl(22.0),
+                CHARCOAL,
+            );
         }
     }
 }
@@ -460,5 +763,15 @@ mod tests {
         }
         assert_eq!(r.stars, 0);
         assert!(r.squash > 0.0 || r.obstacles.is_empty() || r.obstacles[0].bounced);
+    }
+
+    #[test]
+    fn distance_accumulates_for_parallax() {
+        let mut r = Runner::new(0, 1);
+        for _ in 0..60 {
+            r.update(&input(None, None), 1.0 / 60.0);
+        }
+        // One second at starting speed ~260 px/s.
+        assert!((r.dist - 260.0).abs() < 5.0);
     }
 }

@@ -142,7 +142,12 @@ every seeded locale (`pl, de, fr, es, it, uk`) must carry the same keys. A test
 The vowel engine powers mini-games (raylib, own fullscreen window, launched
 from a profile's **Games** menu as a separate process). First game: **Vowel
 Runner** — say one vowel to jump, hold another to duck; misses just bounce
-away, every cleared obstacle is a star. Each game opens on a text-free
+away, every cleared obstacle is a star. Rendered in blocky 2.5D (raylib
+perspective camera): parallax clouds/mountains/bushes/ground built from chunky
+bricks, a fog shader on the far mountains, and a comic-style toon shader slot
+on the hero placeholder (a dragon GLB will take it over later). The selection
+screen also carries a wordless turtle↔rabbit Reaction slider (persisted as
+`game_reaction`) that trades detection steadiness for snappiness in games. Each game opens on a text-free
 control-selection screen where the therapist assigns a vowel to each move
 (▲/▼ slots, letter cards, ▶ to start); detection is then restricted to just
 that pair, so confusable unchosen vowels (e.g. e vs y) can't cause misfires. Keyboard keys A/E/I/O/U/Y simulate vowels for

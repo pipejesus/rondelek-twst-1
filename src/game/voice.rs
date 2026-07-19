@@ -68,6 +68,14 @@ impl VoiceBridge {
         self.focus = Some(pair);
     }
 
+    /// Apply the pre-game Reaction slider (0 = turtle/steady, 1 = rabbit/
+    /// snappy): sets the steady-window length and overrides smoothing.
+    pub fn set_reaction(&mut self, t: f32) {
+        let (frames, smoothing) = reaction_mapping(t);
+        self.detector.set_steady_frames(frames);
+        self.smoothing = smoothing;
+    }
+
     /// Drain the mic, update the detector, and derive this frame's input.
     /// `kb_held` (keyboard fallback) overrides the voice gate when present.
     pub fn poll(&mut self, dt: f32, kb_held: Option<usize>) -> VoiceInput {
@@ -167,6 +175,14 @@ fn gate(
     (val >= show_threshold && (val - second) >= margin_threshold).then_some(idx)
 }
 
+/// Turtle→rabbit mapping: steady window 12→3 frames, smoothing 0.75→0.30.
+pub fn reaction_mapping(t: f32) -> (usize, f32) {
+    let t = t.clamp(0.0, 1.0);
+    let frames = (12.0 - 9.0 * t).round() as usize;
+    let smoothing = 0.75 - 0.45 * t;
+    (frames, smoothing)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +209,17 @@ mod tests {
                 margin_threshold: 0.15,
             }
         }
+    }
+
+    #[test]
+    fn reaction_mapping_spans_turtle_to_rabbit() {
+        assert_eq!(reaction_mapping(0.0), (12, 0.75));
+        assert_eq!(reaction_mapping(1.0), (3, 0.30));
+        let (mid_frames, mid_smooth) = reaction_mapping(0.5);
+        assert!((4..=11).contains(&mid_frames));
+        assert!(mid_smooth > 0.30 && mid_smooth < 0.75);
+        // Out-of-range input clamps.
+        assert_eq!(reaction_mapping(9.0), (3, 0.30));
     }
 
     #[test]
