@@ -370,9 +370,10 @@ pub fn build_calibration(
 /// visibly laggier. The floor keeps genuinely ambiguous frames ambiguous.
 const SOFTMAX_BETA: f32 = 0.5;
 const SOFTMAX_MIN_TEMP: f32 = 8.0;
-/// Steady mode: classify the average of this many recent voiced frames instead
-/// of each ~46 ms frame alone. Sustained-vowel noise shrinks by ~sqrt(n),
-/// which is what separates close pairs; costs ~0.1-0.25 s of onset latency.
+/// Steady mode default: classify the average of this many recent voiced
+/// frames instead of each ~46 ms frame alone. Sustained-vowel noise shrinks by
+/// ~sqrt(n), which is what separates close pairs; costs ~0.1-0.25 s of onset
+/// latency. Games override this via the pre-game Reaction slider.
 const STEADY_FRAMES: usize = 8;
 
 /// Outcome of analysing one window.
@@ -415,6 +416,7 @@ pub struct VowelDetector {
     /// Recent channel-normalized frames for steady mode.
     recent: std::collections::VecDeque<Vec<f32>>,
     steady: bool,
+    steady_frames: usize,
     /// Quietest vowel's calibration RMS (0.0 = unknown, use the slider alone).
     min_rms: f32,
 }
@@ -426,6 +428,7 @@ impl Default for VowelDetector {
             channel_ema: None,
             recent: std::collections::VecDeque::new(),
             steady: true,
+            steady_frames: STEADY_FRAMES,
             min_rms: 0.0,
         }
     }
@@ -442,6 +445,15 @@ impl VowelDetector {
             self.recent.clear();
         }
         self.steady = on;
+    }
+
+    /// How many recent voiced frames steady mode averages (the reaction /
+    /// stability trade-off; clamped to 1..=16).
+    pub fn set_steady_frames(&mut self, n: usize) {
+        self.steady_frames = n.clamp(1, 16);
+        while self.recent.len() > self.steady_frames {
+            self.recent.pop_front();
+        }
     }
 
     /// Install (or clear) the active calibration. Seeds the running channel mean
@@ -503,7 +515,7 @@ impl VowelDetector {
 
         if self.steady {
             self.recent.push_back(cmn);
-            if self.recent.len() > STEADY_FRAMES {
+            if self.recent.len() > self.steady_frames {
                 self.recent.pop_front();
             }
             let n = self.recent.len() as f32;

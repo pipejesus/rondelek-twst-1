@@ -49,6 +49,9 @@ pub struct VoiceInput {
 /// A voice-driven mini-game. Implementations get voice input + dt each frame
 /// and draw with plain raylib; the runner in [`run`] owns the window loop.
 pub trait VoiceGame {
+    /// Load GPU resources (shaders, models). Called once, after the window
+    /// exists; unit tests skip it, so games must tolerate running without it.
+    fn init(&mut self, _rl: &mut RaylibHandle, _thread: &RaylibThread) {}
     fn update(&mut self, input: &VoiceInput, dt: f32);
     fn draw(&mut self, d: &mut RaylibDrawHandle, w: i32, h: i32);
 }
@@ -107,31 +110,41 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
     let shot: Option<String> = std::env::var("RONDELEK_GAME_SHOT").ok();
     let harness_select = std::env::var("RONDELEK_GAME_SCREEN").as_deref() == Ok("select");
 
-    // Phase 1: the therapist picks which vowel drives which move.
-    let pair = if max_frames.is_some() && !harness_select {
-        Some((0, 1)) // harness default: a jumps, e ducks
+    // Phase 1: the therapist picks which vowel drives which move, plus the
+    // Reaction slider (turtle = steady, rabbit = snappy).
+    let picked = if max_frames.is_some() && !harness_select {
+        Some((0, 1, settings.game_reaction)) // harness default: a jumps, e ducks
     } else {
         select_controls(
             &mut rl,
             &thread,
+            settings.game_reaction,
             if harness_select { max_frames } else { None },
             shot.as_deref(),
         )
     };
-    let Some((jump_vowel, duck_vowel)) = pair else {
+    let Some((jump_vowel, duck_vowel, reaction)) = picked else {
         return Ok(()); // window closed on the selection screen
     };
     if harness_select {
         return Ok(());
     }
+    if (reaction - settings.game_reaction).abs() > 0.001 {
+        // Remember the therapist's choice for next time.
+        let (mut fresh, path) = Settings::load();
+        fresh.game_reaction = reaction;
+        fresh.save(&path);
+    }
 
     let mut bridge = VoiceBridge::new(&settings, calibration);
     bridge.set_focus([jump_vowel, duck_vowel]);
+    bridge.set_reaction(reaction);
 
     let mut game: Box<dyn VoiceGame> = match id {
         "runner" => Box::new(runner::Runner::new(jump_vowel, duck_vowel)),
         _ => anyhow::bail!("unknown game: {id}"),
     };
+    game.init(&mut rl, &thread);
 
     // Phase 2: play.
     let mut frame: u64 = 0;
@@ -162,17 +175,20 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
 
 // ---- control selection screen --------------------------------------------
 
-/// Let the therapist assign a vowel to each of the two moves. Returns the
-/// chosen `(jump, duck)` pair, or `None` if the window was closed. Text-free:
-/// two slot cards (▲ jump / ▼ duck), a row of vowel letter cards, a ▶ button.
+/// Let the therapist assign a vowel to each of the two moves and set the
+/// Reaction slider. Returns `(jump, duck, reaction)`, or `None` if the window
+/// was closed. Text-free: two slot cards (▲ jump / ▼ duck), a row of vowel
+/// letter cards, a turtle↔rabbit slider, a ▶ button.
 fn select_controls(
     rl: &mut RaylibHandle,
     thread: &RaylibThread,
+    initial_reaction: f32,
     harness_frames: Option<u64>,
     shot: Option<&str>,
-) -> Option<(usize, usize)> {
+) -> Option<(usize, usize, f32)> {
     let mut jump = 0usize;
     let mut duck = 1usize;
+    let mut reaction = initial_reaction.clamp(0.0, 1.0);
     let mut picking_jump = true;
     let mut frame: u64 = 0;
 
@@ -190,6 +206,7 @@ fn select_controls(
         // Layout (1280x720 logical): two slots, six vowel cards, play button.
         let slot_jump = r(1280.0 / 2.0 - 330.0, 120.0, 260.0, 220.0);
         let slot_duck = r(1280.0 / 2.0 + 70.0, 120.0, 260.0, 220.0);
+        let slider = r(1280.0 / 2.0 - 240.0, 556.0, 480.0, 26.0);
         let card = |i: usize| {
             r(
                 1280.0 / 2.0 - 6.0 * 130.0 / 2.0 + i as f32 * 130.0 + 15.0,
@@ -198,18 +215,30 @@ fn select_controls(
                 100.0,
             )
         };
-        let play = r(1280.0 / 2.0 - 110.0, 570.0, 220.0, 96.0);
+        let play = r(1280.0 / 2.0 - 110.0, 612.0, 220.0, 86.0);
 
         // --- input ---
         let mouse = rl.get_mouse_position();
         let clicked = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
+        // Reaction slider: drag anywhere on (or near) the track.
+        if rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
+            let grab = Rectangle {
+                x: slider.x - 20.0,
+                y: slider.y - 24.0,
+                width: slider.width + 40.0,
+                height: slider.height + 48.0,
+            };
+            if grab.check_collision_point_rec(mouse) {
+                reaction = ((mouse.x - slider.x) / slider.width).clamp(0.0, 1.0);
+            }
+        }
         if clicked {
             if slot_jump.check_collision_point_rec(mouse) {
                 picking_jump = true;
             } else if slot_duck.check_collision_point_rec(mouse) {
                 picking_jump = false;
             } else if play.check_collision_point_rec(mouse) {
-                return Some((jump, duck));
+                return Some((jump, duck, reaction));
             } else {
                 for i in 0..6 {
                     if card(i).check_collision_point_rec(mouse) {
@@ -230,7 +259,7 @@ fn select_controls(
             }
         }
         if rl.is_key_pressed(KeyboardKey::KEY_ENTER) || rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
-            return Some((jump, duck));
+            return Some((jump, duck, reaction));
         }
 
         // --- draw ---
@@ -314,6 +343,48 @@ fn select_controls(
                 );
             }
 
+            // Reaction slider: turtle (steady) ↔ rabbit (snappy), wordless.
+            d.draw_rectangle_rounded(slider, 1.0, 6, Color::new(255, 255, 255, 200));
+            d.draw_rectangle_rounded_lines(slider, 1.0, 6, MINT_DARK);
+            let knob = Rectangle {
+                x: slider.x + reaction * slider.width - 12.0 * s,
+                y: slider.y - 8.0 * s,
+                width: 24.0 * s,
+                height: slider.height + 16.0 * s,
+            };
+            d.draw_rectangle_rounded(knob, 0.6, 4, BUTTER);
+            d.draw_rectangle_rounded_lines(knob, 0.6, 4, CHARCOAL);
+            // Turtle glyph (left): low shell + head, blocky.
+            {
+                let gx = slider.x - 74.0 * s;
+                let gy = slider.y + slider.height / 2.0;
+                let px = |x: f32, y: f32, w: f32, h: f32| Rectangle {
+                    x: gx + x * s,
+                    y: gy + y * s,
+                    width: w * s,
+                    height: h * s,
+                };
+                d.draw_rectangle_rounded(px(0.0, -12.0, 40.0, 20.0), 0.8, 4, MINT_DARK);
+                d.draw_rectangle_rounded(px(36.0, -4.0, 14.0, 10.0), 0.6, 4, MINT_DARK);
+                d.draw_rectangle_rec(px(6.0, 8.0, 8.0, 6.0), MINT_DARK);
+                d.draw_rectangle_rec(px(26.0, 8.0, 8.0, 6.0), MINT_DARK);
+            }
+            // Rabbit glyph (right): body + two tall ears, blocky.
+            {
+                let gx = slider.x + slider.width + 28.0 * s;
+                let gy = slider.y + slider.height / 2.0;
+                let px = |x: f32, y: f32, w: f32, h: f32| Rectangle {
+                    x: gx + x * s,
+                    y: gy + y * s,
+                    width: w * s,
+                    height: h * s,
+                };
+                d.draw_rectangle_rounded(px(0.0, -8.0, 30.0, 22.0), 0.8, 4, CHARCOAL);
+                d.draw_rectangle_rounded(px(4.0, -30.0, 8.0, 24.0), 0.8, 4, CHARCOAL);
+                d.draw_rectangle_rounded(px(16.0, -30.0, 8.0, 24.0), 0.8, 4, CHARCOAL);
+                d.draw_rectangle_rec(px(30.0, -2.0, 8.0, 8.0), CHARCOAL);
+            }
+
             // Play button: mint pill with a ▶ triangle.
             d.draw_rectangle_rounded(play, 0.5, 8, MINT);
             d.draw_rectangle_rounded_lines(play, 0.5, 8, MINT_DARK);
@@ -335,7 +406,7 @@ fn select_controls(
             snap(rl, thread, path);
         }
         if harness_frames.is_some_and(|m| frame >= m) {
-            return Some((jump, duck));
+            return Some((jump, duck, reaction));
         }
     }
     None

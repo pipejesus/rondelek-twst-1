@@ -27,6 +27,9 @@ fn default_vowel_margin_threshold() -> f32 {
 fn default_true() -> bool {
     true
 }
+fn default_game_reaction() -> f32 {
+    0.5
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
@@ -62,6 +65,10 @@ pub struct Settings {
     /// pairs; costs a touch of onset latency.
     #[serde(default = "default_true")]
     pub vowel_steady: bool,
+    /// Games' pre-game Reaction slider (0 = turtle/steady, 1 = rabbit/snappy).
+    /// Maps to the steady-window length and smoothing inside games only.
+    #[serde(default = "default_game_reaction")]
+    pub game_reaction: f32,
     /// UI language code. Defaults to the detected system language on first run.
     #[serde(default = "default_language")]
     pub language: String,
@@ -88,6 +95,7 @@ impl Default for Settings {
             vowel_show_threshold: default_vowel_show_threshold(),
             vowel_margin_threshold: default_vowel_margin_threshold(),
             vowel_steady: true,
+            game_reaction: 0.5,
             language: default_language(),
             input_device: None,
             output_device: None,
