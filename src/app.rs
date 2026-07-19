@@ -48,9 +48,13 @@ const CALIB_TARGET: usize = 45;
 /// can re-record any vowel. Overview screen when `selected` is `None`; the
 /// per-vowel record screen when it is `Some(i)`.
 struct CalibrationState {
-    /// Per-vowel captured MFCC frames, in `vowel::VOWELS` order. Empty = not yet
-    /// recorded. Re-recording overwrites the vowel's entry.
+    /// Per-vowel captured MFCC frames, in `vowel::VOWELS` order. Empty = not
+    /// yet recorded. Each new take APPENDS its frames — several takes (ideally
+    /// at different pitch/loudness) give the templates honest variance, which
+    /// is what separates close vowel pairs.
     captured: Vec<Vec<Vec<f32>>>,
+    /// Completed takes per vowel (display only).
+    takes: Vec<u32>,
     /// The vowel currently open for recording; `None` = overview grid.
     selected: Option<usize>,
     /// True while the user holds the record button (push-to-talk).
@@ -595,6 +599,7 @@ impl App {
         }
         self.calib = Some(CalibrationState {
             captured: vec![Vec::new(); vowel::VOWELS.len()],
+            takes: vec![0; vowel::VOWELS.len()],
             selected: None,
             recording: false,
             current: CalibrationCapture::new(),
@@ -694,6 +699,11 @@ impl App {
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
 
+        let takes: Vec<u32> = self
+            .calib
+            .as_ref()
+            .map(|s| s.takes.clone())
+            .unwrap_or_default();
         let recorded: Vec<bool> = self
             .calib
             .as_ref()
@@ -736,7 +746,10 @@ impl App {
                             let i = row * 3 + col;
                             let is_done = recorded.get(i).copied().unwrap_or(false);
                             let letter = vowel::VOWELS[i].label();
-                            let text = if is_done {
+                            let n = takes.get(i).copied().unwrap_or(0);
+                            let text = if is_done && n > 1 {
+                                format!("{letter}\n✓×{n}")
+                            } else if is_done {
                                 format!("{letter}\n✓")
                             } else {
                                 letter.to_string()
@@ -820,7 +833,7 @@ impl App {
         let full = ui.max_rect();
         ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
 
-        let (was_recording, count, level, voiced, already) = self
+        let (was_recording, count, level, voiced, already, takes_done) = self
             .calib
             .as_ref()
             .map(|s| {
@@ -833,9 +846,10 @@ impl App {
                         .get(i)
                         .map(|f| f.len() >= vowel::MIN_CAPTURE_SAMPLES)
                         .unwrap_or(false),
+                    s.takes.get(i).copied().unwrap_or(0),
                 )
             })
-            .unwrap_or((false, 0, 0.0, false, false));
+            .unwrap_or((false, 0, 0.0, false, false, 0));
 
         let target = vowel::VOWELS[i];
         let progress = (count as f32 / CALIB_TARGET as f32).clamp(0.0, 1.0);
@@ -845,6 +859,7 @@ impl App {
         let mut holding = ui.input(|inp| inp.key_down(Key::Space));
         let mut back = false;
         let mut cancel = false;
+        let mut reset = false;
 
         ui.vertical_centered(|ui| {
             ui.add_space((full.height() * 0.08).min(48.0));
@@ -899,10 +914,30 @@ impl App {
                 }
             } else if already {
                 ui.label(
-                    egui::RichText::new(format!("{} ✓", self.i18n.t("calibrate.recorded")))
-                        .color(Color32::from_rgb(0x3C, 0xB0, 0x4B))
-                        .size(15.0),
+                    egui::RichText::new(format!(
+                        "{} ✓×{}",
+                        self.i18n.t("calibrate.recorded"),
+                        takes_done
+                    ))
+                    .color(Color32::from_rgb(0x3C, 0xB0, 0x4B))
+                    .size(15.0),
                 );
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(self.i18n.t("calibrate.more_takes"))
+                        .color(self.theme.text_secondary)
+                        .size(13.0),
+                );
+                ui.add_space(4.0);
+                if ui
+                    .add_sized(
+                        [160.0, 28.0],
+                        egui::Button::new(self.i18n.t("calibrate.reset")),
+                    )
+                    .clicked()
+                {
+                    reset = true;
+                }
             }
 
             ui.add_space(20.0);
@@ -948,7 +983,9 @@ impl App {
             }
             if release_edge {
                 if enough {
-                    s.captured[i] = s.current.take();
+                    let take = s.current.take();
+                    s.captured[i].extend(take);
+                    s.takes[i] += 1;
                 } else {
                     s.current.clear();
                 }
@@ -958,6 +995,10 @@ impl App {
             self.accumulated_samples.clear();
         }
 
+        if reset && let Some(s) = self.calib.as_mut() {
+            s.captured[i].clear();
+            s.takes[i] = 0;
+        }
         if back {
             if let Some(s) = self.calib.as_mut() {
                 s.selected = None;

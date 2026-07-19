@@ -332,8 +332,10 @@ pub fn build_calibration(
 /// Softmax temperature over negative distances. Sets how peaky the per-vowel
 /// scores are; the show/margin thresholds (in settings) decide when to commit.
 const SOFTMAX_TEMP: f32 = 12.0;
-/// How fast the running channel mean tracks the input (per voiced frame).
-const CHANNEL_ALPHA: f32 = 0.02;
+/// Steady mode: classify the average of this many recent voiced frames instead
+/// of each ~46 ms frame alone. Sustained-vowel noise shrinks by ~sqrt(n),
+/// which is what separates close pairs; costs ~0.1-0.25 s of onset latency.
+const STEADY_FRAMES: usize = 8;
 
 /// Outcome of analysing one window.
 #[derive(Clone, Debug)]
@@ -365,18 +367,40 @@ impl VowelResult {
     }
 }
 
-/// Stateful vowel detector: holds the active profile's templates and a running
-/// channel-mean estimate for cepstral-mean normalization. One lives in the vowel
+/// Stateful vowel detector: holds the active profile's templates and the
+/// calibration's channel mean for cepstral-mean normalization (fixed at
+/// runtime — see the note in `analyze`). One lives in the vowel
 /// visualizer; calibration builds the templates it consumes.
-#[derive(Default)]
 pub struct VowelDetector {
     templates: Option<Vec<VowelTemplate>>,
     channel_ema: Option<Vec<f32>>,
+    /// Recent channel-normalized frames for steady mode.
+    recent: std::collections::VecDeque<Vec<f32>>,
+    steady: bool,
+}
+
+impl Default for VowelDetector {
+    fn default() -> Self {
+        Self {
+            templates: None,
+            channel_ema: None,
+            recent: std::collections::VecDeque::new(),
+            steady: true,
+        }
+    }
 }
 
 impl VowelDetector {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Toggle steady mode (feature averaging over recent voiced frames).
+    pub fn set_steady(&mut self, on: bool) {
+        if self.steady != on {
+            self.recent.clear();
+        }
+        self.steady = on;
     }
 
     /// Install (or clear) the active calibration. Seeds the running channel mean
@@ -401,6 +425,8 @@ impl VowelDetector {
     /// Analyse a window: voicing gate, MFCC, channel normalization, classify.
     pub fn analyze(&mut self, window: &[f32], fs: u32, voicing_threshold: f32) -> VowelResult {
         if rms(window) < voicing_threshold {
+            // A pause ends the utterance; don't smear it into the next one.
+            self.recent.clear();
             return VowelResult::silent();
         }
         let Some(templates) = self.templates.as_ref() else {
@@ -410,17 +436,31 @@ impl VowelDetector {
             return VowelResult::silent();
         };
 
-        // Update the running channel mean, then normalize this frame by it.
+        // Normalize by the *calibration's* channel mean — and never adapt it
+        // at runtime. A running EMA here can only ever observe voiced speech,
+        // so it inevitably absorbs the held vowel itself and subtracts it
+        // away (regression test: sustained_vowel_does_not_drift_away — with
+        // adaptation, a 10 s "aaa" flips to "o"). Mic changes are what
+        // recalibration is for.
         let ema = self.channel_ema.get_or_insert_with(|| raw.clone());
         if ema.len() != raw.len() {
             *ema = raw.clone();
         }
-        for (e, &x) in ema.iter_mut().zip(raw.iter()) {
-            *e = *e * (1.0 - CHANNEL_ALPHA) + x * CHANNEL_ALPHA;
-        }
         let cmn: Vec<f32> = raw.iter().zip(ema.iter()).map(|(&x, &m)| x - m).collect();
 
-        classify(&cmn, templates)
+        if self.steady {
+            self.recent.push_back(cmn);
+            if self.recent.len() > STEADY_FRAMES {
+                self.recent.pop_front();
+            }
+            let n = self.recent.len() as f32;
+            let avg: Vec<f32> = (0..N_MFCC)
+                .map(|k| self.recent.iter().map(|f| f[k]).sum::<f32>() / n)
+                .collect();
+            classify(&avg, templates)
+        } else {
+            classify(&cmn, templates)
+        }
     }
 }
 
@@ -561,6 +601,9 @@ mod tests {
         let cal = synth_calibration(None);
         let mut det = detector(&cal);
         for &v in &VOWELS {
+            // A beat of silence between utterances, as in real speech (it
+            // resets steady mode's rolling average).
+            det.analyze(&vec![0.0; 2048], FS, 0.001);
             let w = vowel_window(v, 1.0, None);
             let res = det.analyze(&w, FS, 0.001);
             assert_eq!(res.best, Some(v), "misclassified {:?}", v.label());
@@ -580,6 +623,7 @@ mod tests {
         let cal = synth_calibration(None);
         let mut det = detector(&cal);
         for &v in &VOWELS {
+            det.analyze(&vec![0.0; 2048], FS, 0.0001);
             let mut w = vowel_window(v, 1.0, None);
             for s in &mut w {
                 *s *= 0.2;
@@ -603,6 +647,7 @@ mod tests {
         let cal = synth_calibration(Some(&tilt));
         let mut det = detector(&cal);
         for &v in &VOWELS {
+            det.analyze(&vec![0.0; 2048], FS, 0.001);
             let w = vowel_window(v, 1.0, Some(&tilt));
             assert_eq!(det.analyze(&w, FS, 0.001).best, Some(v), "{:?}", v.label());
         }
@@ -651,5 +696,26 @@ mod tests {
         let mut bad = cal.clone();
         bad.version = 0;
         assert!(!bad.is_valid());
+    }
+
+    #[test]
+    fn sustained_vowel_does_not_drift_away() {
+        // The old CHANNEL_ALPHA=0.02 made the running channel mean absorb a
+        // held vowel within seconds, dissolving close pairs. Holding "a" for
+        // ~10 s (300 voiced frames) must keep classifying as "a" with a
+        // healthy margin to the end.
+        let cal = synth_calibration(None);
+        let mut det = detector(&cal);
+        let w = vowel_window(Vowel::A, 1.0, None);
+        let mut last = VowelResult::silent();
+        for _ in 0..300 {
+            last = det.analyze(&w, FS, 0.001);
+        }
+        assert_eq!(last.best, Some(Vowel::A), "drifted off 'a' during a hold");
+        assert!(
+            last.margin > 0.1,
+            "margin collapsed during hold: {}",
+            last.margin
+        );
     }
 }

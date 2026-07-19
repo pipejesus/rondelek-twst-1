@@ -54,5 +54,7 @@
   "games.calibrate_hint": "Consejo: calibra primero la voz para que el juego conozca las vocales del niño.",
   "games.runner.name": "Corredor de vocales",
   "games.runner.tagline": "¡Di «a» para saltar y «e» para agacharte!",
-  "games.playing": "Juego en curso — cierra la ventana del juego para volver."
+  "games.playing": "Juego en curso — cierra la ventana del juego para volver.",
+  "calibrate.reset": "Empezar de nuevo",
+  "calibrate.more_takes": "Más tomas con distinto tono y volumen refuerzan el reconocimiento."
 }

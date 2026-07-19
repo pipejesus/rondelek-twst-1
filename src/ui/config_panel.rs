@@ -166,6 +166,10 @@ fn detection_tab(ui: &mut egui::Ui, settings: &mut Settings, out: &mut ConfigOut
         .on_hover_text("A vowel lights up only when its match clears this")
         .changed();
     out.changed |= ui
+        .checkbox(&mut settings.vowel_steady, "Steady detection")
+        .on_hover_text("Average ~0.25 s of voice before deciding - steadier on close vowel pairs, slightly slower to react")
+        .changed();
+    out.changed |= ui
         .add(egui::Slider::new(&mut settings.vowel_margin_threshold, 0.0..=0.6).text("Min margin"))
         .on_hover_text("…and only when it beats the runner-up by this much")
         .changed();

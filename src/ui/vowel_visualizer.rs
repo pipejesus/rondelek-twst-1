@@ -76,6 +76,7 @@ impl Visualizer for VowelVisualizer {
         };
         let window = &src[src.len().saturating_sub(WINDOW)..];
 
+        self.detector.set_steady(settings.vowel_steady);
         let VowelResult { scores, .. } =
             self.detector
                 .analyze(window, rate, settings.vowel_voicing_threshold);

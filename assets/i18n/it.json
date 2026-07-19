@@ -54,5 +54,7 @@
   "games.calibrate_hint": "Suggerimento: prima calibra la voce, così il gioco conosce le vocali del bambino.",
   "games.runner.name": "Corridore delle vocali",
   "games.runner.tagline": "Di' «a» per saltare, «e» per abbassarti!",
-  "games.playing": "Partita in corso — chiudi la finestra del gioco per tornare."
+  "games.playing": "Partita in corso — chiudi la finestra del gioco per tornare.",
+  "calibrate.reset": "Ricomincia",
+  "calibrate.more_takes": "Altre registrazioni con tono e volume diversi rafforzano il riconoscimento."
 }

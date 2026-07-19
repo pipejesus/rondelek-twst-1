@@ -54,5 +54,7 @@
   "games.calibrate_hint": "Astuce : calibre d'abord la voix pour que le jeu connaisse les voyelles de l'enfant.",
   "games.runner.name": "Coureur de voyelles",
   "games.runner.tagline": "Dis « a » pour sauter, « e » pour te baisser !",
-  "games.playing": "Partie en cours — ferme la fenêtre du jeu pour revenir."
+  "games.playing": "Partie en cours — ferme la fenêtre du jeu pour revenir.",
+  "calibrate.reset": "Recommencer",
+  "calibrate.more_takes": "D'autres prises à hauteur et volume différents renforcent la reconnaissance."
 }

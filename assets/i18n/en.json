@@ -54,5 +54,7 @@
   "games.calibrate_hint": "Tip: calibrate the voice first so the game knows this child's vowels.",
   "games.runner.name": "Vowel Runner",
   "games.runner.tagline": "Say “a” to jump, “e” to duck!",
-  "games.playing": "Game in progress — close the game window to come back."
+  "games.playing": "Game in progress — close the game window to come back.",
+  "calibrate.reset": "Start over",
+  "calibrate.more_takes": "More takes at different pitch and loudness make recognition stronger."
 }
