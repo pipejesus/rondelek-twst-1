@@ -48,5 +48,11 @@
   "calibrate.recorded": "Записано",
   "calibrate.back": "Назад",
   "calibrate.save": "Зберегти",
-  "calibrate.record_hint": "Утримуйте кнопку (або Пробіл), вимовляючи звук"
+  "calibrate.record_hint": "Утримуйте кнопку (або Пробіл), вимовляючи звук",
+  "sessions.games": "Ігри",
+  "games.title": "Ігри",
+  "games.calibrate_hint": "Порада: спочатку відкалібруй голос, щоб гра знала голосні дитини.",
+  "games.runner.name": "Бігун голосних",
+  "games.runner.tagline": "Скажи «а», щоб стрибнути, «е», щоб пригнутися!",
+  "games.playing": "Гра триває — закрий вікно гри, щоб повернутися."
 }

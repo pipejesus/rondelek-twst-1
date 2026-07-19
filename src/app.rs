@@ -9,9 +9,8 @@ use crate::i18n::{self, EUROPEAN_LANGS, I18n};
 use crate::profile::{self, Profile, SessionInfo};
 use crate::session::Session;
 use crate::ui::{
-    self, AudioFrame, ConfigPanel, OffVisualizer, Pad, PadMode, Renderer, Skin,
-    SpectrumVisualizer, Visualizer,
-    VowelVisualizer, compute_layout, draw_kid_face, gloss_overlay,
+    self, AudioFrame, ConfigPanel, OffVisualizer, Pad, PadMode, Renderer, Skin, SpectrumVisualizer,
+    Visualizer, VowelVisualizer, compute_layout, draw_kid_face, gloss_overlay,
     skin::{ButtonTex, draw_cover},
 };
 use crate::util::now_secs;
@@ -35,6 +34,8 @@ enum AppScreen {
     Calibrate,
     /// The sampler.
     Session,
+    /// Voice mini-games menu (each game runs as its own child process).
+    Games,
 }
 
 /// Voiced MFCC frames that count a vowel as "well recorded" (drives the progress
@@ -112,6 +113,8 @@ pub struct App {
 
     // Vowel calibration flow (per profile).
     calib: Option<CalibrationState>,
+    /// Running voice-game child process, if any (reaped each frame).
+    game_child: Option<std::process::Child>,
     /// The current profile's loaded calibration (cached; drives the config
     /// panel's Calibration tab without re-reading disk each frame).
     current_calibration: Option<vowel::VowelCalibration>,
@@ -229,6 +232,7 @@ impl App {
             form_error: None,
             camera: None,
             calib: None,
+            game_child: None,
             current_calibration: None,
             tex_cache: HashMap::new(),
             flag_cache: HashMap::new(),
@@ -262,6 +266,9 @@ impl App {
         // Edit form for the profile selected via RONDELEK_PROFILE above.
         if std::env::var("RONDELEK_SCREEN").as_deref() == Ok("editprofile") {
             app.begin_edit_profile();
+        }
+        if std::env::var("RONDELEK_SCREEN").as_deref() == Ok("games") {
+            app.screen = AppScreen::Games;
         }
         if std::env::var("RONDELEK_SCREEN").as_deref() == Ok("calibrate") {
             app.begin_calibration();
@@ -1575,6 +1582,7 @@ impl App {
         let mut back = false;
         let mut edit_profile = false;
         let mut calibrate = false;
+        let mut games = false;
         let mut new_session = false;
         let mut open_idx: Option<usize> = None;
 
@@ -1634,6 +1642,16 @@ impl App {
                 {
                     calibrate = true;
                 }
+                ui.add_space(8.0);
+                if ui
+                    .add_sized(
+                        [200.0, 32.0],
+                        egui::Button::new(self.i18n.t("sessions.games")),
+                    )
+                    .clicked()
+                {
+                    games = true;
+                }
                 ui.add_space(16.0);
 
                 let new_btn = egui::Button::new(
@@ -1673,10 +1691,113 @@ impl App {
             self.begin_edit_profile();
         } else if calibrate {
             self.begin_calibration();
+        } else if games {
+            self.screen = AppScreen::Games;
         } else if new_session {
             self.start_new_session();
         } else if let Some(i) = open_idx {
             self.open_session_info(i);
+        }
+    }
+
+    // ---- screen: games ---------------------------------------------------
+
+    fn draw_games(&mut self, ui: &mut Ui) {
+        let full = ui.max_rect();
+        ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
+
+        let playing = self.game_child.is_some();
+        let mut back = false;
+        let mut launch: Option<&'static str> = None;
+
+        if ui
+            .put(
+                Rect::from_min_size(
+                    Pos2::new(full.left() + 12.0, full.top() + 12.0),
+                    egui::vec2(120.0, 34.0),
+                ),
+                egui::Button::new(format!("\u{2039} {}", self.i18n.t("sessions.title"))),
+            )
+            .clicked()
+        {
+            back = true;
+        }
+
+        ui.vertical_centered(|ui| {
+            ui.add_space((full.height() * 0.10).min(72.0));
+            ui.label(
+                egui::RichText::new(self.i18n.t("games.title"))
+                    .color(self.theme.text_primary)
+                    .size(26.0)
+                    .strong(),
+            );
+            ui.add_space(6.0);
+            if self.current_calibration.is_none() {
+                ui.label(
+                    egui::RichText::new(self.i18n.t("games.calibrate_hint"))
+                        .color(self.theme.text_secondary),
+                );
+            }
+            ui.add_space(18.0);
+
+            for (id, name_key) in crate::game::GAMES {
+                let btn = egui::Button::new(
+                    egui::RichText::new(self.i18n.t(name_key))
+                        .size(18.0)
+                        .color(Color32::WHITE),
+                )
+                .fill(ORANGE)
+                .corner_radius(10.0);
+                if ui
+                    .add_enabled(!playing, |ui: &mut Ui| ui.add_sized([320.0, 56.0], btn))
+                    .clicked()
+                {
+                    launch = Some(id);
+                }
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(self.i18n.t("games.runner.tagline"))
+                        .color(self.theme.text_secondary),
+                );
+                ui.add_space(14.0);
+            }
+
+            if playing {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new(self.i18n.t("games.playing"))
+                        .color(self.theme.text_primary),
+                );
+            }
+        });
+
+        if back {
+            self.screen = AppScreen::Sessions;
+        } else if let Some(id) = launch {
+            self.launch_game(id);
+        }
+    }
+
+    /// Spawn the selected game as a child process (own fullscreen window),
+    /// handing it the current profile dir for calibration. The sampler's mic
+    /// is released first so the game can use it.
+    fn launch_game(&mut self, id: &str) {
+        if self.game_child.is_some() {
+            return;
+        }
+        self.capture = None;
+        let profile_dir = self.current_profile.as_ref().map(|p| p.dir.clone());
+        let spawned = std::env::current_exe().and_then(|exe| {
+            let mut cmd = std::process::Command::new(exe);
+            cmd.arg("--game").arg(id);
+            if let Some(dir) = profile_dir {
+                cmd.arg("--profile").arg(dir);
+            }
+            cmd.spawn()
+        });
+        match spawned {
+            Ok(child) => self.game_child = Some(child),
+            Err(e) => self.audio_status = format!("game: {e}"),
         }
     }
 
@@ -1926,6 +2047,13 @@ impl eframe::App for App {
             .request_repaint_after(std::time::Duration::from_millis(delay));
         self.frame_count += 1;
 
+        // Reap a finished game process so the Games screen unlocks.
+        if let Some(child) = &mut self.game_child
+            && matches!(child.try_wait(), Ok(Some(_)) | Err(_))
+        {
+            self.game_child = None;
+        }
+
         if ui.input(|i| i.key_pressed(Key::F12)) {
             self.config_panel.toggle();
             if self.config_panel.visible {
@@ -1950,6 +2078,7 @@ impl eframe::App for App {
             AppScreen::Sessions => self.draw_sessions(ui),
             AppScreen::Calibrate => self.draw_calibrate(ui),
             AppScreen::Session => self.draw_session(ui),
+            AppScreen::Games => self.draw_games(ui),
         }
 
         if self.config_panel.visible {

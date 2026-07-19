@@ -137,6 +137,23 @@ every seeded locale (`pl, de, fr, es, it, uk`) must carry the same keys. A test
 
 ---
 
+## Voice games
+
+The vowel engine powers mini-games (raylib, own fullscreen window, launched
+from a profile's **Games** menu as a separate process). First game: **Vowel
+Runner** — say one vowel to jump, hold another to duck; misses just bounce
+away, every cleared obstacle is a star. Each game opens on a text-free
+control-selection screen where the therapist assigns a vowel to each move
+(▲/▼ slots, letter cards, ▶ to start); detection is then restricted to just
+that pair, so confusable unchosen vowels (e.g. e vs y) can't cause misfires. Keyboard keys A/E/I/O/U/Y simulate vowels for
+testing or playing without a mic; Esc returns to the sampler.
+
+Run a game directly: `cargo run --release -- --game runner --profile <profile-dir>`.
+Adding a game = implement `VoiceGame` (src/game/), register it in `GAMES`
+and the `match` in `game::run`, add its i18n name key.
+
+---
+
 ## Skins
 
 The whole faceplate is image-driven. The built-in **Base Pastel** skin lives in

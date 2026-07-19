@@ -48,5 +48,11 @@
   "calibrate.recorded": "Aufgenommen",
   "calibrate.back": "Zurück",
   "calibrate.save": "Speichern",
-  "calibrate.record_hint": "Halte die Taste (oder Leertaste), während du den Laut sagst"
+  "calibrate.record_hint": "Halte die Taste (oder Leertaste), während du den Laut sagst",
+  "sessions.games": "Spiele",
+  "games.title": "Spiele",
+  "games.calibrate_hint": "Tipp: Zuerst die Stimme kalibrieren, damit das Spiel die Vokale des Kindes kennt.",
+  "games.runner.name": "Vokal-Läufer",
+  "games.runner.tagline": "Sag „a“ zum Springen, „e“ zum Ducken!",
+  "games.playing": "Spiel läuft — schließe das Spielfenster, um zurückzukehren."
 }

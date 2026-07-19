@@ -48,5 +48,11 @@
   "calibrate.recorded": "Enregistré",
   "calibrate.back": "Retour",
   "calibrate.save": "Enregistrer",
-  "calibrate.record_hint": "Maintenez le bouton (ou Espace) en prononçant le son"
+  "calibrate.record_hint": "Maintenez le bouton (ou Espace) en prononçant le son",
+  "sessions.games": "Jeux",
+  "games.title": "Jeux",
+  "games.calibrate_hint": "Astuce : calibre d'abord la voix pour que le jeu connaisse les voyelles de l'enfant.",
+  "games.runner.name": "Coureur de voyelles",
+  "games.runner.tagline": "Dis « a » pour sauter, « e » pour te baisser !",
+  "games.playing": "Partie en cours — ferme la fenêtre du jeu pour revenir."
 }
