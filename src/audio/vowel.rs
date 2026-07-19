@@ -158,6 +158,10 @@ pub struct VowelCalibration {
     /// Input device used at calibration, for the "you changed mics" warning.
     #[serde(default)]
     pub input_device: Option<String>,
+    /// The quietest vowel's median calibration RMS. Drives the adaptive
+    /// voicing gate; 0.0 (older files) = gate uses the settings slider alone.
+    #[serde(default)]
+    pub min_vowel_rms: f32,
     pub created: u64,
 }
 
@@ -184,6 +188,9 @@ pub const MIN_CAPTURE_SAMPLES: usize = 10;
 #[derive(Default)]
 pub struct CalibrationCapture {
     frames: Vec<Vec<f32>>,
+    /// RMS of each accepted window, parallel to `frames` — feeds the adaptive
+    /// voicing gate (quiet vowels like /i/ carry intrinsically less energy).
+    rms: Vec<f32>,
 }
 
 impl CalibrationCapture {
@@ -191,10 +198,12 @@ impl CalibrationCapture {
         Self::default()
     }
 
-    /// Feed one [`mfcc_frame`] result; `None` (unvoiced / failed) is ignored.
-    pub fn push(&mut self, frame: Option<Vec<f32>>) {
+    /// Feed one [`mfcc_frame`] result and its window's RMS; `None` (unvoiced /
+    /// failed) is ignored.
+    pub fn push(&mut self, frame: Option<Vec<f32>>, rms: f32) {
         if let Some(f) = frame {
             self.frames.push(f);
+            self.rms.push(rms);
         }
     }
 
@@ -204,11 +213,15 @@ impl CalibrationCapture {
 
     pub fn clear(&mut self) {
         self.frames.clear();
+        self.rms.clear();
     }
 
-    /// The captured frames (consumed when a vowel is accepted).
-    pub fn take(&mut self) -> Vec<Vec<f32>> {
-        std::mem::take(&mut self.frames)
+    /// The captured frames + per-frame RMS (consumed when a vowel is accepted).
+    pub fn take(&mut self) -> (Vec<Vec<f32>>, Vec<f32>) {
+        (
+            std::mem::take(&mut self.frames),
+            std::mem::take(&mut self.rms),
+        )
     }
 }
 
@@ -297,6 +310,7 @@ const VAR_FLOOR: f32 = 0.25;
 /// order). Returns `None` if any vowel has too few frames.
 pub fn build_calibration(
     per_vowel: &[Vec<Vec<f32>>],
+    per_vowel_rms: &[Vec<f32>],
     sample_rate: u32,
     input_device: Option<String>,
     created: u64,
@@ -316,6 +330,24 @@ pub fn build_calibration(
         .map(|frames| build_template(frames, &channel_mean))
         .collect();
 
+    // The quietest vowel's median RMS: close vowels (/i/, /u/) carry
+    // intrinsically less energy, so the voicing gate must respect the child's
+    // softest vowel rather than demand /a/-level loudness for everything.
+    let min_vowel_rms = per_vowel_rms
+        .iter()
+        .filter(|r| !r.is_empty())
+        .map(|r| {
+            let mut v = r.clone();
+            v.sort_by(|a, b| a.total_cmp(b));
+            v[v.len() / 2]
+        })
+        .fold(f32::MAX, f32::min);
+    let min_vowel_rms = if min_vowel_rms == f32::MAX {
+        0.0
+    } else {
+        min_vowel_rms
+    };
+
     Some(VowelCalibration {
         version: CALIBRATION_VERSION,
         templates,
@@ -323,15 +355,21 @@ pub fn build_calibration(
         n_mfcc: N_MFCC,
         sample_rate,
         input_device,
+        min_vowel_rms,
         created,
     })
 }
 
 // ---- Live detection ----------------------------------------------------------
 
-/// Softmax temperature over negative distances. Sets how peaky the per-vowel
-/// scores are; the show/margin thresholds (in settings) decide when to commit.
-const SOFTMAX_TEMP: f32 = 12.0;
+/// Adaptive score sharpness: the softmax temperature scales with the gap
+/// between the two closest templates, so peakiness — and therefore how fast a
+/// smoothed score crosses the show threshold — does not depend on the
+/// calibration's variance scale. Without this, adding takes (honest, wider
+/// variances → smaller distances) made every score flatter and detection
+/// visibly laggier. The floor keeps genuinely ambiguous frames ambiguous.
+const SOFTMAX_BETA: f32 = 0.5;
+const SOFTMAX_MIN_TEMP: f32 = 8.0;
 /// Steady mode: classify the average of this many recent voiced frames instead
 /// of each ~46 ms frame alone. Sustained-vowel noise shrinks by ~sqrt(n),
 /// which is what separates close pairs; costs ~0.1-0.25 s of onset latency.
@@ -377,6 +415,8 @@ pub struct VowelDetector {
     /// Recent channel-normalized frames for steady mode.
     recent: std::collections::VecDeque<Vec<f32>>,
     steady: bool,
+    /// Quietest vowel's calibration RMS (0.0 = unknown, use the slider alone).
+    min_rms: f32,
 }
 
 impl Default for VowelDetector {
@@ -386,6 +426,7 @@ impl Default for VowelDetector {
             channel_ema: None,
             recent: std::collections::VecDeque::new(),
             steady: true,
+            min_rms: 0.0,
         }
     }
 }
@@ -410,10 +451,12 @@ impl VowelDetector {
             Some(c) if c.is_valid() => {
                 self.templates = Some(c.templates.clone());
                 self.channel_ema = Some(c.channel_mean.clone());
+                self.min_rms = c.min_vowel_rms;
             }
             _ => {
                 self.templates = None;
                 self.channel_ema = None;
+                self.min_rms = 0.0;
             }
         }
     }
@@ -423,8 +466,18 @@ impl VowelDetector {
     }
 
     /// Analyse a window: voicing gate, MFCC, channel normalization, classify.
+    ///
+    /// The gate adapts to the calibration: quiet vowels (/i/, /u/) carry
+    /// intrinsically less energy than /a/, so when the calibration knows the
+    /// child's quietest vowel, the gate opens at 60% of that — the settings
+    /// slider only acts as a ceiling.
     pub fn analyze(&mut self, window: &[f32], fs: u32, voicing_threshold: f32) -> VowelResult {
-        if rms(window) < voicing_threshold {
+        let threshold = if self.min_rms > 0.0 {
+            voicing_threshold.min(self.min_rms * 0.6)
+        } else {
+            voicing_threshold
+        };
+        if rms(window) < threshold {
             // A pause ends the utterance; don't smear it into the next one.
             self.recent.clear();
             return VowelResult::silent();
@@ -476,12 +529,22 @@ fn classify(cmn: &[f32], templates: &[VowelTemplate]) -> VowelResult {
         }
         dists[i] = d;
     }
-    // Softmax over -distance/temp.
+    // Softmax over -distance/temp, temp scaled by the winner/runner-up gap.
     let min_d = dists.iter().copied().fold(f32::MAX, f32::min);
+    let second_d = dists
+        .iter()
+        .copied()
+        .filter(|&d| d > min_d)
+        .fold(f32::MAX, f32::min);
+    let temp = if second_d == f32::MAX {
+        SOFTMAX_MIN_TEMP
+    } else {
+        (SOFTMAX_BETA * (second_d - min_d)).max(SOFTMAX_MIN_TEMP)
+    };
     let mut scores = [0.0f32; 6];
     let mut sum = 0.0f32;
     for (s, &d) in scores.iter_mut().zip(dists.iter()) {
-        let v = (-(d - min_d) / SOFTMAX_TEMP).exp();
+        let v = (-(d - min_d) / temp).exp();
         *s = v;
         sum += v;
     }
@@ -578,16 +641,20 @@ mod tests {
     /// Capture several jittered frames per vowel and build a calibration.
     fn synth_calibration(color: Color) -> VowelCalibration {
         let mut per_vowel: Vec<Vec<Vec<f32>>> = Vec::new();
+        let mut per_rms: Vec<Vec<f32>> = Vec::new();
         for &v in &VOWELS {
             let mut frames = Vec::new();
+            let mut rmss = Vec::new();
             for k in 0..14 {
                 let jitter = 1.0 + (k as f32 - 7.0) * 0.006;
                 let w = vowel_window(v, jitter, color);
+                rmss.push(rms(&w));
                 frames.push(mfcc_frame(&w, FS).expect("mfcc"));
             }
             per_vowel.push(frames);
+            per_rms.push(rmss);
         }
-        build_calibration(&per_vowel, FS, Some("synth".into()), 0).expect("calibration")
+        build_calibration(&per_vowel, &per_rms, FS, Some("synth".into()), 0).expect("calibration")
     }
 
     fn detector(cal: &VowelCalibration) -> VowelDetector {
@@ -673,12 +740,12 @@ mod tests {
     fn capture_needs_minimum_frames() {
         let mut c = CalibrationCapture::new();
         for _ in 0..(MIN_CAPTURE_SAMPLES - 1) {
-            c.push(Some(vec![0.0; N_MFCC]));
+            c.push(Some(vec![0.0; N_MFCC]), 0.02);
         }
         assert!(c.count() < MIN_CAPTURE_SAMPLES);
-        c.push(Some(vec![0.0; N_MFCC]));
+        c.push(Some(vec![0.0; N_MFCC]), 0.02);
         assert_eq!(c.count(), MIN_CAPTURE_SAMPLES);
-        c.push(None); // unvoiced ignored
+        c.push(None, 0.0); // unvoiced ignored
         assert_eq!(c.count(), MIN_CAPTURE_SAMPLES);
     }
 
@@ -686,7 +753,8 @@ mod tests {
     fn build_calibration_rejects_thin_vowels() {
         let mut per_vowel: Vec<Vec<Vec<f32>>> = vec![vec![vec![0.0; N_MFCC]; 20]; 6];
         per_vowel[2].truncate(3); // one vowel too thin
-        assert!(build_calibration(&per_vowel, FS, None, 0).is_none());
+        let per_rms: Vec<Vec<f32>> = vec![vec![0.02; 20]; 6];
+        assert!(build_calibration(&per_vowel, &per_rms, FS, None, 0).is_none());
     }
 
     #[test]
@@ -716,6 +784,59 @@ mod tests {
             last.margin > 0.1,
             "margin collapsed during hold: {}",
             last.margin
+        );
+    }
+
+    #[test]
+    fn quiet_i_passes_the_adaptive_gate() {
+        // /i/ carries intrinsically less energy than /a/; the gate must open
+        // at 60% of the calibration's quietest vowel even when the settings
+        // slider is set far higher.
+        let cal = synth_calibration(None);
+        assert!(cal.min_vowel_rms > 0.0);
+        let mut det = detector(&cal);
+
+        let w = vowel_window(Vowel::I, 1.0, None);
+        let scale = (0.7 * cal.min_vowel_rms) / rms(&w);
+        let quiet: Vec<f32> = w.iter().map(|s| s * scale).collect();
+        // Slider demands twice the quietest vowel's RMS — without adaptation
+        // this window would read as silence.
+        let slider = cal.min_vowel_rms * 2.0;
+        assert!(rms(&quiet) < slider);
+        let res = det.analyze(&quiet, FS, slider);
+        assert_eq!(res.best, Some(Vowel::I), "quiet /i/ was gated out");
+
+        // But truly-below-the-adaptive-gate stays silent.
+        let too_quiet: Vec<f32> = quiet.iter().map(|s| s * 0.4).collect();
+        assert_eq!(det.analyze(&too_quiet, FS, slider).best, None);
+    }
+
+    #[test]
+    fn score_sharpness_survives_wider_variances() {
+        // More calibration takes -> honestly wider variances -> smaller
+        // Mahalanobis distances. The adaptive softmax temperature must keep
+        // scores similarly peaky, or detection turns sluggish (the "11 takes
+        // feels laggy" bug).
+        let cal = synth_calibration(None);
+        let mut wide = cal.clone();
+        for t in &mut wide.templates {
+            for v in &mut t.var {
+                *v *= 4.0;
+            }
+        }
+        let mut det_a = detector(&cal);
+        let mut det_b = detector(&wide);
+        let w = vowel_window(Vowel::A, 1.0, None);
+        det_a.analyze(&vec![0.0; 2048], FS, 0.001);
+        det_b.analyze(&vec![0.0; 2048], FS, 0.001);
+        let normal = det_a.analyze(&w, FS, 0.001);
+        let wide_res = det_b.analyze(&w, FS, 0.001);
+        assert_eq!(wide_res.best, Some(Vowel::A));
+        assert!(
+            wide_res.margin > normal.margin * 0.6,
+            "margin collapsed under wider variances: {} vs {}",
+            wide_res.margin,
+            normal.margin
         );
     }
 }

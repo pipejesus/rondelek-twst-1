@@ -55,6 +55,8 @@ struct CalibrationState {
     captured: Vec<Vec<Vec<f32>>>,
     /// Completed takes per vowel (display only).
     takes: Vec<u32>,
+    /// Per-vowel window RMS values, parallel to `captured` (adaptive gate).
+    captured_rms: Vec<Vec<f32>>,
     /// The vowel currently open for recording; `None` = overview grid.
     selected: Option<usize>,
     /// True while the user holds the record button (push-to-talk).
@@ -600,6 +602,7 @@ impl App {
         self.calib = Some(CalibrationState {
             captured: vec![Vec::new(); vowel::VOWELS.len()],
             takes: vec![0; vowel::VOWELS.len()],
+            captured_rms: vec![Vec::new(); vowel::VOWELS.len()],
             selected: None,
             recording: false,
             current: CalibrationCapture::new(),
@@ -621,7 +624,13 @@ impl App {
                 .capture
                 .as_ref()
                 .map(|c| c.current_device().to_string());
-            match vowel::build_calibration(&state.captured, self.capture_rate, device, now_secs()) {
+            match vowel::build_calibration(
+                &state.captured,
+                &state.captured_rms,
+                self.capture_rate,
+                device,
+                now_secs(),
+            ) {
                 Some(cal) => {
                     if let Err(e) = profile.save_calibration(&cal) {
                         eprintln!("Failed to save calibration: {e}");
@@ -670,7 +679,7 @@ impl App {
             state.live_level = level;
             state.live_voiced = voiced;
             if recording {
-                state.current.push(frame);
+                state.current.push(frame, vowel::rms(window));
             }
         }
     }
@@ -983,8 +992,9 @@ impl App {
             }
             if release_edge {
                 if enough {
-                    let take = s.current.take();
-                    s.captured[i].extend(take);
+                    let (frames, rms) = s.current.take();
+                    s.captured[i].extend(frames);
+                    s.captured_rms[i].extend(rms);
                     s.takes[i] += 1;
                 } else {
                     s.current.clear();
@@ -997,6 +1007,7 @@ impl App {
 
         if reset && let Some(s) = self.calib.as_mut() {
             s.captured[i].clear();
+            s.captured_rms[i].clear();
             s.takes[i] = 0;
         }
         if back {

@@ -327,8 +327,9 @@ mod tests {
         let per_vowel: Vec<Vec<Vec<f32>>> = (0..VOWELS.len())
             .map(|v| (0..20).map(|_| vec![v as f32; N_MFCC]).collect())
             .collect();
-        let cal =
-            build_calibration(&per_vowel, 44_100, Some("Test Mic".into()), 123).expect("built");
+        let per_rms: Vec<Vec<f32>> = vec![vec![0.02; 20]; VOWELS.len()];
+        let cal = build_calibration(&per_vowel, &per_rms, 44_100, Some("Test Mic".into()), 123)
+            .expect("built");
         profile.save_calibration(&cal).unwrap();
 
         let loaded = Profile::load(dir.clone())
