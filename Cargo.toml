@@ -27,3 +27,4 @@ sys-locale = "0.3.2"
 nokhwa = { version = "0.10.11", features = ["input-native"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 winit = { version = "0.30.13", default-features = false, features = ["x11"] }
+raylib = "6.0.0"

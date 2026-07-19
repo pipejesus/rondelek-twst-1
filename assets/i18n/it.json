@@ -48,5 +48,11 @@
   "calibrate.recorded": "Registrato",
   "calibrate.back": "Indietro",
   "calibrate.save": "Salva",
-  "calibrate.record_hint": "Tieni premuto il pulsante (o Spazio) mentre dici il suono"
+  "calibrate.record_hint": "Tieni premuto il pulsante (o Spazio) mentre dici il suono",
+  "sessions.games": "Giochi",
+  "games.title": "Giochi",
+  "games.calibrate_hint": "Suggerimento: prima calibra la voce, così il gioco conosce le vocali del bambino.",
+  "games.runner.name": "Corridore delle vocali",
+  "games.runner.tagline": "Di' «a» per saltare, «e» per abbassarti!",
+  "games.playing": "Partita in corso — chiudi la finestra del gioco per tornare."
 }

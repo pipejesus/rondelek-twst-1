@@ -48,5 +48,11 @@
   "calibrate.recorded": "Recorded",
   "calibrate.back": "Back",
   "calibrate.save": "Save",
-  "calibrate.record_hint": "Hold the button (or Space) while you say the sound"
+  "calibrate.record_hint": "Hold the button (or Space) while you say the sound",
+  "sessions.games": "Games",
+  "games.title": "Games",
+  "games.calibrate_hint": "Tip: calibrate the voice first so the game knows this child's vowels.",
+  "games.runner.name": "Vowel Runner",
+  "games.runner.tagline": "Say “a” to jump, “e” to duck!",
+  "games.playing": "Game in progress — close the game window to come back."
 }

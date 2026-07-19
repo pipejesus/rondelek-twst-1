@@ -48,5 +48,11 @@
   "calibrate.recorded": "Nagrano",
   "calibrate.back": "Wstecz",
   "calibrate.save": "Zapisz",
-  "calibrate.record_hint": "Przytrzymaj przycisk (lub Spację), gdy mówisz głoskę"
+  "calibrate.record_hint": "Przytrzymaj przycisk (lub Spację), gdy mówisz głoskę",
+  "sessions.games": "Gry",
+  "games.title": "Gry",
+  "games.calibrate_hint": "Wskazówka: najpierw skalibruj głos, aby gra znała samogłoski dziecka.",
+  "games.runner.name": "Biegacz samogłosek",
+  "games.runner.tagline": "Powiedz „a”, aby skoczyć, „e”, aby się schylić!",
+  "games.playing": "Gra trwa — zamknij okno gry, aby wrócić."
 }
