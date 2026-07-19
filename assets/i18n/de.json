@@ -54,5 +54,7 @@
   "games.calibrate_hint": "Tipp: Zuerst die Stimme kalibrieren, damit das Spiel die Vokale des Kindes kennt.",
   "games.runner.name": "Vokal-Läufer",
   "games.runner.tagline": "Sag „a“ zum Springen, „e“ zum Ducken!",
-  "games.playing": "Spiel läuft — schließe das Spielfenster, um zurückzukehren."
+  "games.playing": "Spiel läuft — schließe das Spielfenster, um zurückzukehren.",
+  "calibrate.reset": "Neu beginnen",
+  "calibrate.more_takes": "Weitere Aufnahmen in anderer Tonhöhe und Lautstärke machen die Erkennung robuster."
 }

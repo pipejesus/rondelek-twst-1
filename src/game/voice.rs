@@ -45,6 +45,7 @@ impl VoiceBridge {
         }
         let mut detector = VowelDetector::new();
         detector.set_calibration(calibration.as_ref());
+        detector.set_steady(settings.vowel_steady);
 
         Self {
             capture,

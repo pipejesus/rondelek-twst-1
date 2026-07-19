@@ -24,6 +24,9 @@ fn default_vowel_show_threshold() -> f32 {
 fn default_vowel_margin_threshold() -> f32 {
     0.15
 }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Settings {
@@ -54,6 +57,11 @@ pub struct Settings {
     /// (the firm separation between the child's own vowels).
     #[serde(default = "default_vowel_margin_threshold")]
     pub vowel_margin_threshold: f32,
+    /// Steady detection: classify a rolling average of recent voiced frames
+    /// (~0.25 s) instead of each frame alone. Much more stable on close vowel
+    /// pairs; costs a touch of onset latency.
+    #[serde(default = "default_true")]
+    pub vowel_steady: bool,
     /// UI language code. Defaults to the detected system language on first run.
     #[serde(default = "default_language")]
     pub language: String,
@@ -79,6 +87,7 @@ impl Default for Settings {
             vowel_smoothing: default_vowel_smoothing(),
             vowel_show_threshold: default_vowel_show_threshold(),
             vowel_margin_threshold: default_vowel_margin_threshold(),
+            vowel_steady: true,
             language: default_language(),
             input_device: None,
             output_device: None,
