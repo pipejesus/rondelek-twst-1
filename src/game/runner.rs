@@ -345,13 +345,24 @@ impl VoiceGame for Runner {
             d.draw_circle(sx(s.x), sy(s.y), r, c);
         }
 
-        // Star counter, top-right.
-        d.draw_circle(w - sl(150.0), sl(52.0), 16.0 * scale, BUTTER);
+        // Star counter: big and centred, a little below the top edge — right
+        // where the kid is already looking, so chasing points needs no focus
+        // switch. Sits above the obstacle signs and the hero's jump apex.
+        let txt = format!("{}", self.stars);
+        let fs = sl(84.0);
+        let tw = d.measure_text(&txt, fs);
+        let star_r = 32.0 * scale;
+        let gap = sl(24.0);
+        let total = (star_r * 2.0) as i32 + gap + tw;
+        let left = (w - total) / 2;
+        let cy = sy(120.0);
+        d.draw_circle(left + star_r as i32, cy, star_r, BUTTER);
+        d.draw_circle_lines(left + star_r as i32, cy, star_r, CHARCOAL);
         d.draw_text(
-            &format!("{}", self.stars),
-            w - sl(120.0),
-            sl(34.0),
-            sl(40.0),
+            &txt,
+            left + (star_r * 2.0) as i32 + gap,
+            cy - fs / 2,
+            fs,
             CHARCOAL,
         );
 

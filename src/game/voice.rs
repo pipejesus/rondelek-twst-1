@@ -74,7 +74,11 @@ impl VoiceBridge {
                     let res = self
                         .detector
                         .analyze(&self.buf, rate, self.voicing_threshold);
-                    let a = 1.0 - self.smoothing.clamp(0.0, 0.98);
+                    // Normalize the EMA to the sampler's ~30 FPS cadence so
+                    // the F12 "Smoothing" slider feels identical here even
+                    // though this loop runs at 60 FPS.
+                    let keep = self.smoothing.clamp(0.0, 0.98).powf(30.0 * dt);
+                    let a = 1.0 - keep;
                     for i in 0..6 {
                         self.scores[i] += (res.scores[i] - self.scores[i]) * a;
                     }
