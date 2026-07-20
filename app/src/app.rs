@@ -2102,13 +2102,6 @@ impl eframe::App for App {
         // meters and the recording pulse, and half the tessellation work of
         // 60 (this is not a game). Static screens idle at a slow heartbeat.
         // Input events wake egui immediately either way.
-        let animating = matches!(self.screen, AppScreen::Session | AppScreen::Calibrate)
-            || self.config_panel.visible
-            || self.camera.is_some()
-            || self.auto_shot.is_some();
-        let delay = if animating { 33 } else { 100 };
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(delay));
         self.frame_count += 1;
 
         // Reap a finished game process so the Games screen unlocks.
@@ -2116,6 +2109,25 @@ impl eframe::App for App {
             && matches!(child.try_wait(), Ok(Some(_)) | Err(_))
         {
             self.game_child = None;
+        }
+
+        // Repaint policy. While a game child owns the fullscreen window this
+        // window is fully occluded; on Wayland an occluded window gets no
+        // frame callbacks, so *any* pending repaint makes winit busy-wait at
+        // ~100% on one core (the same spin docs/PERF.md chased). Request
+        // nothing then — the focus/occlusion event winit delivers when the
+        // game window closes wakes us to reap the child and resume painting.
+        // ponytail: reaping now relies on the compositor refocusing us when the
+        // game closes; add a timer-based reap only if a compositor is found
+        // that doesn't (no repaint while hidden is the whole point — see PERF.md).
+        if self.game_child.is_none() {
+            let animating = matches!(self.screen, AppScreen::Session | AppScreen::Calibrate)
+                || self.config_panel.visible
+                || self.camera.is_some()
+                || self.auto_shot.is_some();
+            let delay = if animating { 33 } else { 100 };
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(delay));
         }
 
         if ui.input(|i| i.key_pressed(Key::F12)) {

@@ -310,11 +310,183 @@ watch `epoll_pwait` calls/s fall from ~7,000 to dozens.
 
 ---
 
+## Part two — "the game burns 100%" (it didn't)
+
+Everything above fixed the sampler (the egui app). Later, a new symptom: while
+a voice-game (Vowel Runner) is running, `htop` shows a full core pegged at
+100%. The obvious suspect is the game — it's the new, GPU-heavy thing on
+screen. This part is the story of how the obvious suspect turned out to be
+innocent, and the real culprit was a process we weren't even looking at.
+
+The one twist that makes this worth writing down: **when two processes are
+alive, "which PID?" comes before "which thread?"**. We skipped that question
+once and it cost us.
+
+## Step 9 — Measure the accused first
+
+The game runs its own raylib window loop, capped with `set_target_fps(60)`.
+There's a built-in headless harness (`RONDELEK_GAME_FRAMES=N` auto-quits after
+N frames) so we can run the real loop unattended and put a number on it:
+
+```sh
+RONDELEK_GAME_FRAMES=3000 ./target/release/rondelek-game runner >/dev/null 2>&1 &
+APP=$!; sleep 6
+pidstat -p $APP 1 8
+# Average: ... %usr 6.88  %system 2.88  %CPU 9.75  rondelek-game
+ps -L -o tid,pcpu,comm -p $APP | sort -k2 -rn | head
+#   ...  9.0 rondelek-game     <- main thread
+```
+
+🟢 **Plain**: Before believing "the game is the problem", we ran *just the
+game* and measured it — the same first move as Step 1. Verdict: **~10% of one
+core**, not 100%. The accused has an alibi. Whatever the user is seeing, it
+isn't the game loop.
+
+🔬 **Technical**: 600 frames took ~10 s (a clean 60 fps cap), and an
+`strace -c` of the same run showed `clock_nanosleep` firing ~60×/s — the
+`set_target_fps` sleep. raylib's default `WaitTime` is a partial-busy wait
+(sleep ~95%, spin the last ~5%), which is exactly the ~10% we measured. The
+loop sleeps; it is not the spinner.
+
+## Step 10 — The clue that reframed everything: *how* it's launched
+
+The number that finally matched the symptom came with one extra fact from the
+user: 100% happens **when the game is launched from the app's Games screen**,
+not when the game is run standalone. That's the whole ballgame — it means the
+variable isn't the game, it's *the app that's still running behind it*.
+
+The sampler spawns the game as a **sibling child process** and keeps running:
+
+```rust
+// app/src/app.rs::launch_game
+Command::new(sibling).arg(id) /* + --profile <dir> */ .spawn()
+```
+
+🟢 **Plain**: The game opens its own fullscreen window *on top of* the sampler.
+The sampler doesn't close — it's still there, hidden behind the game. So now
+there are two programs running, and we'd only been measuring one of them. The
+suspect list just doubled.
+
+🔬 **Technical**: This is the differential-diagnosis reflex from Step 6, one
+level up: when a symptom depends on *configuration* (launched-from-app vs
+standalone), bisect the configuration. The only thing "launched from app"
+adds is a live, now-occluded parent process. That's the new variable to
+measure.
+
+## Step 11 — Point pidstat at the *other* process
+
+Same binary, but now measure the parent `rondelek` while a fullscreen game
+sits on top of it — and compare Wayland against the X11 fallback from Step 8:
+
+```sh
+./target/release/rondelek >/dev/null 2>&1 &            APP=$!   # Wayland (default)
+sleep 4
+RONDELEK_GAME_FRAMES=100000 ./target/release/rondelek-game runner >/dev/null 2>&1 &
+sleep 5
+pidstat -p $APP 1 6 | tail -1
+# Wayland, parent occluded:  ... %CPU 92.17  rondelek     <- there it is
+```
+
+```sh
+./target/release/rondelek --x11 ...                              # X11 fallback
+# X11, parent occluded:      ... %CPU  4.80  rondelek     <- immune
+```
+
+🟢 **Plain**: There's our 100%. It's the **sampler**, not the game — spinning
+at 92% while completely hidden behind the game window. And it only does this on
+Wayland; the `--x11` version stays at ~5%. Same bug family as Part one, same
+cure worked, just a place we never thought to look because the window was
+invisible.
+
+🔬 **Technical**: The mechanism is the Step 7 spin, re-armed by a new trigger.
+A Wayland surface that is fully occluded stops receiving `wl_surface` **frame
+callbacks** — the compositor has nothing to show, so it never pings "draw the
+next frame". winit's loop, if *any* repaint is pending, busy-waits for that
+callback that will never come (winit #2690). Our Part-one fix left a 100 ms
+idle heartbeat pending (`request_repaint_after(100)`); harmless while the
+window is *visible* (real frame callbacks pace it to ~60 Hz), catastrophic
+while it's *occluded* (no callbacks, so the pending repaint spins forever). An
+`strace -c` of the occluded parent shows the same `epoll_pwait` +
+`timerfd_settime` re-arm + `read`→`EAGAIN` fingerprint as Step 7.
+
+## Step 12 — A measurement trap: the number that wouldn't sit still
+
+One honest wrinkle worth recording. Early runs of the *visible* parent flip-
+flopped: sometimes 84%, sometimes 4.5% — same binary, same command.
+
+🟢 **Plain**: The reading changed between runs because it depended on something
+we weren't controlling: whether the compositor had *actually* covered the
+window at that instant (another window on top, or it happened to be
+front-most). Frustrating, until we realised the flapping number *was itself
+the clue* — the CPU tracks real on-screen occlusion, exactly what a
+frame-callback-starvation bug would do.
+
+🔬 **Technical**: The confound was occlusion state, which a backgrounded
+launch doesn't pin down. The fix for the *experiment* is the same as always:
+remove the uncontrolled variable. We forced deterministic occlusion by putting
+a real fullscreen game on top every time (Step 11), turning a ±40-point noisy
+reading into a stable 92%. If a benchmark won't hold still, you have a hidden
+variable, not bad luck — find it before you trust any before/after.
+
+## Step 13 — Fix, proven with forced occlusion
+
+The parent has no reason to paint while it's hidden behind a game. So while a
+game child is alive, request *nothing* — let the loop block in `epoll` — and
+rely on the focus/occlusion event winit delivers when the game window closes
+to wake it, reap the child, and resume:
+
+```rust
+self.frame_count += 1;
+// Reap a finished game first, so the returning-focus frame unlocks the screen.
+if let Some(child) = &mut self.game_child
+    && matches!(child.try_wait(), Ok(Some(_)) | Err(_))
+{ self.game_child = None; }
+
+// While a game child owns the fullscreen window this window is occluded; on
+// Wayland any pending repaint then busy-waits at ~100% (Step 11). Paint
+// nothing — the focus event on game close wakes us to reap and resume.
+if self.game_child.is_none() {
+    let delay = if animating { 33 } else { 100 };
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(delay));
+}
+```
+
+Verified by adding a temporary `RONDELEK_TEST_HIDE` env toggle (the same
+no-repaint path, forced on without needing a real child), then measuring the
+parent under a forced fullscreen game — same ruler as Step 11:
+
+| Parent `rondelek`, occluded by a fullscreen game (Wayland) | %CPU |
+|---|---|
+| Before — 100 ms heartbeat still pending | **92.2%** |
+| After — no repaint requested while hidden | **0.7%** |
+
+🟢 **Plain**: 92% → under 1%, measured the exact same way as the bug. The test
+toggle was removed once it had done its job; the shipped code keys off the
+app's own game child (`game_child.is_some()`), which is only true on the real
+"launched from the app" path — the one that reproduced the bug.
+
+🔬 **Technical**: No-repaint is the *only* lever that works here: a *slower*
+heartbeat doesn't help, because a single pending repaint spins until a frame
+callback that never arrives — interval is irrelevant while occluded (which is
+why the 92% was the same shape at 100 ms as it would be at 1 s). The one
+tradeoff is that reaping the child now depends on the compositor sending a
+focus/occlusion event when the game closes (normal on standard Wayland); the
+`try_wait()` runs on that returning frame. A timer-based reap is the fallback
+if a compositor is ever found that doesn't refocus on close — deliberately not
+built yet (`// ponytail:`), since no repaint is the whole point.
+
+The lesson of Part two, in one line: **when the symptom appears, first ask
+which *process* owns it — the loudest thing on screen is not always the one
+burning the CPU.**
+
+---
+
 ## The toolbox, in one table
 
 | Tool | One-liner | Answers |
 |---|---|---|
 | `pidstat -p PID 1 N` | CPU per second, usr/system split | "how much, and code or kernel?" |
+| `pidstat` on *each* live PID | measure the parent too, not just the accused | "which **process** owns the spin?" (Part two) |
 | `ps -L -o tid,pcpu,comm -p PID` | per-thread CPU + names | "which thread, which library?" |
 | `perf record -g` / `perf report` | sampling profiler (needs `perf_event_paranoid` ≤ 2) | "which functions?" |
 | `strace -c -f CMD` | syscall census with error counts | "what does it ask the kernel, how often, how vainly?" |
@@ -326,5 +498,6 @@ watch `epoll_pwait` calls/s fall from ~7,000 to dozens.
 
 And the loop that ties them together: **measure → hypothesize → experiment
 that could falsify → re-measure with the same ruler → repeat**. We were wrong
-once (Step 5) and it cost ten minutes; being wrong without measuring costs
-releases.
+twice — the repaint theory in Step 5, and the whole accused process in Part
+two — and each time measuring caught it in minutes; being wrong *without*
+measuring costs releases.
