@@ -3478,25 +3478,46 @@ name = "rondelek"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cpal",
  "dirs",
  "eframe",
  "egui",
- "hound",
  "image",
  "nokhwa",
- "non-empty-slice",
- "raylib",
  "rfd",
  "ringbuf",
+ "rondelek-core",
  "rustfft",
+ "serde",
+ "serde_json",
+ "winit",
+ "zip",
+]
+
+[[package]]
+name = "rondelek-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cpal",
+ "dirs",
+ "egui",
+ "hound",
+ "image",
+ "non-empty-slice",
  "serde",
  "serde_json",
  "spectrograms",
  "sys-locale",
  "uuid",
- "winit",
- "zip",
+]
+
+[[package]]
+name = "rondelek-game"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "raylib",
+ "rondelek-core",
 ]
 
 [[package]]

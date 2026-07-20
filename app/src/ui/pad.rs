@@ -1,4 +1,4 @@
-use crate::config::{PadDef, PadKind, ROUNDING_PAD, Theme};
+use rondelek_core::config::{PadDef, PadKind, ROUNDING_PAD, Theme};
 use crate::ui::skin::{Skin, uv_full};
 use egui::{Color32, CornerRadius, Key, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 

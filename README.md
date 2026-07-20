@@ -153,9 +153,13 @@ control-selection screen where the therapist assigns a vowel to each move
 that pair, so confusable unchosen vowels (e.g. e vs y) can't cause misfires. Keyboard keys A/E/I/O/U/Y simulate vowels for
 testing or playing without a mic; Esc returns to the sampler.
 
-Run a game directly: `cargo run --release -- --game runner --profile <profile-dir>`.
-Adding a game = implement `VoiceGame` (src/game/), register it in `GAMES`
-and the `match` in `game::run`, add its i18n name key.
+Run a game directly: `cargo run -p rondelek-game -- runner --profile <profile-dir>`.
+It's a separate binary/crate (`game/`) from the sampler app (`app/`), sharing
+audio/config/profile logic through `core/` — raylib and the app's eframe/winit
+stack both define a Windows `ShowCursor` symbol, so they can't share a link.
+Adding a game = implement `VoiceGame` (`game/src/`), register it in the
+`match` in `game::run` and in `rondelek_core::games::GAMES`, add its i18n name
+key.
 
 ---
 

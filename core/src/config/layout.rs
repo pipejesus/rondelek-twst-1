@@ -7,8 +7,9 @@ pub enum PadKind {
 }
 
 /// A pad's identity and keyboard binding. Geometry is *not* stored here — pad
-/// rectangles are computed every frame from the real window size by
-/// `crate::ui::layout`, so the faceplate reflows fluidly on resize.
+/// rectangles are computed every frame from the real window size by the
+/// `rondelek` app crate's `ui::layout`, so the faceplate reflows fluidly on
+/// resize.
 #[derive(Clone, Debug)]
 pub struct PadDef {
     pub kind: PadKind,

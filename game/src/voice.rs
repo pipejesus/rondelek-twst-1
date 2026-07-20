@@ -5,10 +5,10 @@
 //! visualizer also triggers in a game — one mental model for the kid.
 
 use super::VoiceInput;
-use crate::audio::Capture;
-use crate::audio::device::{self, DevicePref};
-use crate::audio::vowel::{VowelCalibration, VowelDetector};
-use crate::config::Settings;
+use rondelek_core::audio::Capture;
+use rondelek_core::audio::device::{self, DevicePref};
+use rondelek_core::audio::vowel::{VowelCalibration, VowelDetector};
+use rondelek_core::config::Settings;
 
 /// Analysis window fed to the detector, matching the visualizer (~46 ms).
 const WINDOW: usize = 2048;

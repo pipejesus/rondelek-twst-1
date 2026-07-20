@@ -1,6 +1,6 @@
 use egui::{Pos2, Rect, Vec2};
 
-use crate::config::{NUM_SAMPLES, PAD_COLS, PAD_ROWS};
+use rondelek_core::config::{NUM_SAMPLES, PAD_COLS, PAD_ROWS};
 
 /// Computed faceplate geometry for a single frame. Everything is derived from
 /// the live window rectangle so the layout reflows fluidly on resize — there is
