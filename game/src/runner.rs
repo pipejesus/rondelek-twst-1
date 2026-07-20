@@ -33,9 +33,11 @@ const HERO_H: f32 = 110.0;
 const DUCK_H: f32 = 58.0;
 const GRAVITY: f32 = 2100.0;
 const JUMP_V: f32 = 1000.0;
-// Ninja double-jump ("salto"): a second jump-vowel while airborne, a touch
-// punchier than the first so the hero climbs clearly higher.
-const AIR_JUMP_V: f32 = 1050.0;
+// Ninja double-jump ("salto"): a second jump-vowel while airborne, punchier
+// than the first so the hero climbs clearly higher. Tuned (with HIGH_H) so that
+// even a badly-timed second jump — pressed the instant the hero leaves the
+// ground — still clears a High pillar: demanding, but not frustrating for kids.
+const AIR_JUMP_V: f32 = 1150.0;
 // Flip duration (s) — comfortably shorter than the double-jump's airtime, so
 // the hero lands upright.
 const SALTO_DUR: f32 = 0.45;
@@ -48,9 +50,9 @@ const BULLET_VX: f32 = 1150.0;
 const WALL_W: f32 = 92.0;
 const WALL_H: f32 = 300.0;
 // High pillar: tall enough that a single jump can never clear it (even with the
-// forgiving hitbox), but the ninja double-jump comfortably can.
+// forgiving hitbox), but *any* ninja double-jump — however timed — does.
 const HIGH_W: f32 = 64.0;
-const HIGH_H: f32 = 380.0;
+const HIGH_H: f32 = 360.0;
 
 // Logical px per world unit.
 const PPU: f32 = 100.0;
@@ -1005,15 +1007,15 @@ mod tests {
 
     #[test]
     fn ninja_double_jump_climbs_higher_than_a_single() {
-        // Peak hero-bottom height (px above ground) for a single vs double jump.
-        fn peak(double: bool) -> f32 {
+        // Peak hero-bottom height (px above ground). `second_at` = frame in the
+        // air to fire the second jump (None = single jump).
+        fn peak(second_at: Option<u32>) -> f32 {
             let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);
             r.spawn_timer = 999.0;
             r.update(&input(None, Some(0)), 1.0 / 60.0); // leave the ground
             let mut highest = 0.0f32;
             for f in 0..120 {
-                // Second jump near the first apex (~28 frames up).
-                let i = if double && f == 22 {
+                let i = if second_at == Some(f) {
                     input(None, Some(0))
                 } else {
                     input(None, None)
@@ -1023,12 +1025,18 @@ mod tests {
             }
             highest
         }
-        let single = peak(false);
-        let double = peak(true);
-        // A single jump can never clear a High pillar; the ninja jump can.
+        let single = peak(None);
+        let double_early = peak(Some(0)); // worst timing: pressed immediately
+        let double_apex = peak(Some(22)); // good timing: near the first apex
+        // A single jump can never clear a High pillar…
         assert!(single < 0.8 * HIGH_H, "single {single} vs {}", 0.8 * HIGH_H);
-        assert!(double > 0.8 * HIGH_H, "double {double} vs {}", 0.8 * HIGH_H);
-        assert!(double > single + 150.0);
+        // …but *any* double-jump does, even the worst-timed one.
+        assert!(
+            double_early > 0.8 * HIGH_H,
+            "worst-timed double {double_early} must still clear {}",
+            0.8 * HIGH_H
+        );
+        assert!(double_apex > double_early); // better timing → higher
     }
 
     #[test]
