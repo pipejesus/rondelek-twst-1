@@ -1,6 +1,8 @@
 use egui::{Pos2, Rect, Vec2};
 
+use rondelek_core::config::atlas;
 use rondelek_core::config::{NUM_SAMPLES, PAD_COLS, PAD_ROWS};
+use crate::ui::skin::slice_screen_inset;
 
 /// Computed faceplate geometry for a single frame. Everything is derived from
 /// the live window rectangle so the layout reflows fluidly on resize — there is
@@ -79,7 +81,9 @@ pub fn compute(available: Rect) -> FaceLayout {
         Pos2::new(content.left(), screen_top),
         Vec2::new(content.width(), screen_h),
     );
-    let bezel_thickness = (screen_h * 0.10).clamp(5.0, 14.0);
+    // Match the bezel's drawn nine-slice inset so the screen fills exactly the
+    // frame opening (renderer draws the bezel with the same value).
+    let bezel_thickness = slice_screen_inset(atlas::BEZEL_INSET, screen_bezel);
     let screen = screen_bezel.shrink(bezel_thickness);
 
     // Pad area: everything below the screen.

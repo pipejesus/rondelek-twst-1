@@ -1,3 +1,4 @@
+pub mod atlas;
 pub mod layout;
 pub mod settings;
 pub mod theme;

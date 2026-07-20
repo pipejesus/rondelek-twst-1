@@ -1,7 +1,8 @@
 use rondelek_core::config::Theme;
+use rondelek_core::config::atlas;
 use crate::ui::FaceLayout;
-use crate::ui::skin::{Skin, draw_nine_slice, draw_tiled, slice_screen_inset};
-use egui::{CornerRadius, Painter, Vec2};
+use crate::ui::skin::Skin;
+use egui::{CornerRadius, Painter};
 
 pub struct Renderer;
 
@@ -11,24 +12,11 @@ impl Renderer {
     pub fn draw_case(painter: &Painter, layout: &FaceLayout, skin: &Skin, theme: &Theme) {
         let case = layout.case;
 
-        // Drop shadow for the whole unit.
-        painter.rect_filled(
-            case.translate(Vec2::new(6.0, 6.0)),
-            CornerRadius::same(18),
-            theme.case_shadow,
-        );
-
-        // Body: nine-sliced so corners stay crisp at any window size, plus the
-        // tiled matte grain over the flat centre (which stretching leaves
-        // noise-free by design — see genskin).
-        draw_nine_slice(painter, &skin.case, case, skin.slice.case);
-        if let Some(grain) = &skin.grain {
-            let d = slice_screen_inset(skin.slice.case, case);
-            draw_tiled(painter, grain, case.shrink(d));
-        }
-
-        // Screen bezel and the screen itself.
-        draw_nine_slice(painter, &skin.bezel, layout.screen_bezel, skin.slice.bezel);
-        painter.rect_filled(layout.screen, CornerRadius::same(8), theme.visualizer_bg);
+        // Body and screen bezel, both nine-sliced so corners stay crisp at any
+        // window size. The bezel's inset matches `layout`'s screen inset, so the
+        // visualizer fills exactly the opening and never overlaps the frame.
+        skin.nine(painter, atlas::CASE, atlas::CASE_INSET, case);
+        skin.nine(painter, atlas::BEZEL, atlas::BEZEL_INSET, layout.screen_bezel);
+        painter.rect_filled(layout.screen, CornerRadius::same(6), theme.visualizer_bg);
     }
 }

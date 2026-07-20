@@ -2,12 +2,12 @@
   "format": 1,
   "skins": [
     {
-      "id": "base-pastel",
-      "name": "Base Pastel",
+      "id": "base",
+      "name": "Base",
       "author": "Rondelek",
-      "description": "Soft pastel toy: matte mint case, candy-coloured keys with friendly icons. Built into the app.",
-      "dir": "skins/base-pastel",
-      "screenshot": "skins/base-pastel/screenshot.png"
+      "description": "Flat matte plastic in the EP-133 spirit: neutral light keys with printed labels, one orange accent for REC. Built into the app.",
+      "dir": "skins/base",
+      "screenshot": "skins/base/screenshot.png"
     }
   ]
 }

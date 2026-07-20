@@ -11,8 +11,8 @@ use rondelek_core::session::Session;
 use crate::ui::{
     self, AudioFrame, ConfigPanel, OffVisualizer, Pad, PadMode, Renderer, Skin, SpectrumVisualizer,
     Visualizer, VowelVisualizer, compute_layout, draw_kid_face, gloss_overlay,
-    skin::{ButtonTex, draw_cover},
 };
+use rondelek_core::config::atlas;
 use rondelek_core::util::now_secs;
 
 /// Index of the REC control pad within `self.pads` (after the sample pads).
@@ -1890,7 +1890,7 @@ impl App {
             .and_then(|p| self.texture_from_path(&ctx, p));
 
         let painter = ui.painter().clone();
-        draw_cover(&painter, &self.skin.background, full_bounds);
+        self.skin.cover(&painter, atlas::BG, full_bounds);
         Renderer::draw_case(&painter, &layout, &self.skin, &self.theme);
 
         let active = self.active_visualizer;
@@ -1956,7 +1956,7 @@ impl App {
             egui::Id::new("back_to_profiles"),
             Sense::click(),
         );
-        draw_button_tex(&painter, &self.skin.back, layout.back, &back_resp);
+        draw_cap_button(&self.skin, &painter, atlas::BACK_CAP, layout.back, &back_resp);
         if back_resp.clicked() {
             self.go_to_profiles();
             return;
@@ -1964,7 +1964,7 @@ impl App {
 
         // Header: cycle-visualizer key (square, just left of REC).
         let cycle_resp = ui.interact(layout.cycle, egui::Id::new("cycle_viz"), Sense::click());
-        draw_button_tex(&painter, &self.skin.cycle, layout.cycle, &cycle_resp);
+        draw_cap_button(&self.skin, &painter, atlas::CYCLE_CAP, layout.cycle, &cycle_resp);
         if cycle_resp.clicked() {
             self.cycle_visualizer();
         }
@@ -1981,12 +1981,8 @@ impl App {
             );
             draw_kid_face(&painter, hole.shrink(hole.width() * 0.08), &self.theme);
         }
-        painter.image(
-            self.skin.avatar_frame.id(),
-            layout.avatar,
-            uv_full(),
-            Color32::WHITE,
-        );
+        self.skin
+            .sprite(&painter, atlas::AVATAR, layout.avatar, Color32::WHITE);
 
         // Bottom status line: record state, else any audio error.
         let status = if self.record_mode {
@@ -2023,14 +2019,10 @@ fn uv_full() -> Rect {
     Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0))
 }
 
-/// Draw a skinned header key, using its pressed artwork while held.
-fn draw_button_tex(painter: &egui::Painter, tex: &ButtonTex, rect: Rect, resp: &egui::Response) {
-    let t = if resp.is_pointer_button_down_on() {
-        &tex.pressed
-    } else {
-        &tex.idle
-    };
-    painter.image(t.id(), rect, uv_full(), Color32::WHITE);
+/// Draw a skinned header key cap, sinking it while held.
+fn draw_cap_button(skin: &Skin, painter: &egui::Painter, cap_idx: usize, rect: Rect, resp: &egui::Response) {
+    let pressed = resp.is_pointer_button_down_on();
+    skin.cap(painter, cap_idx, rect, pressed, Color32::WHITE);
 }
 
 /// Keep a visualizer feed buffer to at most ~3 seconds (capped) so it only ever

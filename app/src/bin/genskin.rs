@@ -1,12 +1,15 @@
-//! Generates the built-in "base-pastel" skin into `skins/base-pastel/`.
+//! Generates the built-in "base" skin into `skins/base/`.
 //!
 //! Run from the repo root: `cargo run --bin genskin`
 //!
-//! Everything is drawn per-pixel with signed-distance functions plus hash
-//! noise, so the whole skin is reproducible and tweakable from this one file.
-//! It doubles as the reference for skin authors: which files a skin contains
-//! and at what sizes (see docs/SKINS.md).
+//! The whole faceplate is painted into ONE spritesheet, `skin.png`, at the
+//! fixed regions defined in `rondelek_core::config::atlas`. A designer edits
+//! that single file (stack the elements in any image editor); the app slices
+//! the same regions back out. This binary is also the style reference: a flat,
+//! matte, light "plastic" look echoing the Teenage Engineering EP-133 — neutral
+//! caps with printed key labels, one orange accent for REC.
 
+use rondelek_core::config::atlas::{self, Sprite};
 use std::path::Path;
 
 // ---- tiny canvas ---------------------------------------------------------
@@ -29,7 +32,7 @@ impl Canvas {
 
     /// Source-over blend of `rgb` at opacity `a` onto pixel (x, y).
     fn blend(&mut self, x: u32, y: u32, rgb: [f32; 3], a: f32) {
-        if a <= 0.0 {
+        if a <= 0.0 || x >= self.w || y >= self.h {
             return;
         }
         let a = a.min(1.0);
@@ -87,14 +90,6 @@ fn shade(c: [f32; 3], amount: f32) -> [f32; 3] {
     ]
 }
 
-fn mul(c: [f32; 3], f: f32) -> [f32; 3] {
-    [
-        (c[0] * f).clamp(0.0, 1.0),
-        (c[1] * f).clamp(0.0, 1.0),
-        (c[2] * f).clamp(0.0, 1.0),
-    ]
-}
-
 /// Signed distance to a rounded rectangle centred at (cx, cy) with half
 /// extents (hw, hh) and corner radius r. Negative inside.
 fn sd_rrect(x: f32, y: f32, cx: f32, cy: f32, hw: f32, hh: f32, r: f32) -> f32 {
@@ -115,415 +110,287 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Deterministic hash noise in 0..1.
-fn noise(x: u32, y: u32, seed: u32) -> f32 {
-    let mut h = x
-        .wrapping_mul(0x85EB_CA6B)
-        .wrapping_add(y.wrapping_mul(0xC2B2_AE35))
-        .wrapping_add(seed.wrapping_mul(0x27D4_EB2F));
-    h ^= h >> 15;
-    h = h.wrapping_mul(0x2C1B_3C6D);
-    h ^= h >> 12;
-    (h & 0xFFFF) as f32 / 65535.0
-}
+// ---- labels (5x7 stroke font) --------------------------------------------
 
-// ---- glyphs --------------------------------------------------------------
-
-/// Baked pad icons, drawn as boolean membership tests in [-1, 1] coords
-/// (y grows downward), supersampled 3x3 for antialiasing.
-#[derive(Clone, Copy)]
-enum Glyph {
-    Star,
-    Heart,
-    Flower,
-    Sun,
-    Cloud,
-    Moon,
-    Drop,
-    Leaf,
-    Fish,
-    Apple,
-    Boat,
-    Note,
-    RecDot,
-    House,
-    Bars,
-}
-
-fn in_circle(x: f32, y: f32, cx: f32, cy: f32, r: f32) -> bool {
-    let dx = x - cx;
-    let dy = y - cy;
-    dx * dx + dy * dy <= r * r
-}
-
-fn glyph_hit(g: Glyph, x: f32, y: f32) -> bool {
-    match g {
-        Glyph::Star => {
-            // 5-point star as a 10-gon, point-in-polygon.
-            let (r_out, r_in) = (0.95f32, 0.42f32);
-            let mut pts = [(0.0f32, 0.0f32); 10];
-            for (i, p) in pts.iter_mut().enumerate() {
-                let a = -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::PI / 5.0;
-                let r = if i % 2 == 0 { r_out } else { r_in };
-                *p = (r * a.cos(), r * a.sin());
-            }
-            let mut inside = false;
-            let mut j = 9;
-            for i in 0..10 {
-                let (xi, yi) = pts[i];
-                let (xj, yj) = pts[j];
-                if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
-                    inside = !inside;
-                }
-                j = i;
-            }
-            inside
-        }
-        Glyph::Heart => {
-            // Classic implicit heart, y up.
-            let xs = x / 0.75;
-            let ys = -(y + 0.12) / 0.75;
-            let f = xs * xs + ys * ys - 1.0;
-            f * f * f - xs * xs * ys * ys * ys <= 0.0
-        }
-        Glyph::Flower => {
-            let r = (x * x + y * y).sqrt();
-            let a = y.atan2(x);
-            r <= 0.34 + 0.52 * (3.0 * a).cos().abs() * 0.9_f32.min(1.0) || r <= 0.24
-        }
-        Glyph::Sun => {
-            let r = (x * x + y * y).sqrt();
-            if r <= 0.48 {
-                return true;
-            }
-            let a = y.atan2(x) / std::f32::consts::TAU;
-            let seg = (a * 8.0).fract().abs();
-            let seg = seg.min(1.0 - seg);
-            (0.60..=0.92).contains(&r) && seg < 0.11
-        }
-        Glyph::Cloud => {
-            in_circle(x, y, -0.42, 0.12, 0.34)
-                || in_circle(x, y, 0.02, -0.14, 0.44)
-                || in_circle(x, y, 0.44, 0.12, 0.32)
-                || (x.abs() <= 0.44 && (0.12..=0.44).contains(&y))
-        }
-        Glyph::Moon => in_circle(x, y, -0.08, 0.0, 0.75) && !in_circle(x, y, 0.34, -0.18, 0.62),
-        Glyph::Drop => {
-            in_circle(x, y, 0.0, 0.28, 0.46)
-                || ((-0.72..=0.28).contains(&y) && x.abs() <= 0.46 * (y + 0.72) / 1.0)
-        }
-        Glyph::Leaf => in_circle(x, y, -0.30, 0.30, 0.92) && in_circle(x, y, 0.30, -0.30, 0.92),
-        Glyph::Fish => {
-            // Body vesica pointing right, triangular tail on the left, eye cut out.
-            let body = in_circle(x, y, 0.1, -0.38, 0.8) && in_circle(x, y, 0.1, 0.38, 0.8);
-            let tail = (-0.85..=-0.45).contains(&x) && y.abs() <= -(x + 0.45) * 0.9 + 0.03;
-            let eye = in_circle(x, y, 0.42, -0.06, 0.10);
-            (body || tail) && !eye
-        }
-        Glyph::Apple => {
-            let body = in_circle(x, y, -0.22, 0.18, 0.5) || in_circle(x, y, 0.22, 0.18, 0.5);
-            let stem = (-0.62..=-0.18).contains(&y) && (x - 0.06 - (y + 0.62) * 0.2).abs() <= 0.07;
-            let leaf = in_circle(x, y, -0.28, -0.42, 0.30) && in_circle(x, y, -0.62, -0.60, 0.34);
-            body || stem || leaf
-        }
-        Glyph::Boat => {
-            // Hull trapezoid + mast + triangular sail.
-            let hull = (0.28..=0.62).contains(&y) && x.abs() <= 0.72 - (y - 0.28) * 0.8;
-            let mast = (-0.72..=0.28).contains(&y) && (x - 0.02).abs() <= 0.05;
-            let sail = (-0.68..=0.12).contains(&y)
-                && (0.12..=0.66).contains(&x)
-                && x - 0.12 <= (y + 0.68) * 0.68;
-            hull || mast || sail
-        }
-        Glyph::Note => {
-            // Eighth note: head, stem, flag.
-            let head = in_circle(x * 1.15, (y - 0.45) * 1.45, -0.28, 0.0, 0.42);
-            let stem = (-0.72..=0.45).contains(&y) && (x - 0.06).abs() <= 0.07;
-            let flag = (-0.72..=-0.25).contains(&y)
-                && (x - 0.06 >= 0.0)
-                && x - 0.06 <= 0.5 * (1.0 - ((y + 0.72) / 0.47 - 0.5).abs() * 2.0 * 0.4)
-                && x - 0.06 <= -(y + 0.25) * 1.1;
-            head || stem || flag
-        }
-        Glyph::RecDot => {
-            let r = (x * x + y * y).sqrt();
-            r <= 0.34 || (0.55..=0.72).contains(&r)
-        }
-        Glyph::House => {
-            // Roof triangle over a body with a door notch.
-            let roof = (-0.75..=-0.05).contains(&y) && x.abs() <= (y + 0.75) * 1.05;
-            let body = (-0.05..=0.68).contains(&y) && x.abs() <= 0.55;
-            let door = (0.18..=0.68).contains(&y) && x.abs() <= 0.16;
-            (roof || body) && !door
-        }
-        Glyph::Bars => {
-            let bar = |cx: f32, top: f32| (top..=0.7).contains(&y) && (x - cx).abs() <= 0.14;
-            bar(-0.5, 0.1) || bar(0.0, -0.2) || bar(0.5, -0.55)
-        }
+/// Row bitmaps (low 5 bits, MSB = leftmost) for the twelve key labels we need.
+fn char_bits(ch: char) -> [u8; 7] {
+    match ch {
+        '1' => [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
+        '2' => [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F],
+        '3' => [0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E],
+        '4' => [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
+        'A' => [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
+        'Q' => [0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D],
+        'W' => [0x11, 0x11, 0x11, 0x15, 0x15, 0x1B, 0x11],
+        'E' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F],
+        'R' => [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11],
+        'S' => [0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E],
+        'D' => [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E],
+        'F' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10],
+        _ => [0; 7],
     }
 }
 
-/// Draw a glyph centred at (cx, cy) with half-size `s`, 3x3 supersampled.
-fn draw_glyph(c: &mut Canvas, g: Glyph, cx: f32, cy: f32, s: f32, rgb: [f32; 3], alpha: f32) {
-    let (x0, x1) = (((cx - s) as u32).max(0), ((cx + s) as u32 + 1).min(c.w));
-    let (y0, y1) = (((cy - s) as u32).max(0), ((cy + s) as u32 + 1).min(c.h));
-    for y in y0..y1 {
-        for x in x0..x1 {
-            let mut hits = 0;
+/// Draw `ch` centred at (cx, cy), `h` pixels tall, 3×3 supersampled.
+fn draw_label(c: &mut Canvas, ch: char, cx: f32, cy: f32, h: f32, rgb: [f32; 3]) {
+    let bits = char_bits(ch);
+    let cell = h / 7.0;
+    let w = cell * 5.0;
+    let (x0, y0) = (cx - w * 0.5, cy - h * 0.5);
+    let hit = |fx: f32, fy: f32| -> bool {
+        let (ix, iy) = (fx.floor() as i32, fy.floor() as i32);
+        (0..5).contains(&ix) && (0..7).contains(&iy) && (bits[iy as usize] >> (4 - ix)) & 1 == 1
+    };
+    let (px0, px1) = (x0.floor().max(0.0) as u32, (x0 + w).ceil() as u32);
+    let (py0, py1) = (y0.floor().max(0.0) as u32, (y0 + h).ceil() as u32);
+    for y in py0..py1 {
+        for x in px0..px1 {
+            let mut n = 0;
             for sy in 0..3 {
                 for sx in 0..3 {
-                    let fx = (x as f32 + (sx as f32 + 0.5) / 3.0 - cx) / s;
-                    let fy = (y as f32 + (sy as f32 + 0.5) / 3.0 - cy) / s;
-                    if glyph_hit(g, fx, fy) {
-                        hits += 1;
+                    let fx = (x as f32 + (sx as f32 + 0.5) / 3.0 - x0) / cell;
+                    let fy = (y as f32 + (sy as f32 + 0.5) / 3.0 - y0) / cell;
+                    if hit(fx, fy) {
+                        n += 1;
                     }
                 }
             }
-            if hits > 0 {
-                c.blend(x, y, rgb, alpha * hits as f32 / 9.0);
+            if n > 0 {
+                c.blend(x, y, rgb, 0.95 * n as f32 / 9.0);
             }
         }
     }
 }
 
-// ---- skin pieces ---------------------------------------------------------
+// ---- faceplate pieces (painted at their atlas offsets) -------------------
 
-fn gen_background(dir: &Path) {
-    let (w, h) = (1280u32, 800u32);
-    let mut c = Canvas::new(w, h);
-    let top = hex("#FBF2E4");
-    let bottom = hex("#F6DCC6");
-    // Soft warm blobs, barely-there, for a hand-made feel.
-    let blobs = [
-        (0.18f32, 0.25f32, 0.30f32),
-        (0.80, 0.18, 0.26),
-        (0.55, 0.78, 0.34),
-    ];
-    for y in 0..h {
-        let t = y as f32 / h as f32;
-        for x in 0..w {
-            let mut col = [
-                top[0] + (bottom[0] - top[0]) * t,
-                top[1] + (bottom[1] - top[1]) * t,
-                top[2] + (bottom[2] - top[2]) * t,
-            ];
-            for (bx, by, br) in blobs {
-                let dx = x as f32 / w as f32 - bx;
-                let dy = y as f32 / h as f32 - by;
-                let d = (dx * dx + dy * dy).sqrt() / br;
-                if d < 1.0 {
-                    let a = 0.06 * (1.0 - d) * (1.0 - d);
-                    let peach = hex("#F0C9A8");
-                    for i in 0..3 {
-                        col[i] += (peach[i] - col[i]) * a;
-                    }
-                }
-            }
-            let n = (noise(x, y, 1) - 0.5) * 0.02;
-            c.blend(x, y, [col[0] + n, col[1] + n, col[2] + n], 1.0);
+/// Flat window background with a barely-there vertical gradient.
+fn gen_background(c: &mut Canvas, s: Sprite) {
+    let top = hex("#F3F0E8");
+    let bottom = hex("#EAE6DC");
+    for y in 0..s.h {
+        let t = y as f32 / s.h as f32;
+        let col = [
+            top[0] + (bottom[0] - top[0]) * t,
+            top[1] + (bottom[1] - top[1]) * t,
+            top[2] + (bottom[2] - top[2]) * t,
+        ];
+        for x in 0..s.w {
+            c.blend(s.x + x, s.y + y, col, 1.0);
         }
     }
-    c.save(&dir.join("background.png"));
 }
 
-/// The sampler case: nine-sliced by the engine with a 96 px inset (see
-/// skin.json), so all shading must be edge-local; the centre stays flat and
-/// gets its matte grain from the tiled grain.png overlay instead.
-fn gen_case(dir: &Path) {
-    let size = 512u32;
-    let mut c = Canvas::new(size, size);
-    let base = hex("#C6E5D3");
-    let (cx, cy, hw) = (256.0f32, 256.0, 250.0);
-    let radius = 72.0;
-    for y in 0..size {
-        for x in 0..size {
+/// The sampler case: nine-sliced by the app, so all shading is edge-local and
+/// the stretched centre stays a flat matte panel.
+fn gen_case(c: &mut Canvas, s: Sprite) {
+    let base = hex("#E5E1D7");
+    let (cx, cy, hw) = (256.0f32, 256.0, 248.0);
+    let radius = 40.0;
+    for y in 0..s.h {
+        for x in 0..s.w {
             let sd = sd_rrect(x as f32 + 0.5, y as f32 + 0.5, cx, cy, hw, hw, radius);
             let a = cov(sd);
             if a <= 0.0 {
                 continue;
             }
-            // Edge vignette: darken toward the silhouette for a moulded look.
-            let vign = smoothstep(-64.0, -4.0, sd) * 0.10;
-            // Gentle top light inside the top edge band.
-            let toplight = smoothstep(96.0, 0.0, y as f32) * 0.05;
-            let n = (noise(x, y, 2) - 0.5) * 0.035;
-            let col = mul(shade(base, toplight - vign), 1.0 + n);
-            c.blend(x, y, col, a);
-            // Crisp darker rim line right at the silhouette.
-            let line = smoothstep(-4.0, -1.0, sd) * cov(sd + 0.5);
-            c.blend(x, y, shade(base, -0.30), line * 0.55);
+            // Gentle top light + a soft edge shade for a moulded-but-flat look.
+            let toplight = smoothstep(80.0, 0.0, y as f32) * 0.05;
+            let vign = smoothstep(-52.0, -4.0, sd) * 0.06;
+            c.blend(s.x + x, s.y + y, shade(base, toplight - vign), a);
+            // Thin crisp rim right at the silhouette.
+            let line = smoothstep(-3.0, -0.5, sd) * cov(sd + 0.5);
+            c.blend(s.x + x, s.y + y, shade(base, -0.22), line * 0.5);
         }
     }
-    c.save(&dir.join("case.png"));
 }
 
-/// Tileable matte grain, overlaid by the engine on the flat case centre
-/// (nine-slice stretching would smear baked noise there).
-fn gen_grain(dir: &Path) {
-    let size = 128u32;
-    let mut c = Canvas::new(size, size);
-    for y in 0..size {
-        for x in 0..size {
-            let v = noise(x, y, 3) - 0.5;
-            let (col, a) = if v > 0.0 {
-                ([1.0, 1.0, 1.0], v * 0.09)
-            } else {
-                ([0.0, 0.0, 0.0], -v * 0.09)
-            };
-            c.blend(x, y, col, a);
-        }
-    }
-    c.save(&dir.join("grain.png"));
-}
-
-fn gen_bezel(dir: &Path) {
-    let size = 384u32;
-    let mut c = Canvas::new(size, size);
-    let base = hex("#4E4A45");
-    let (cc, hw, radius) = (192.0f32, 188.0, 48.0);
-    for y in 0..size {
-        for x in 0..size {
+/// Dark recessed screen frame. Nine-sliced with a thin inset, so the visualizer
+/// fills the flat centre and only the frame ring shows.
+fn gen_bezel(c: &mut Canvas, s: Sprite) {
+    let base = hex("#26231E");
+    let (cc, hw, radius) = (192.0f32, 188.0, 22.0);
+    for y in 0..s.h {
+        for x in 0..s.w {
             let sd = sd_rrect(x as f32 + 0.5, y as f32 + 0.5, cc, cc, hw, hw, radius);
             let a = cov(sd);
             if a <= 0.0 {
                 continue;
             }
-            let vign = smoothstep(-40.0, -2.0, sd) * 0.16;
-            let toplight = smoothstep(56.0, 0.0, y as f32) * 0.06;
-            let n = (noise(x, y, 4) - 0.5) * 0.03;
-            let col = mul(shade(base, toplight - vign), 1.0 + n);
-            c.blend(x, y, col, a);
+            // Inner shading reads as a recess; outer edge catches a little light.
+            let inner = smoothstep(-30.0, -2.0, sd) * 0.12;
+            let toplight = smoothstep(40.0, 0.0, y as f32) * 0.05;
+            c.blend(s.x + x, s.y + y, shade(base, toplight - inner), a);
         }
-    }
-    c.save(&dir.join("bezel.png"));
-}
-
-/// A chunky toy keycap: darker rim walls, raised matte cap with a baked
-/// gloss band, and a friendly glyph. `pressed` sinks the cap and dims it.
-fn gen_keycap(dir: &Path, name: &str, base: [f32; 3], glyph: Glyph, glyph_rgb: [f32; 3]) {
-    for pressed in [false, true] {
-        let size = 256u32;
-        let mut c = Canvas::new(size, size);
-        let m = 10.0f32; // transparent margin
-        let rim = shade(base, -0.28);
-        let (cc, hw) = (128.0f32, 128.0 - m);
-        let rim_r = 46.0;
-
-        // Cap geometry: sits high when idle, sinks flush when pressed.
-        let (cap_top, cap_bot, cap_col, gloss_a) = if pressed {
-            (m + 20.0, 246.0 - 12.0, mul(base, 0.93), 0.08)
-        } else {
-            (m + 6.0, 246.0 - 24.0, base, 0.16)
-        };
-        let cap_cx = 128.0;
-        let cap_cy = (cap_top + cap_bot) * 0.5;
-        let cap_hw = hw - 12.0;
-        let cap_hh = (cap_bot - cap_top) * 0.5;
-        let cap_r = 40.0;
-
-        for y in 0..size {
-            for x in 0..size {
-                let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-                let sd_rim = sd_rrect(fx, fy, cc, cc, hw, hw, rim_r);
-                let a = cov(sd_rim);
-                if a <= 0.0 {
-                    continue;
-                }
-                c.blend(x, y, rim, a);
-
-                let sd_cap = sd_rrect(fx, fy, cap_cx, cap_cy, cap_hw, cap_hh, cap_r);
-                let ca = cov(sd_cap);
-                if ca > 0.0 {
-                    // Vertical shading + matte noise on the cap face.
-                    let t = (fy - cap_top) / (cap_bot - cap_top);
-                    let n = (noise(x, y, 5) - 0.5) * 0.03;
-                    let col = mul(cap_col, 1.05 - 0.09 * t + n);
-                    c.blend(x, y, col, ca);
-                    // Gloss band across the top of the cap.
-                    let band = smoothstep(0.46, 0.34, t);
-                    c.blend(x, y, [1.0, 1.0, 1.0], ca * band * gloss_a);
-                }
-            }
-        }
-
-        let gy = cap_cy + if pressed { 6.0 } else { 0.0 };
-        draw_glyph(&mut c, glyph, 128.0, gy, 62.0, glyph_rgb, 0.95);
-
-        let file = if pressed {
-            format!("{name}_pressed.png")
-        } else {
-            format!("{name}.png")
-        };
-        c.save(&dir.join(file));
     }
 }
 
-fn gen_avatar_frame(dir: &Path) {
-    let size = 256u32;
-    let mut c = Canvas::new(size, size);
-    let base = hex("#F3EBDC");
-    for y in 0..size {
-        for x in 0..size {
+/// Light ring around the child's photo (centre kept transparent).
+fn gen_avatar_frame(c: &mut Canvas, s: Sprite) {
+    let base = hex("#DCD7CA");
+    for y in 0..s.h {
+        for x in 0..s.w {
             let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-            let sd_out = sd_rrect(fx, fy, 128.0, 128.0, 122.0, 122.0, 44.0);
-            let sd_in = sd_rrect(fx, fy, 128.0, 128.0, 100.0, 100.0, 30.0);
+            let sd_out = sd_rrect(fx, fy, 128.0, 128.0, 122.0, 122.0, 30.0);
+            let sd_in = sd_rrect(fx, fy, 128.0, 128.0, 102.0, 102.0, 20.0);
             let a = cov(sd_out) * (1.0 - cov(sd_in));
             if a <= 0.0 {
                 continue;
             }
-            let t = fy / size as f32;
-            let n = (noise(x, y, 6) - 0.5) * 0.03;
-            let vign = smoothstep(-8.0, -1.0, sd_out) * 0.12;
-            c.blend(x, y, mul(shade(base, -vign), 1.03 - 0.06 * t + n), a);
+            let vign = smoothstep(-8.0, -1.0, sd_out) * 0.10;
+            c.blend(s.x + x, s.y + y, shade(base, -vign), a);
         }
     }
-    c.save(&dir.join("avatar_frame.png"));
+}
+
+/// A flat matte keycap: a raised light face with a thin darker wall below, so
+/// it reads as slightly 3-D without gloss. `icon` paints on top of the face.
+fn gen_cap(c: &mut Canvas, s: Sprite, face: [f32; 3], icon: impl Fn(&mut Canvas, u32, u32)) {
+    let m = 14.0f32; // transparent margin
+    let wall = shade(face, -0.16);
+    let (cc, hw) = (128.0f32, 128.0 - m);
+    let rim_r = 26.0;
+
+    // Face sits a touch high, leaving an ~8 px wall at the bottom.
+    let (cap_top, cap_bot) = (m, 256.0 - m - 8.0);
+    let cap_cx = 128.0;
+    let cap_cy = (cap_top + cap_bot) * 0.5;
+    let cap_hw = hw - 8.0;
+    let cap_hh = (cap_bot - cap_top) * 0.5;
+    let cap_r = 22.0;
+
+    for y in 0..s.h {
+        for x in 0..s.w {
+            let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+            let a = cov(sd_rrect(fx, fy, cc, cc, hw, hw, rim_r));
+            if a <= 0.0 {
+                continue;
+            }
+            c.blend(s.x + x, s.y + y, wall, a);
+
+            let ca = cov(sd_rrect(fx, fy, cap_cx, cap_cy, cap_hw, cap_hh, cap_r));
+            if ca > 0.0 {
+                // Matte vertical shading only: lighter at top, no gloss band.
+                let t = (fy - cap_top) / (cap_bot - cap_top);
+                c.blend(s.x + x, s.y + y, shade(face, 0.05 - 0.10 * t), ca);
+            }
+        }
+    }
+    icon(c, s.x, s.y);
 }
 
 // ---- main ----------------------------------------------------------------
 
 fn main() {
-    let dir = Path::new("skins/base-pastel");
+    let dir = Path::new("skins/base");
     std::fs::create_dir_all(dir).expect("create skin dir");
 
-    gen_background(dir);
-    gen_case(dir);
-    gen_grain(dir);
-    gen_bezel(dir);
-    gen_avatar_frame(dir);
+    let mut c = Canvas::new(atlas::ATLAS_W, atlas::ATLAS_H);
 
-    // Twelve candy-pastel sample pads (4x3 grid), one friendly icon each.
-    let pads: [(&str, Glyph); 12] = [
-        ("#F5A9BC", Glyph::Star),
-        ("#F8C9A0", Glyph::Heart),
-        ("#F5E29E", Glyph::Flower),
-        ("#AADDC2", Glyph::Sun),
-        ("#A9D4EF", Glyph::Cloud),
-        ("#C9B8E8", Glyph::Moon),
-        ("#F5A08F", Glyph::Drop),
-        ("#A2DEDA", Glyph::Leaf),
-        ("#F8BFD8", Glyph::Fish),
-        ("#BCE3A8", Glyph::Apple),
-        ("#FFD9A8", Glyph::Boat),
-        ("#B8CFF2", Glyph::Note),
-    ];
-    for (i, (col, glyph)) in pads.iter().enumerate() {
-        let base = hex(col);
-        gen_keycap(
-            dir,
-            &format!("pad_{}", i + 1),
-            base,
-            *glyph,
-            shade(base, -0.55),
-        );
+    gen_background(&mut c, atlas::BG);
+    gen_case(&mut c, atlas::CASE);
+    gen_bezel(&mut c, atlas::BEZEL);
+    gen_avatar_frame(&mut c, atlas::AVATAR);
+
+    // Twelve uniform light sample caps, printed with the keyboard key labels.
+    let face = hex("#F1ECE1");
+    let ink = hex("#2A2622");
+    let labels = ['1', '2', '3', '4', 'Q', 'W', 'E', 'R', 'A', 'S', 'D', 'F'];
+    for (i, ch) in labels.iter().enumerate() {
+        let ch = *ch;
+        gen_cap(&mut c, atlas::cap(i), face, move |c, ox, oy| {
+            draw_label(c, ch, ox as f32 + 128.0, oy as f32 + 122.0, 96.0, ink);
+        });
     }
 
-    // Function keys.
-    let charcoal = hex("#4E4A45");
-    let cream = hex("#F5EFE2");
-    gen_keycap(dir, "rec", hex("#E9655A"), Glyph::RecDot, hex("#FFF6EE"));
-    gen_keycap(dir, "back", charcoal, Glyph::House, cream);
-    gen_keycap(dir, "cycle", charcoal, Glyph::Bars, cream);
+    // REC: the one orange accent, with a record dot.
+    let cream = hex("#FFF3E8");
+    gen_cap(&mut c, atlas::cap(atlas::REC_CAP), hex("#FF6A1A"), |c, ox, oy| {
+        let (cx, cy) = (ox as f32 + 128.0, oy as f32 + 118.0);
+        for y in 0..256u32 {
+            for x in 0..256u32 {
+                let d = ((ox as f32 + x as f32 + 0.5 - cx).powi(2)
+                    + (oy as f32 + y as f32 + 0.5 - cy).powi(2))
+                .sqrt();
+                c.blend(ox + x, oy + y, cream, cov(d - 34.0));
+            }
+        }
+    });
 
+    // BACK: dark cap with a left-chevron (back to profiles).
+    let dark = hex("#2E2A24");
+    gen_cap(&mut c, atlas::cap(atlas::BACK_CAP), dark, |c, ox, oy| {
+        draw_chevron(c, ox as f32 + 128.0, oy as f32 + 118.0, 46.0, cream);
+    });
+
+    // CYCLE: dark cap with three ascending bars (cycle the visualizer).
+    gen_cap(&mut c, atlas::cap(atlas::CYCLE_CAP), dark, |c, ox, oy| {
+        draw_bars(c, ox, oy, cream);
+    });
+
+    c.save(&dir.join("skin.png"));
+    write_skin_json(dir);
     println!("done.");
+}
+
+/// A left-pointing chevron, centred at (cx, cy), half-height `s`.
+fn draw_chevron(c: &mut Canvas, cx: f32, cy: f32, s: f32, rgb: [f32; 3]) {
+    let thick = s * 0.34;
+    for y in ((cy - s) as u32)..((cy + s) as u32) {
+        for x in ((cx - s * 0.7) as u32)..((cx + s * 0.7) as u32) {
+            // Point the chevron left (back): tip at the −x side.
+            let (dx, dy) = (-(x as f32 + 0.5 - cx), y as f32 + 0.5 - cy);
+            let d = (dx + dy.abs()).abs() / std::f32::consts::SQRT_2 - thick * 0.5;
+            let inside = dy.abs() <= s && dx + dy.abs() <= s * 0.7;
+            if inside {
+                c.blend(x, y, rgb, cov(d));
+            }
+        }
+    }
+}
+
+/// Three ascending bars filling a cap face at (ox, oy).
+fn draw_bars(c: &mut Canvas, ox: u32, oy: u32, rgb: [f32; 3]) {
+    let bars = [(94.0f32, 150.0f32), (128.0, 118.0), (162.0, 90.0)];
+    for (bx, top) in bars {
+        for y in (top as u32)..168u32 {
+            for x in ((bx - 15.0) as u32)..((bx + 15.0) as u32) {
+                c.blend(ox + x, oy + y, rgb, 1.0);
+            }
+        }
+    }
+}
+
+/// Base palette overrides, mirroring `theme_light` so the file documents every
+/// tweakable colour for skin authors.
+fn write_skin_json(dir: &Path) {
+    let json = r##"{
+  "name": "Base",
+  "author": "Rondelek",
+  "colors": {
+    "panel_bg": "#E6E1D5",
+    "panel_fg": "#D5D0C2",
+    "pad_play_bg": "#F3EEE4",
+    "pad_play_fg": "#26231E",
+    "pad_record_bg": "#FF6A1A",
+    "pad_record_fg": "#FFFFFF",
+    "pad_function_bg": "#2E2A24",
+    "pad_function_fg": "#FF6A1A",
+    "led_empty": "#BEB8AA",
+    "led_full": "#FF6A1A",
+    "case_shadow": "#00000030",
+    "case_border": "#CFC9BB",
+    "text_primary": "#26231E",
+    "text_secondary": "#8A8475",
+    "visualizer_bg": "#1A1814",
+    "visualizer_dot_off": "#2C2922",
+    "visualizer_bar_low": "#B85A12",
+    "visualizer_bar_mid": "#FF6A1A",
+    "visualizer_bar_high": "#FFC06A"
+  }
+}
+"##;
+    let path = dir.join("skin.json");
+    std::fs::write(&path, json).expect("write skin.json");
+    println!("wrote {}", path.display());
 }
