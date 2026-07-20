@@ -1,5 +1,6 @@
-use rondelek_core::config::{PadDef, PadKind, ROUNDING_PAD, Theme};
-use crate::ui::skin::{Skin, uv_full};
+use rondelek_core::config::atlas;
+use rondelek_core::config::{NUM_SAMPLES, PadDef, PadKind, ROUNDING_PAD, Theme};
+use crate::ui::skin::Skin;
 use egui::{Color32, CornerRadius, Key, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,21 +74,16 @@ impl Pad {
         let size = rect.width().min(rect.height());
         let rounding = CornerRadius::same(ROUNDING_PAD as u8);
 
-        // Skin artwork: per-pad key for samples, the REC key for the function
-        // pad. Press states are baked; the engine only picks and nudges them.
-        let button = match self.kind {
-            PadKind::Function => &skin.rec,
-            PadKind::Sample => &skin.pads[self.sample_idx.min(skin.pads.len() - 1)],
+        // Skin artwork: the sample-index cap for sample pads, the REC cap for
+        // the function pad. Press is engine-driven (the cap sinks and dims).
+        let cap_idx = match self.kind {
+            PadKind::Function => atlas::REC_CAP,
+            PadKind::Sample => self.sample_idx.min(NUM_SAMPLES - 1),
         };
         let pressed = self.state == PadState::Pressed;
-        let tex = if pressed {
-            &button.pressed
-        } else {
-            &button.idle
-        };
 
         // Soft drop shadow while the key is raised. Inset to stay behind the
-        // artwork (skin images carry a transparent margin).
+        // artwork (skin caps carry a transparent margin).
         if !pressed {
             painter.rect_filled(
                 rect.shrink(size * 0.05)
@@ -105,7 +101,7 @@ impl Pad {
         } else {
             Color32::WHITE
         };
-        painter.image(tex.id(), rect, uv_full(), tint);
+        skin.cap(painter, cap_idx, rect, pressed, tint);
 
         // Status LED (sample pads only).
         if self.kind == PadKind::Sample {

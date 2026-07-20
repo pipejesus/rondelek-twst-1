@@ -64,9 +64,12 @@ to `serde` defaults so older manifests keep loading.
 
 Under the OS **config** directory (`dirs::config_dir()`), e.g.
 `~/Library/Application Support/rondelek/settings.json` — a single
-`config::Settings` document: volume, dark mode, the visualizer knobs
-(`visualizer_smoothing` / `_decay` / `_num_bars` / `_floor_db`), dev-panel
-visibility, UI `language`, and pinned `input_device` / `output_device` names.
+`config::Settings` document: volume, the active `skin`, the visualizer knobs
+(`visualizer_smoothing` / `_decay` / `_num_bars` / `_floor_db`), the
+vowel-detection knobs (`vowel_voicing_threshold` / `_smoothing` /
+`_show_threshold` / `_margin_threshold` / `vowel_steady`), the
+`active_visualizer` index, `game_reaction`, UI `language`, and pinned
+`input_device` / `output_device` names.
 
 New fields use `#[serde(default = "...")]` so upgrading never invalidates an
 existing settings file.

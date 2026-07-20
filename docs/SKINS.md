@@ -1,9 +1,9 @@
 # Skins
 
 The whole sampler faceplate — background, case, screen bezel, every key —
-is drawn from images, so a designer can reskin the app without touching
-code. A skin is a folder of PNGs plus a `skin.json`, distributed as a zip
-of that folder.
+is drawn from one image, so a designer can reskin the app without touching
+code. A skin is a `skin.png` spritesheet plus a `skin.json`, distributed as
+a zip of the folder holding them.
 
 ## Installing a skin
 
@@ -18,52 +18,58 @@ automatically on the next scan.
 
 ## Files in a skin
 
-All file names are fixed. **Every file is optional** — anything missing
-falls back to the built-in Base Pastel skin, so a skin can be as small as
-a `skin.json` that only changes colours.
+A skin is just **two files**, both optional — anything missing falls back to
+the built-in Base skin:
 
-| File | Suggested size | What it is |
+| File | Size | What it is |
 |---|---|---|
-| `skin.json` | — | metadata, nine-slice insets, colour overrides |
-| `background.png` | 1280×800 | window background; uniformly scaled to fill and centre-cropped |
-| `case.png` | 512×512 | the device body; drawn as a nine-slice (see below) |
-| `grain.png` | 128×128 | tileable matte-grain overlay for the case centre (optional texture detail) |
-| `bezel.png` | 384×384 | frame around the visualizer screen; nine-slice |
-| `pad_1.png` … `pad_12.png` | 256×256 | the 12 sample keys (row-major, 4×3 grid) — bake your icon into each |
-| `pad_N_pressed.png` | 256×256 | pressed artwork per key (drawn while held) |
-| `rec.png`, `rec_pressed.png` | 256×256 | the record key (top right) |
-| `back.png`, `back_pressed.png` | 256×256 | back-to-profiles key (top left) |
-| `cycle.png`, `cycle_pressed.png` | 256×256 | visualizer-cycle key |
-| `avatar_frame.png` | 256×256 | frame drawn over the child's photo; keep the centre transparent |
+| `skin.png` | 1536×1280 | the whole faceplate on one spritesheet (see the map below) |
+| `skin.json` | — | metadata + colour overrides |
 
-Key images should carry a small transparent margin (≈4% per side) — the
-engine nudges the artwork down while pressed and draws a soft shadow
-behind it. The engine also draws the sample LED (top-right of each key)
-and the pulsing record ring; their colours come from `skin.json`.
+Everything the app draws from images lives in `skin.png` at a **fixed set of
+rectangles**, so you design the whole faceplate as one layered file and the
+app slices each element back out. Open `skins/base/skin.png` as your template.
+
+### Spritesheet map (1536 × 1280)
+
+| Region | Rect (x, y, w, h) | What it is |
+|---|---|---|
+| Case | 0, 0, 512, 512 | device body; nine-sliced (44 px corner), centre stretches |
+| Bezel | 512, 0, 384, 384 | screen frame; nine-sliced (26 px corner). Centre is covered by the visualizer, so only the 26-px ring shows |
+| Avatar frame | 896, 0, 256, 256 | frame over the child's photo; keep the centre transparent |
+| Background | 896, 256, 512, 256 | window background; scaled to fill and centre-cropped |
+| Key caps | 5 columns of 256², from y = 512 | 15 caps, index order below |
+
+The 15 caps fill a 5-wide grid starting at (0, 512), row-major: the **12
+sample pads** (labelled 1 2 3 4 / Q W E R / A S D F), then **REC**, **BACK**,
+**CYCLE**.
+
+Caps carry only their *idle* artwork — pressing is engine-driven (the cap
+sinks a few pixels and dims), so there are no `_pressed` images. Give each cap
+a small transparent margin (≈5% per side); the engine draws a soft raised
+shadow behind it, the sample LED (top-right), and the pulsing record ring —
+those colours come from `skin.json`.
 
 ## Nine-slice
 
-The case and bezel stretch to any window size. To keep corners crisp, they
-are drawn as a nine-slice: the four corners of the source image are used
-as-is, edges stretch along one axis, and the centre stretches in both.
-`slice` in `skin.json` is the corner size in source-image pixels.
+The case and bezel stretch to any window size. To keep corners crisp they are
+drawn as a nine-slice: the corners of the region are used as-is, edges stretch
+along one axis, and the centre stretches in both. The corner size (44 px for
+the case, 26 px for the bezel, in `skin.png` pixels) is fixed by the app.
 
-Because the centre gets stretched, keep it flat colour — put texture and
-shading only near the edges. For matte grain across the whole case,
-provide the tileable `grain.png` instead; the engine tiles it 1:1 over the
-case centre so it never smears.
+Because the centre gets stretched, keep it flat colour — put shading only near
+the edges. The bezel's 26-px inset is also the visualizer's opening, so the
+screen fills exactly the frame and never overlaps it.
 
 ## skin.json
 
 ```json
 {
-  "format": 1,
   "name": "My Skin",
   "author": "You",
-  "slice": { "case": 96, "bezel": 72 },
   "colors": {
-    "visualizer_bg": "#33303A",
-    "pad_record_bg": "#E9655A"
+    "visualizer_bg": "#1A1814",
+    "pad_record_bg": "#FF6A1A"
   }
 }
 ```
@@ -82,8 +88,8 @@ screens.
 
 ## The base skin
 
-`skins/base-pastel/` in this repo is the built-in skin, generated
-procedurally by `cargo run --bin genskin` and embedded into the app at
-compile time. It is the reference for sizes and style. `skins/index.json`
+`skins/base/` in this repo is the built-in skin, generated procedurally by
+`cargo run --bin genskin` and embedded into the app at compile time. It is the
+reference for the spritesheet layout and style. `skins/index.json`
 lists the skins available in this repo (with screenshots) — the planned
 in-app browser reads it straight from GitHub.

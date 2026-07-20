@@ -213,13 +213,13 @@ fn appearance_tab(
     ui.add_space(4.0);
 
     ui.label("Skin");
-    let current_label = settings.skin.as_deref().unwrap_or("Base Pastel (built-in)");
+    let current_label = settings.skin.as_deref().unwrap_or("Base (built-in)");
     egui::ComboBox::from_id_salt("cfg_skin")
         .selected_text(current_label)
         .width(200.0)
         .show_ui(ui, |ui| {
             if ui
-                .selectable_label(settings.skin.is_none(), "Base Pastel (built-in)")
+                .selectable_label(settings.skin.is_none(), "Base (built-in)")
                 .clicked()
                 && settings.skin.is_some()
             {
