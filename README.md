@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/banner.png" alt="Rondelek TWST-1" width="100%">
+</p>
+
 # Rondelek TWST-1
 
 > A playful audio sampler for children with hearing implants — record short
@@ -5,7 +9,7 @@
 > game.
 
 <p align="center">
-  <img src="docs/images/sampler.png" alt="The Rondelek TWST-1 sampler: an amber dot-matrix display above a 4×3 grid of keycap pads" width="420">
+  <img src="docs/images/sampler.png" alt="The Rondelek TWST-1 sampler: an amber dot-matrix display above a 4×3 grid of matte keycap pads labelled 1–4, Q/W/E/R, A/S/D/F" width="380">
 </p>
 
 Rondelek is a small, self-contained desktop app written in **Rust** with

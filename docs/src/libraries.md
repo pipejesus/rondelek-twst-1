@@ -10,6 +10,7 @@ builds.
 |-------|------|
 | `eframe` | Application shell + windowing around `egui`. |
 | `egui` | Immediate-mode GUI toolkit — all widgets and the painter. |
+| `winit` | Low-level windowing under `eframe`; used directly only to force XWayland via `--x11` on Linux (`main.rs`). |
 
 ## Audio
 
@@ -34,6 +35,7 @@ builds.
 | Crate | Role |
 |-------|------|
 | `serde` / `serde_json` | (De)serialize `profile.json`, `session.json`, `settings.json`. |
+| `zip` | Extract uploaded skin `.zip` archives into the skins folder (`ui/skin.rs`). |
 | `dirs` | Locate the OS data and config directories. |
 | `uuid` (v4) | Stable IDs for profiles and sessions. |
 | `sys-locale` | Detect the system language on first run. |
