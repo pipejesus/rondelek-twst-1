@@ -42,6 +42,7 @@ pub(crate) const LILAC: Color = Color::new(201, 184, 232, 255);
 pub(crate) const SKY: Color = Color::new(169, 212, 239, 255);
 pub(crate) const BUTTER: Color = Color::new(245, 226, 158, 255);
 pub(crate) const CHARCOAL: Color = Color::new(74, 68, 60, 255);
+pub(crate) const STONE: Color = Color::new(140, 124, 115, 255);
 
 /// One frame of voice input, produced by [`VoiceBridge`].
 pub struct VoiceInput {
@@ -120,7 +121,8 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
     // Phase 1: the therapist picks which vowel drives which move, plus the
     // Reaction slider (turtle = steady, rabbit = snappy).
     let picked = if max_frames.is_some() && !harness_select {
-        Some((0, 1, settings.game_reaction)) // harness default: a jumps, e ducks
+        // harness default: a jumps, e ducks, i shoots; all obstacles on.
+        Some((0, 1, 2, settings.game_reaction, [true, true, true, true]))
     } else {
         select_controls(
             &mut rl,
@@ -130,7 +132,7 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
             shot.as_deref(),
         )
     };
-    let Some((jump_vowel, duck_vowel, reaction)) = picked else {
+    let Some((jump_vowel, duck_vowel, shoot_vowel, reaction, enabled)) = picked else {
         return Ok(()); // window closed on the selection screen
     };
     if harness_select {
@@ -144,11 +146,28 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
     }
 
     let mut bridge = VoiceBridge::new(&settings, calibration);
-    bridge.set_focus([jump_vowel, duck_vowel]);
+    bridge.set_focus(&[jump_vowel, duck_vowel, shoot_vowel]);
     bridge.set_reaction(reaction);
 
+    // Therapist's obstacle pick → the kinds allowed to spawn.
+    let kinds: Vec<runner::Kind> = [
+        runner::Kind::Jump,
+        runner::Kind::Duck,
+        runner::Kind::Wall,
+        runner::Kind::High,
+    ]
+    .into_iter()
+    .zip(enabled)
+    .filter_map(|(k, on)| on.then_some(k))
+    .collect();
+
     let mut game: Box<dyn VoiceGame> = match id {
-        "runner" => Box::new(runner::Runner::new(jump_vowel, duck_vowel)),
+        "runner" => Box::new(runner::Runner::new(
+            jump_vowel,
+            duck_vowel,
+            shoot_vowel,
+            kinds,
+        )),
         _ => anyhow::bail!("unknown game: {id}"),
     };
     game.init(&mut rl, &thread);
@@ -182,21 +201,101 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
 
 // ---- control selection screen --------------------------------------------
 
-/// Let the therapist assign a vowel to each of the two moves and set the
-/// Reaction slider. Returns `(jump, duck, reaction)`, or `None` if the window
-/// was closed. Text-free: two slot cards (▲ jump / ▼ duck), a row of vowel
-/// letter cards, a turtle↔rabbit slider, a ▶ button.
+/// A filled 5-pointed star (the shoot glyph). Drawn as a triangle fan; each
+/// triangle is emitted in both windings so it fills regardless of raylib's
+/// front-face rule.
+fn draw_star(d: &mut RaylibDrawHandle, cx: f32, cy: f32, r_out: f32, color: Color) {
+    let pts = 5;
+    let r_in = r_out * 0.44;
+    let center = Vector2::new(cx, cy);
+    let verts: Vec<Vector2> = (0..pts * 2)
+        .map(|k| {
+            let ang = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::PI / pts as f32;
+            let r = if k % 2 == 0 { r_out } else { r_in };
+            Vector2::new(cx + r * ang.cos(), cy + r * ang.sin())
+        })
+        .collect();
+    for k in 0..verts.len() {
+        let (a, b) = (verts[k], verts[(k + 1) % verts.len()]);
+        d.draw_triangle(center, a, b, color);
+        d.draw_triangle(center, b, a, color);
+    }
+}
+
+/// Mini obstacle icon inside a toggle button: 0 = low block, 1 = high bar,
+/// 2 = tall wall.
+fn draw_obstacle_icon(d: &mut RaylibDrawHandle, rect: Rectangle, kind: usize, color: Color) {
+    let cx = rect.x + rect.width / 2.0;
+    let bottom = rect.y + rect.height * 0.80;
+    match kind {
+        0 => {
+            let (bw, bh) = (rect.width * 0.34, rect.height * 0.34);
+            d.draw_rectangle_rounded(
+                Rectangle { x: cx - bw / 2.0, y: bottom - bh, width: bw, height: bh },
+                0.2,
+                4,
+                color,
+            );
+        }
+        1 => {
+            let (bw, bh) = (rect.width * 0.5, rect.height * 0.14);
+            let top = rect.y + rect.height * 0.30;
+            d.draw_rectangle_rounded(
+                Rectangle { x: cx - bw / 2.0, y: top, width: bw, height: bh },
+                0.4,
+                4,
+                color,
+            );
+            for px in [cx - bw / 2.0 + bh * 0.4, cx + bw / 2.0 - bh * 0.4] {
+                d.draw_rectangle_rec(
+                    Rectangle { x: px - 2.0, y: top + bh, width: 4.0, height: bottom - (top + bh) },
+                    color,
+                );
+            }
+        }
+        2 => {
+            let bw = rect.width * 0.32;
+            let top = rect.y + rect.height * 0.22;
+            let wall = Rectangle { x: cx - bw / 2.0, y: top, width: bw, height: bottom - top };
+            d.draw_rectangle_rec(wall, color);
+            for k in 1..3 {
+                let y = (top + (bottom - top) * k as f32 / 3.0) as i32;
+                d.draw_line(wall.x as i32, y, (wall.x + bw) as i32, y, CREAM);
+            }
+        }
+        _ => {
+            // Tall slim pillar (double-jump), with an up-chevron hint on top.
+            let bw = rect.width * 0.20;
+            let top = rect.y + rect.height * 0.20;
+            let pillar = Rectangle { x: cx - bw / 2.0, y: top, width: bw, height: bottom - top };
+            d.draw_rectangle_rounded(pillar, 0.4, 4, color);
+            let ch = rect.height * 0.12;
+            d.draw_triangle(
+                Vector2::new(cx, top - ch),
+                Vector2::new(cx - bw, top),
+                Vector2::new(cx + bw, top),
+                color,
+            );
+        }
+    }
+}
+
+/// Let the therapist assign a vowel to each of the three moves (jump ▲, duck ▼,
+/// shoot ★), toggle which obstacle kinds appear (difficulty), and set the
+/// Reaction slider. Returns `(jump, duck, shoot, reaction, [jump, duck, wall,
+/// high])`, or `None` if the window was closed. Text-free by design.
 fn select_controls(
     rl: &mut RaylibHandle,
     thread: &RaylibThread,
     initial_reaction: f32,
     harness_frames: Option<u64>,
     shot: Option<&str>,
-) -> Option<(usize, usize, f32)> {
-    let mut jump = 0usize;
-    let mut duck = 1usize;
+) -> Option<(usize, usize, usize, f32, [bool; 4])> {
+    // sel[0]=jump, sel[1]=duck, sel[2]=shoot; kept distinct by swapping.
+    let mut sel = [0usize, 1, 2];
+    let mut active = 0usize; // slot the next vowel click fills
+    let mut enabled = [true; 4]; // jump / duck / wall / high obstacles
     let mut reaction = initial_reaction.clamp(0.0, 1.0);
-    let mut picking_jump = true;
     let mut frame: u64 = 0;
 
     while !rl.window_should_close() {
@@ -210,19 +309,20 @@ fn select_controls(
             height: rh * s,
         };
 
-        // Layout (1280x720 logical): two slots, six vowel cards, play button.
-        let slot_jump = r(1280.0 / 2.0 - 330.0, 120.0, 260.0, 220.0);
-        let slot_duck = r(1280.0 / 2.0 + 70.0, 120.0, 260.0, 220.0);
-        let slider = r(1280.0 / 2.0 - 240.0, 556.0, 480.0, 26.0);
+        // Layout (1280x720 logical): three slots, six vowel cards, three
+        // obstacle toggles, reaction slider, play button.
+        let slot = |i: usize| r(240.0 + i as f32 * 280.0, 70.0, 240.0, 160.0);
         let card = |i: usize| {
             r(
                 1280.0 / 2.0 - 6.0 * 130.0 / 2.0 + i as f32 * 130.0 + 15.0,
-                420.0,
+                268.0,
                 100.0,
                 100.0,
             )
         };
-        let play = r(1280.0 / 2.0 - 110.0, 612.0, 220.0, 86.0);
+        let toggle = |i: usize| r(295.0 + i as f32 * 180.0, 402.0, 150.0, 96.0);
+        let slider = r(1280.0 / 2.0 - 240.0, 548.0, 480.0, 26.0);
+        let play = r(1280.0 / 2.0 - 110.0, 616.0, 220.0, 80.0);
 
         // --- input ---
         let mouse = rl.get_mouse_position();
@@ -240,33 +340,36 @@ fn select_controls(
             }
         }
         if clicked {
-            if slot_jump.check_collision_point_rec(mouse) {
-                picking_jump = true;
-            } else if slot_duck.check_collision_point_rec(mouse) {
-                picking_jump = false;
-            } else if play.check_collision_point_rec(mouse) {
-                return Some((jump, duck, reaction));
-            } else {
-                for i in 0..6 {
-                    if card(i).check_collision_point_rec(mouse) {
-                        if picking_jump {
-                            if i == duck {
-                                duck = jump; // swap instead of duplicating
-                            }
-                            jump = i;
-                        } else {
-                            if i == jump {
-                                jump = duck;
-                            }
-                            duck = i;
-                        }
-                        picking_jump = !picking_jump;
+            if play.check_collision_point_rec(mouse) {
+                return Some((sel[0], sel[1], sel[2], reaction, enabled));
+            }
+            // Slot click: pick which move the next vowel fills.
+            for sn in 0..3 {
+                if slot(sn).check_collision_point_rec(mouse) {
+                    active = sn;
+                }
+            }
+            // Vowel card click: assign to the active slot, keeping all distinct.
+            for i in 0..6 {
+                if card(i).check_collision_point_rec(mouse) {
+                    if let Some(other) = (0..3).find(|&sn| sn != active && sel[sn] == i) {
+                        sel[other] = sel[active]; // swap, never duplicate
                     }
+                    sel[active] = i;
+                    active = (active + 1) % 3; // step to the next move
+                }
+            }
+            // Obstacle toggle click: flip on/off, but never leave all four off.
+            for i in 0..4 {
+                if toggle(i).check_collision_point_rec(mouse)
+                    && !(enabled[i] && enabled.iter().filter(|&&e| e).count() == 1)
+                {
+                    enabled[i] = !enabled[i];
                 }
             }
         }
         if rl.is_key_pressed(KeyboardKey::KEY_ENTER) || rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
-            return Some((jump, duck, reaction));
+            return Some((sel[0], sel[1], sel[2], reaction, enabled));
         }
 
         // --- draw ---
@@ -277,8 +380,8 @@ fn select_controls(
 
             let arrow = |d: &mut RaylibDrawHandle, rect: Rectangle, up: bool| {
                 let cx = rect.x + rect.width / 2.0;
-                let top = rect.y + rect.height * 0.14;
-                let bot = rect.y + rect.height * 0.40;
+                let top = rect.y + rect.height * 0.16;
+                let bot = rect.y + rect.height * 0.42;
                 let half = rect.width * 0.16;
                 // Counter-clockwise winding so raylib fills the triangle.
                 let (a, b, c) = if up {
@@ -302,38 +405,50 @@ fn select_controls(
                 d.draw_text(
                     text,
                     (rect.x + rect.width / 2.0) as i32 - tw / 2,
-                    (rect.y + rect.height * 0.44) as i32,
+                    (rect.y + rect.height * 0.46) as i32,
                     fs,
                     CHARCOAL,
                 );
             };
 
-            // Slots: fill in the "assignment" colour, outline the active one.
-            for (slot, up, vowel, active) in [
-                (slot_jump, true, jump, picking_jump),
-                (slot_duck, false, duck, !picking_jump),
-            ] {
-                d.draw_rectangle_rounded(slot, 0.25, 8, if up { SKY } else { LILAC });
-                arrow(&mut d, slot, up);
-                letter(&mut d, slot, VOWELS[vowel].label(), 0.46);
-                if active {
+            // Slots: jump ▲ (sky), duck ▼ (lilac), shoot ★ (butter). Outline
+            // the active one; each shows its assigned vowel.
+            let slot_color = [SKY, LILAC, BUTTER];
+            for i in 0..3 {
+                let rect = slot(i);
+                d.draw_rectangle_rounded(rect, 0.25, 8, slot_color[i]);
+                match i {
+                    0 => arrow(&mut d, rect, true),
+                    1 => arrow(&mut d, rect, false),
+                    _ => draw_star(
+                        &mut d,
+                        rect.x + rect.width / 2.0,
+                        rect.y + rect.height * 0.30,
+                        rect.height * 0.15,
+                        CHARCOAL,
+                    ),
+                }
+                letter(&mut d, rect, VOWELS[sel[i]].label(), 0.40);
+                if i == active {
                     let grow = Rectangle {
-                        x: slot.x - 5.0,
-                        y: slot.y - 5.0,
-                        width: slot.width + 10.0,
-                        height: slot.height + 10.0,
+                        x: rect.x - 5.0,
+                        y: rect.y - 5.0,
+                        width: rect.width + 10.0,
+                        height: rect.height + 10.0,
                     };
                     d.draw_rectangle_rounded_lines(grow, 0.25, 8, CHARCOAL);
                 }
             }
 
-            // Vowel cards; the two assigned ones wear their slot colour.
+            // Vowel cards; the three assigned ones wear their slot colour.
             for i in 0..6 {
                 let rect = card(i);
-                let fill = if i == jump {
+                let fill = if i == sel[0] {
                     SKY
-                } else if i == duck {
+                } else if i == sel[1] {
                     LILAC
+                } else if i == sel[2] {
+                    BUTTER
                 } else {
                     Color::new(255, 255, 255, 220)
                 };
@@ -347,6 +462,34 @@ fn select_controls(
                     (rect.y + rect.height * 0.26) as i32,
                     fs,
                     CHARCOAL,
+                );
+            }
+
+            // Obstacle toggles: pick which kinds appear (difficulty). A lit
+            // toggle is fully coloured with a filled dot; a dim one is off.
+            let toggle_fill = [ROSE, LILAC, STONE, ROSE];
+            for i in 0..4 {
+                let rect = toggle(i);
+                let on = enabled[i];
+                let bg = if on {
+                    Color::new(255, 255, 255, 235)
+                } else {
+                    Color::new(255, 255, 255, 110)
+                };
+                d.draw_rectangle_rounded(rect, 0.2, 6, bg);
+                d.draw_rectangle_rounded_lines(rect, 0.2, 6, if on { CHARCOAL } else { MINT_DARK });
+                let icon = if on {
+                    toggle_fill[i]
+                } else {
+                    Color::new(toggle_fill[i].r, toggle_fill[i].g, toggle_fill[i].b, 90)
+                };
+                draw_obstacle_icon(&mut d, rect, i, icon);
+                let dot = Vector2::new(rect.x + rect.width - 16.0 * s, rect.y + 16.0 * s);
+                d.draw_circle(
+                    dot.x as i32,
+                    dot.y as i32,
+                    7.0 * s,
+                    if on { MINT_DARK } else { Color::new(206, 200, 194, 255) },
                 );
             }
 
@@ -413,7 +556,7 @@ fn select_controls(
             snap(rl, thread, path);
         }
         if harness_frames.is_some_and(|m| frame >= m) {
-            return Some((jump, duck, reaction));
+            return Some((sel[0], sel[1], sel[2], reaction, enabled));
         }
     }
     None

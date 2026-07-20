@@ -24,10 +24,10 @@ pub struct VoiceBridge {
     level: f32,
     held: Option<usize>,
     refractory: f32,
-    /// When set, only these two vowels compete for the gate — the therapist's
-    /// chosen controls. All other vowels are ignored entirely, which removes
-    /// close-pair confusion (e.g. e vs y) from the game.
-    focus: Option<[usize; 2]>,
+    /// When set, only these vowels compete for the gate — the therapist's
+    /// chosen controls (2 or 3 of them). All other vowels are ignored
+    /// entirely, which removes close-pair confusion (e.g. e vs y) from the game.
+    focus: Option<Vec<usize>>,
     // Copied thresholds (the game process never re-reads settings mid-run).
     voicing_threshold: f32,
     smoothing: f32,
@@ -63,9 +63,9 @@ impl VoiceBridge {
         }
     }
 
-    /// Restrict the gate to two chosen vowels (therapist's control mapping).
-    pub fn set_focus(&mut self, pair: [usize; 2]) {
-        self.focus = Some(pair);
+    /// Restrict the gate to the chosen control vowels (therapist's mapping).
+    pub fn set_focus(&mut self, vowels: &[usize]) {
+        self.focus = Some(vowels.to_vec());
     }
 
     /// Apply the pre-game Reaction slider (0 = turtle/steady, 1 = rabbit/
@@ -110,7 +110,7 @@ impl VoiceBridge {
                 &self.scores,
                 self.show_threshold,
                 self.margin_threshold,
-                self.focus,
+                self.focus.as_deref(),
             )
         });
         let onset = self.step_edge(active, dt);
@@ -147,18 +147,21 @@ fn gate(
     scores: &[f32; 6],
     show_threshold: f32,
     margin_threshold: f32,
-    focus: Option<[usize; 2]>,
+    focus: Option<&[usize]>,
 ) -> Option<usize> {
     let (idx, val, second) = match focus {
-        Some([a, b]) => {
-            let (i, j) = if scores[a] >= scores[b] {
-                (a, b)
-            } else {
-                (b, a)
-            };
-            (i, scores[i], scores[j])
+        Some(f) if !f.is_empty() => {
+            // Best focused vowel, and the strongest of the rest of the focused
+            // set as its runner-up — so only chosen vowels ever compete.
+            let best = *f.iter().max_by(|&&a, &&b| scores[a].total_cmp(&scores[b]))?;
+            let second = f
+                .iter()
+                .filter(|&&i| i != best)
+                .map(|&i| scores[i])
+                .fold(0.0f32, f32::max);
+            (best, scores[best], second)
         }
-        None => {
+        _ => {
             let (idx, &val) = scores
                 .iter()
                 .enumerate()
@@ -239,10 +242,10 @@ mod tests {
         let scores = [0.0, 0.55, 0.0, 0.05, 0.0, 0.62];
         assert_eq!(gate(&scores, 0.4, 0.15, None), None);
         // Focused on a+e (jump/duck): y is out of the running, e wins clean.
-        assert_eq!(gate(&scores, 0.4, 0.15, Some([0, 1])), Some(1));
+        assert_eq!(gate(&scores, 0.4, 0.15, Some(&[0, 1])), Some(1));
         // And an unchosen vowel alone can't trigger anything: only "y" voiced.
         let only_y = [0.0, 0.05, 0.0, 0.0, 0.0, 0.9];
-        assert_eq!(gate(&only_y, 0.4, 0.15, Some([0, 1])), None);
+        assert_eq!(gate(&only_y, 0.4, 0.15, Some(&[0, 1])), None);
     }
 
     #[test]
