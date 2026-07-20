@@ -61,7 +61,7 @@ fn downscale_max(img: RgbaImage, max: u32) -> RgbaImage {
 /// Save an RGBA frame to a temporary square-able PNG and return its path. The
 /// avatar pipeline (`Profile::set_avatar`) will centre-crop and resize it.
 pub fn save_frame_png(rgba: &[u8], width: u32, height: u32) -> Result<std::path::PathBuf> {
-    let path = std::env::temp_dir().join(format!("rondelek_cam_{}.png", crate::util::new_uid()));
+    let path = std::env::temp_dir().join(format!("rondelek_cam_{}.png", rondelek_core::util::new_uid()));
     let img =
         image::RgbaImage::from_raw(width, height, rgba.to_vec()).context("Invalid camera frame")?;
     img.save_with_format(&path, image::ImageFormat::Png)

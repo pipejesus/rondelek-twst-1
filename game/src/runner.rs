@@ -16,8 +16,8 @@
 //! so physics, collisions and their tests are identical.
 
 use super::{VoiceGame, VoiceInput};
-use crate::audio::vowel::VOWELS;
 use raylib::prelude::*;
+use rondelek_core::audio::vowel::VOWELS;
 
 use super::{BUTTER, CHARCOAL, CREAM, LILAC, MINT_DARK, PEACH, ROSE, SKY};
 

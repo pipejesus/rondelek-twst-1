@@ -1,7 +1,7 @@
 //! A drawn kid-face placeholder avatar (used when a profile has no picture)
 //! and the translucent gloss band the profile screens lay over avatar photos.
 
-use crate::config::Theme;
+use rondelek_core::config::Theme;
 use egui::{Color32, CornerRadius, Painter, Pos2, Rect, Stroke};
 
 /// Overlay a translucent top-highlight band, e.g. on top of an avatar image so

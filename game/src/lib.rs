@@ -1,7 +1,15 @@
 //! Voice-controlled mini-games, rendered by raylib in their own
-//! borderless-fullscreen window. The sampler app launches
-//! `rondelek --game <id> --profile <dir>` as a child process (see main.rs);
-//! this module owns everything past that point.
+//! borderless-fullscreen window. The sampler app spawns the sibling
+//! `rondelek-game <id> [--profile <dir>]` binary as a child process (see
+//! `app/src/app.rs::launch_game`); this crate owns everything past that
+//! point.
+//!
+//! This is a separate crate (not a module of the `rondelek` app) on purpose:
+//! raylib and the `windows` crate (pulled in by eframe/winit/accesskit on the
+//! app side) both define a symbol named `ShowCursor`, which is a hard MSVC
+//! linker error — `LNK2005` / `LNK1169` — the moment both end up in the same
+//! Windows binary. Keeping raylib's dependents in their own executable is
+//! what keeps that from happening.
 //!
 //! Every game starts on a control-selection screen where the therapist picks
 //! which vowel triggers which move (two big slots: jump ▲ and duck ▼). The
@@ -9,8 +17,9 @@
 //! the unchosen vowels can't cause misfires. The screen is deliberately
 //! text-free (letters, arrows, a play button) — no font or locale issues.
 //!
-//! To add a game: write a `VoiceGame` impl in a new file, register it in
-//! [`GAMES`] and in the `match` inside [`run`], and add its i18n name key.
+//! To add a game: write a `VoiceGame` impl in a new file, register it in the
+//! `match` inside [`run`], and add its id + i18n name key to
+//! `rondelek_core::games::GAMES`.
 
 pub mod runner;
 pub mod voice;
@@ -18,9 +27,9 @@ pub mod voice;
 use raylib::prelude::*;
 use std::path::PathBuf;
 
-use crate::audio::vowel::VOWELS;
-use crate::config::Settings;
-use crate::profile::Profile;
+use rondelek_core::audio::vowel::VOWELS;
+use rondelek_core::config::Settings;
+use rondelek_core::profile::Profile;
 use voice::VoiceBridge;
 
 // Base Pastel palette, shared by the selection screen and the games.
@@ -56,8 +65,6 @@ pub trait VoiceGame {
     fn draw(&mut self, d: &mut RaylibDrawHandle, w: i32, h: i32);
 }
 
-/// (id, i18n name key) of every available game, in menu order.
-pub const GAMES: &[(&str, &str)] = &[("runner", "games.runner.name")];
 
 /// The keyboard fallback: A/E/I/O/U/Y act as held vowels.
 fn keyboard_vowel(rl: &RaylibHandle) -> Option<usize> {

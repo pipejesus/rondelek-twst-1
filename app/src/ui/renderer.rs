@@ -1,4 +1,4 @@
-use crate::config::Theme;
+use rondelek_core::config::Theme;
 use crate::ui::FaceLayout;
 use crate::ui::skin::{Skin, draw_nine_slice, draw_tiled, slice_screen_inset};
 use egui::{CornerRadius, Painter, Vec2};

@@ -1,14 +1,14 @@
 //! The vowel view: shows the detected Polish vowel as a large letter plus a
-//! match meter per vowel. It runs the single [`crate::audio::vowel`] detector
+//! match meter per vowel. It runs the single [`rondelek_core::audio::vowel`] detector
 //! against the active profile's calibration — there is no uncalibrated fallback,
 //! so an uncalibrated profile is told to calibrate first.
 
 use egui::{Align2, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
-use crate::audio::vowel::{self, VOWELS, VowelDetector, VowelResult};
-use crate::config::{Settings, Theme};
+use rondelek_core::audio::vowel::{self, VOWELS, VowelDetector, VowelResult};
+use rondelek_core::config::{Settings, Theme};
 use crate::ui::visualizer::{AudioFrame, Visualizer};
-use crate::util::lerp;
+use rondelek_core::util::lerp;
 
 /// Analysis window (samples) — ~45 ms at 44.1 kHz, long enough for a stable
 /// envelope, short enough to track a changing vowel.

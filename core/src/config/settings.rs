@@ -2,8 +2,25 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+// ponytail: codes only (no endonym/display name — that's a UI concern that
+// lives in `app/src/i18n`'s `EUROPEAN_LANGS`), kept in sync with that list by
+// hand. Needed here, not there, because Settings' default must not depend on
+// the app crate (i18n is app-side; this crate stays GUI-toolkit-free so the
+// game binary can link it without pulling raylib and winit into one exe).
+const SUPPORTED_LANGS: &[&str] = &[
+    "en", "pl", "de", "fr", "es", "it", "uk", "pt", "nl", "sv", "no", "da", "fi", "is", "et",
+    "lv", "lt", "cs", "sk", "sl", "hu", "ro", "bg", "el", "hr", "sr", "bs", "mk", "sq", "ga",
+    "mt", "be", "ru", "tr", "lb", "ca",
+];
+
 fn default_language() -> String {
-    crate::i18n::detect_system_lang()
+    let locale = sys_locale::get_locale().unwrap_or_default();
+    let primary = locale.split(['-', '_']).next().unwrap_or("").to_lowercase();
+    if SUPPORTED_LANGS.contains(&primary.as_str()) {
+        primary
+    } else {
+        "en".to_string()
+    }
 }
 
 /// Lower dB floor of the visualizer's display window (display-only; never touches

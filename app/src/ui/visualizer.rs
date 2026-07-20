@@ -1,5 +1,5 @@
-use crate::config::{Settings, Theme};
-use crate::util::lerp;
+use rondelek_core::config::{Settings, Theme};
+use rondelek_core::util::lerp;
 use egui::{Color32, Painter, Pos2, Rect};
 use rustfft::{FftPlanner, num_complex::Complex};
 
@@ -32,7 +32,7 @@ pub trait Visualizer {
     /// Supply the active profile's vowel calibration (`None` = uncalibrated, use
     /// the scaled reference set). Default is a no-op; the vowel visualizer
     /// overrides it.
-    fn set_calibration(&mut self, _calibration: Option<crate::audio::vowel::VowelCalibration>) {}
+    fn set_calibration(&mut self, _calibration: Option<rondelek_core::audio::vowel::VowelCalibration>) {}
 }
 
 /// The default visualizer: a retro dot-matrix FFT spectrum.
@@ -346,9 +346,9 @@ mod tests {
         // way linear binning did.
         let sr = 44100;
         let mut viz = SpectrumVisualizer::new();
-        let settings = crate::config::Settings {
+        let settings = rondelek_core::config::Settings {
             visualizer_num_bars: 128,
-            ..crate::config::Settings::default()
+            ..rondelek_core::config::Settings::default()
         };
 
         let samples: Vec<f32> = (0..2048)

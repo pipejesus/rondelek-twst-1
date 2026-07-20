@@ -6,7 +6,7 @@
 //! the app always has a complete skin; any file a user skin doesn't provide
 //! falls back to the base one.
 
-use crate::config::{NUM_SAMPLES, Theme, theme_light};
+use rondelek_core::config::{NUM_SAMPLES, Theme, theme_light};
 use egui::{
     Color32, Context, Painter, Pos2, Rect, TextureHandle, TextureOptions, TextureWrapMode, Vec2,
 };
@@ -77,7 +77,7 @@ pub struct Skin {
 
 macro_rules! base_file {
     ($f:expr) => {
-        include_bytes!(concat!("../../skins/base-pastel/", $f)).as_slice()
+        include_bytes!(concat!("../../../skins/base-pastel/", $f)).as_slice()
     };
 }
 

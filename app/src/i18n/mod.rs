@@ -206,11 +206,6 @@ pub const EUROPEAN_LANGS: &[Lang] = &[
     },
 ];
 
-/// True if `code` is an offered language.
-pub fn is_supported(code: &str) -> bool {
-    EUROPEAN_LANGS.iter().any(|l| l.code == code)
-}
-
 /// The endonym for a code, or the code itself if unknown.
 pub fn endonym(code: &str) -> &str {
     EUROPEAN_LANGS
@@ -223,13 +218,13 @@ pub fn endonym(code: &str) -> &str {
 /// Embedded translation JSON for fully-translated locales.
 fn embedded(code: &str) -> Option<&'static str> {
     match code {
-        "en" => Some(include_str!("../../assets/i18n/en.json")),
-        "pl" => Some(include_str!("../../assets/i18n/pl.json")),
-        "de" => Some(include_str!("../../assets/i18n/de.json")),
-        "fr" => Some(include_str!("../../assets/i18n/fr.json")),
-        "es" => Some(include_str!("../../assets/i18n/es.json")),
-        "it" => Some(include_str!("../../assets/i18n/it.json")),
-        "uk" => Some(include_str!("../../assets/i18n/uk.json")),
+        "en" => Some(include_str!("../../../assets/i18n/en.json")),
+        "pl" => Some(include_str!("../../../assets/i18n/pl.json")),
+        "de" => Some(include_str!("../../../assets/i18n/de.json")),
+        "fr" => Some(include_str!("../../../assets/i18n/fr.json")),
+        "es" => Some(include_str!("../../../assets/i18n/es.json")),
+        "it" => Some(include_str!("../../../assets/i18n/it.json")),
+        "uk" => Some(include_str!("../../../assets/i18n/uk.json")),
         _ => None,
     }
 }
@@ -238,7 +233,7 @@ fn embedded(code: &str) -> Option<&'static str> {
 pub fn flag_png(code: &str) -> Option<&'static [u8]> {
     macro_rules! flag {
         ($c:literal) => {
-            include_bytes!(concat!("../../assets/flags/", $c, ".png")).as_slice()
+            include_bytes!(concat!("../../../assets/flags/", $c, ".png")).as_slice()
         };
     }
     Some(match code {
@@ -284,17 +279,6 @@ pub fn flag_png(code: &str) -> Option<&'static [u8]> {
 
 fn parse(json: &str) -> HashMap<String, String> {
     serde_json::from_str(json).unwrap_or_default()
-}
-
-/// Detect the system language as a supported code, defaulting to English.
-pub fn detect_system_lang() -> String {
-    let locale = sys_locale::get_locale().unwrap_or_default();
-    let primary = locale.split(['-', '_']).next().unwrap_or("").to_lowercase();
-    if is_supported(&primary) {
-        primary
-    } else {
-        DEFAULT_LANG.to_string()
-    }
 }
 
 /// Holds the active translation map plus an English fallback.

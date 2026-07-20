@@ -3,11 +3,11 @@
 //! audio-only config window *and* the hidden Ctrl+Shift+D developer panel: there
 //! is now exactly one place to configure everything.
 
-use crate::audio::device::{self, DevicePref};
-use crate::config::Settings;
+use rondelek_core::audio::device::{self, DevicePref};
+use rondelek_core::config::Settings;
 use crate::i18n::{EUROPEAN_LANGS, I18n, endonym};
 use crate::ui::level_meter;
-use crate::util::format_timestamp;
+use rondelek_core::util::format_timestamp;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Tab {

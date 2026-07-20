@@ -2,18 +2,18 @@ use egui::{Align2, Color32, Key, Pos2, Rect, Sense, Ui, Vec2};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::audio::vowel::{self, CalibrationCapture};
-use crate::audio::{Capture, Playback, Sample, device};
-use crate::config::{NUM_SAMPLES, PadKind, REC_PAD, ROUNDING_PAD, SAMPLE_PADS, Settings, Theme};
+use rondelek_core::audio::vowel::{self, CalibrationCapture};
+use rondelek_core::audio::{Capture, Playback, Sample, device};
+use rondelek_core::config::{NUM_SAMPLES, PadKind, REC_PAD, ROUNDING_PAD, SAMPLE_PADS, Settings, Theme};
 use crate::i18n::{self, EUROPEAN_LANGS, I18n};
-use crate::profile::{self, Profile, SessionInfo};
-use crate::session::Session;
+use rondelek_core::profile::{self, Profile, SessionInfo};
+use rondelek_core::session::Session;
 use crate::ui::{
     self, AudioFrame, ConfigPanel, OffVisualizer, Pad, PadMode, Renderer, Skin, SpectrumVisualizer,
     Visualizer, VowelVisualizer, compute_layout, draw_kid_face, gloss_overlay,
     skin::{ButtonTex, draw_cover},
 };
-use crate::util::now_secs;
+use rondelek_core::util::now_secs;
 
 /// Index of the REC control pad within `self.pads` (after the sample pads).
 const REC_PAD_IDX: usize = NUM_SAMPLES;
@@ -152,7 +152,7 @@ fn setup_fonts(ctx: &egui::Context) {
     fonts.font_data.insert(
         "space_grotesk".to_owned(),
         std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-            "../assets/fonts/SpaceGrotesk.ttf"
+            "../../assets/fonts/SpaceGrotesk.ttf"
         ))),
     );
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
@@ -1792,7 +1792,7 @@ impl App {
             }
             ui.add_space(18.0);
 
-            for (id, name_key) in crate::game::GAMES {
+            for (id, name_key) in rondelek_core::games::GAMES {
                 let btn = egui::Button::new(
                     egui::RichText::new(self.i18n.t(name_key))
                         .size(18.0)
@@ -1833,15 +1833,27 @@ impl App {
     /// Spawn the selected game as a child process (own fullscreen window),
     /// handing it the current profile dir for calibration. The sampler's mic
     /// is released first so the game can use it.
+    ///
+    /// The game runner is a separate executable (`rondelek-game`, built next
+    /// to this one — see the workspace's `game` crate) rather than this same
+    /// binary re-invoked with a flag: raylib and this app's windowing stack
+    /// (eframe/winit) both define a `ShowCursor` symbol, which is a Windows
+    /// linker error the moment both land in one binary.
     fn launch_game(&mut self, id: &str) {
         if self.game_child.is_some() {
             return;
         }
         self.capture = None;
         let profile_dir = self.current_profile.as_ref().map(|p| p.dir.clone());
+        let game_bin = if cfg!(windows) {
+            "rondelek-game.exe"
+        } else {
+            "rondelek-game"
+        };
         let spawned = std::env::current_exe().and_then(|exe| {
-            let mut cmd = std::process::Command::new(exe);
-            cmd.arg("--game").arg(id);
+            let sibling = exe.with_file_name(game_bin);
+            let mut cmd = std::process::Command::new(sibling);
+            cmd.arg(id);
             if let Some(dir) = profile_dir {
                 cmd.arg("--profile").arg(dir);
             }
@@ -2090,13 +2102,6 @@ impl eframe::App for App {
         // meters and the recording pulse, and half the tessellation work of
         // 60 (this is not a game). Static screens idle at a slow heartbeat.
         // Input events wake egui immediately either way.
-        let animating = matches!(self.screen, AppScreen::Session | AppScreen::Calibrate)
-            || self.config_panel.visible
-            || self.camera.is_some()
-            || self.auto_shot.is_some();
-        let delay = if animating { 33 } else { 100 };
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(delay));
         self.frame_count += 1;
 
         // Reap a finished game process so the Games screen unlocks.
@@ -2104,6 +2109,25 @@ impl eframe::App for App {
             && matches!(child.try_wait(), Ok(Some(_)) | Err(_))
         {
             self.game_child = None;
+        }
+
+        // Repaint policy. While a game child owns the fullscreen window this
+        // window is fully occluded; on Wayland an occluded window gets no
+        // frame callbacks, so *any* pending repaint makes winit busy-wait at
+        // ~100% on one core (the same spin docs/PERF.md chased). Request
+        // nothing then — the focus/occlusion event winit delivers when the
+        // game window closes wakes us to reap the child and resume painting.
+        // ponytail: reaping now relies on the compositor refocusing us when the
+        // game closes; add a timer-based reap only if a compositor is found
+        // that doesn't (no repaint while hidden is the whole point — see PERF.md).
+        if self.game_child.is_none() {
+            let animating = matches!(self.screen, AppScreen::Session | AppScreen::Calibrate)
+                || self.config_panel.visible
+                || self.camera.is_some()
+                || self.auto_shot.is_some();
+            let delay = if animating { 33 } else { 100 };
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(delay));
         }
 
         if ui.input(|i| i.key_pressed(Key::F12)) {

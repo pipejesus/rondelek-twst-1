@@ -1,37 +1,13 @@
 mod app;
-mod audio;
 mod camera;
-mod config;
-mod game;
 mod i18n;
-mod profile;
-mod session;
 mod ui;
-mod util;
 
 use app::App;
-use config::{WINDOW_HEIGHT, WINDOW_WIDTH};
 use egui::ViewportBuilder;
+use rondelek_core::config::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 fn main() -> eframe::Result {
-    // `--game <id> [--profile <dir>]`: run a voice mini-game (own raylib
-    // window) instead of the sampler app. The app spawns itself with these
-    // args when a kid picks a game.
-    let args: Vec<String> = std::env::args().collect();
-    if let Some(i) = args.iter().position(|a| a == "--game") {
-        let id = args.get(i + 1).cloned().unwrap_or_default();
-        let profile = args
-            .iter()
-            .position(|a| a == "--profile")
-            .and_then(|j| args.get(j + 1))
-            .map(std::path::PathBuf::from);
-        if let Err(e) = game::run(&id, profile) {
-            eprintln!("game error: {e}");
-            std::process::exit(1);
-        }
-        return Ok(());
-    }
-
     // Optional initial-size override ("WIDTHxHEIGHT"), useful for testing the
     // fluid layout at different window shapes.
     let (init_w, init_h) = std::env::var("RONDELEK_SIZE")
