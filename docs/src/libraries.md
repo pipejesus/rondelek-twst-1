@@ -22,6 +22,20 @@ builds.
 | `spectrograms` | MFCC feature extraction for vowel detection (`audio/vowel.rs`); pure-Rust FFT backend. |
 | `non-empty-slice` | Non-empty slice/`nzu!` types required by the `spectrograms` API. |
 
+## Voice games (`rondelek-game` only)
+
+| Crate | Role |
+|-------|------|
+| `raylib` | Window, 3D renderer and input for the voice mini-games. Confined to the `game` crate on purpose — see `docs/WORKSPACE_SPLIT.md`. |
+
+Game scenery is drawn by hand in our **flat-draw** tool (2D pixel drawing →
+extruded 3D layers) and exported as `.glb` into `assets/models/`, alongside the
+`*.meshes.json` flat-draw writes next to it (authoring metadata: canvas size,
+pivot, per-layer bounds — read by people, not by the game). `game/src/models.rs`
+embeds the GLB in the binary, loads it through raylib, merges the drawing's
+per-layer meshes into one (they share a single texture atlas) so each prop costs
+one draw call, and draws it many times with per-instance transforms.
+
 ## Camera & images
 
 | Crate | Role |

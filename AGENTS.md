@@ -68,6 +68,8 @@ assets/
   fonts/            bundled Space Grotesk (OFL) + licence
   i18n/             <lang>.json translation files (en is source of truth)
   flags/            <lang>.png picker flags (public domain, flagcdn)
+  models/           flat-draw scenery: <name>.glb (+ .meshes.json metadata)
+  shaders/          GLSL for the voice games (toon, fog)
 ```
 
 ## How it works

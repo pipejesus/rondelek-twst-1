@@ -21,6 +21,7 @@
 //! `match` inside [`run`], and add its id + i18n name key to
 //! `rondelek_core::games::GAMES`.
 
+pub mod models;
 pub mod runner;
 pub mod voice;
 

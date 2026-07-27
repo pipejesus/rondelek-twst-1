@@ -1,0 +1,184 @@
+{
+  "generator": "flat-draw",
+  "model": "cloud9.glb",
+  "canvas": {
+    "w": 16,
+    "h": 16
+  },
+  "pixelsPerUnit": 14,
+  "pivot": "bottom-center",
+  "bounds": {
+    "min": [
+      -0.5714286,
+      0,
+      -0.21428572
+    ],
+    "max": [
+      0.5714286,
+      0.78571427,
+      0.21428572
+    ]
+  },
+  "meshes": [
+    {
+      "index": 0,
+      "name": "part_1",
+      "layer": "chmurka-tyl",
+      "path": "chmurka-tyl/part_1",
+      "layerIndex": 0,
+      "cells": 79,
+      "bounds": {
+        "min": [
+          -0.5714286,
+          0.2857143,
+          -0.10714286
+        ],
+        "max": [
+          0.5714286,
+          0.78571427,
+          0.10714286
+        ]
+      }
+    },
+    {
+      "index": 1,
+      "name": "part_1",
+      "layer": "chmurka-przod",
+      "path": "chmurka-przod/part_1",
+      "layerIndex": 1,
+      "cells": 48,
+      "bounds": {
+        "min": [
+          -0.42857143,
+          0.35714287,
+          0.071428575
+        ],
+        "max": [
+          0.5714286,
+          0.78571427,
+          0.21428572
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "name": "part_1",
+      "layer": "chmurka-deszcz",
+      "path": "chmurka-deszcz/part_1",
+      "layerIndex": 2,
+      "cells": 2,
+      "bounds": {
+        "min": [
+          -0.5,
+          0.14285715,
+          -0.035714287
+        ],
+        "max": [
+          -0.42857143,
+          0.2857143,
+          0.035714287
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "name": "part_2",
+      "layer": "chmurka-deszcz",
+      "path": "chmurka-deszcz/part_2",
+      "layerIndex": 2,
+      "cells": 2,
+      "bounds": {
+        "min": [
+          0,
+          0.14285715,
+          -0.035714287
+        ],
+        "max": [
+          0.071428575,
+          0.2857143,
+          0.035714287
+        ]
+      }
+    },
+    {
+      "index": 4,
+      "name": "part_3",
+      "layer": "chmurka-deszcz",
+      "path": "chmurka-deszcz/part_3",
+      "layerIndex": 2,
+      "cells": 2,
+      "bounds": {
+        "min": [
+          0.5,
+          0.071428575,
+          -0.035714287
+        ],
+        "max": [
+          0.5714286,
+          0.21428572,
+          0.035714287
+        ]
+      }
+    },
+    {
+      "index": 5,
+      "name": "part_4",
+      "layer": "chmurka-deszcz",
+      "path": "chmurka-deszcz/part_4",
+      "layerIndex": 2,
+      "cells": 2,
+      "bounds": {
+        "min": [
+          -0.2857143,
+          0,
+          -0.035714287
+        ],
+        "max": [
+          -0.21428572,
+          0.14285715,
+          0.035714287
+        ]
+      }
+    },
+    {
+      "index": 6,
+      "name": "part_5",
+      "layer": "chmurka-deszcz",
+      "path": "chmurka-deszcz/part_5",
+      "layerIndex": 2,
+      "cells": 2,
+      "bounds": {
+        "min": [
+          0.2857143,
+          0,
+          -0.035714287
+        ],
+        "max": [
+          0.35714287,
+          0.14285715,
+          0.035714287
+        ]
+      }
+    },
+    {
+      "index": 7,
+      "name": "part_1",
+      "layer": "chmurka-tyl-tyl",
+      "path": "chmurka-tyl-tyl/part_1",
+      "layerIndex": 3,
+      "cells": 48,
+      "bounds": {
+        "min": [
+          -0.42857143,
+          0.35714287,
+          -0.21428572
+        ],
+        "max": [
+          0.5714286,
+          0.78571427,
+          -0.071428575
+        ]
+      }
+    }
+  ]
+}

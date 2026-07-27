@@ -1,0 +1,84 @@
+{
+  "generator": "flat-draw",
+  "model": "cloud9_norain.glb",
+  "canvas": {
+    "w": 16,
+    "h": 16
+  },
+  "pixelsPerUnit": 14,
+  "pivot": "bottom-center",
+  "bounds": {
+    "min": [
+      -0.5714286,
+      0.2857143,
+      -0.17857143
+    ],
+    "max": [
+      0.5714286,
+      0.78571427,
+      0.17857143
+    ]
+  },
+  "meshes": [
+    {
+      "index": 0,
+      "name": "part_1",
+      "layer": "chmurka-tyl",
+      "path": "chmurka-tyl/part_1",
+      "layerIndex": 0,
+      "cells": 48,
+      "bounds": {
+        "min": [
+          -0.42857143,
+          0.35714287,
+          -0.17857143
+        ],
+        "max": [
+          0.5714286,
+          0.78571427,
+          -0.10714286
+        ]
+      }
+    },
+    {
+      "index": 1,
+      "name": "part_1",
+      "layer": "chmurka-srodek",
+      "path": "chmurka-srodek/part_1",
+      "layerIndex": 1,
+      "cells": 79,
+      "bounds": {
+        "min": [
+          -0.5714286,
+          0.2857143,
+          -0.10714286
+        ],
+        "max": [
+          0.5714286,
+          0.78571427,
+          0.10714286
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "name": "part_1",
+      "layer": "chmurka-przod",
+      "path": "chmurka-przod/part_1",
+      "layerIndex": 2,
+      "cells": 48,
+      "bounds": {
+        "min": [
+          -0.42857143,
+          0.35714287,
+          0.10714286
+        ],
+        "max": [
+          0.5714286,
+          0.78571427,
+          0.17857143
+        ]
+      }
+    }
+  ]
+}

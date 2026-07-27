@@ -6,15 +6,18 @@
 //! Rendering: a fixed perspective camera slightly above and beside the action,
 //! everything built from chunky 3D bricks ("pixels became big and 3-D").
 //! Parallax layers scroll by hand-tuned factors of the travelled distance:
-//! clouds 0.10, mountains 0.25 (fog shader), bushes 0.55, ground 1.0. The
-//! hero placeholder brick is drawn under a comic-style toon shader — the same
-//! slot the dragon GLB model will use later. HUD (letter signs, meter, stars)
-//! stays crisp 2D, projected over the scene.
+//! clouds 0.10, mountains 0.25 (fog shader), bushes 0.55, ground 1.0. Clouds
+//! and bushes are hand-drawn flat-draw props (GLB, see `models.rs`); mountains,
+//! ground and obstacles are still procedural bricks. The hero placeholder brick
+//! is drawn under a comic-style toon shader — the same slot the dragon GLB model
+//! will use later. HUD (letter signs, meter, stars) stays crisp 2D, projected
+//! over the scene.
 //!
 //! Gameplay math is untouched from the 2D version: `update()` works in the
 //! same 1280x720 logical space (100 logical px = 1 world unit at draw time),
 //! so physics, collisions and their tests are identical.
 
+use super::models::FlatModel;
 use super::{VoiceGame, VoiceInput};
 use raylib::prelude::*;
 use raylib::rlgl::RaylibRlgl; // matrix stack for the salto flip
@@ -62,11 +65,17 @@ const GRASS: Color = Color::new(139, 205, 130, 255);
 const GRASS_DARK: Color = Color::new(110, 176, 105, 255);
 const DIRT: Color = Color::new(173, 128, 94, 255);
 const DIRT_DARK: Color = Color::new(128, 92, 66, 255);
-const BUSH_A: Color = Color::new(96, 168, 110, 255);
-const BUSH_B: Color = Color::new(74, 146, 92, 255);
 const MOUNT_A: Color = Color::new(151, 165, 196, 255);
 const MOUNT_B: Color = Color::new(126, 142, 178, 255);
-const CLOUD_WHITE: Color = Color::new(255, 253, 247, 255);
+// flat-draw props: world height (plus its per-lane variation) and the lane
+// spacing. Each drawing's own aspect decides the width; the height covers the
+// *whole* drawing, rain drops and all.
+const CLOUD_H: f32 = 1.9;
+const CLOUD_H_VARY: f32 = 1.3;
+const CLOUD_PERIOD: f32 = 12.0;
+const BUSH_H: f32 = 0.85;
+const BUSH_H_VARY: f32 = 0.5;
+const BUSH_PERIOD: f32 = 2.8;
 // Wall: solid stone, deliberately un-pastel so it reads as "impassable".
 const WALL_A: Color = Color::new(154, 136, 126, 255);
 const WALL_B: Color = Color::new(122, 106, 98, 255);
@@ -111,6 +120,26 @@ struct Gfx {
     camera: Camera3D,
     toon: Shader,
     fog: Shader,
+    /// The kid's own drawings (flat-draw GLB). `None` only if loading failed —
+    /// that layer then stays empty rather than the game dying.
+    cloud: Option<FlatModel>,
+    bush: Option<FlatModel>,
+}
+
+/// Load a flat-draw prop, or complain and carry on without it.
+fn load_prop(
+    rl: &mut RaylibHandle,
+    thread: &RaylibThread,
+    name: &str,
+    glb: &[u8],
+) -> Option<FlatModel> {
+    match FlatModel::load(rl, thread, name, glb) {
+        Ok(m) => Some(m),
+        Err(e) => {
+            eprintln!("{name} model unavailable: {e}");
+            None
+        }
+    }
 }
 
 pub struct Runner {
@@ -283,6 +312,21 @@ impl VoiceGame for Runner {
         fog.set_shader_value(loc_color, [0.965, 0.87, 0.8, 1.0f32]);
         fog.set_shader_value(loc_amount, 0.45f32);
 
+        // Scenery drawn in flat-draw and exported as GLB; each drawing's parts
+        // are merged into one mesh, so every prop on screen is one draw call.
+        let cloud = load_prop(
+            rl,
+            thread,
+            "cloud9",
+            include_bytes!("../../assets/models/cloud9.glb"),
+        );
+        let bush = load_prop(
+            rl,
+            thread,
+            "bush",
+            include_bytes!("../../assets/models/bush.glb"),
+        );
+
         self.gfx = Some(Gfx {
             camera: Camera3D::perspective(
                 Vector3::new(0.9, 2.2, 12.5),
@@ -292,6 +336,8 @@ impl VoiceGame for Runner {
             ),
             toon,
             fog,
+            cloud,
+            bush,
         });
     }
 
@@ -448,41 +494,21 @@ impl VoiceGame for Runner {
         {
             let mut c3 = d.begin_mode3D(camera);
 
-            // --- clouds (z -14, factor 0.10): massive, gentle, blocky ------
-            {
+            // --- clouds (z -14, factor 0.10): the kid's own drawing ---------
+            // One instance per sky lane, each a single draw call of the merged
+            // flat-draw mesh; only the transform differs between them.
+            if let Some(cloud) = &gfx.cloud {
                 let z = -14.0;
-                let period = 16.0;
                 let off = dist_u * 0.10 + self.t * 0.12;
                 let span = half_span(z);
-                let k0 = ((off - span) / period).floor() as i64;
-                let k1 = ((off + span) / period).ceil() as i64;
+                let k0 = ((off - span) / CLOUD_PERIOD).floor() as i64;
+                let k1 = ((off + span) / CLOUD_PERIOD).ceil() as i64;
                 for k in k0..=k1 {
-                    let cx = k as f32 * period - off;
-                    let cy = 4.2 + hash01(k, 11) * 2.4;
-                    let s = 1.0 + hash01(k, 12) * 0.8;
-                    let c = CLOUD_WHITE;
-                    c3.draw_cube(Vector3::new(cx, cy, z), 2.6 * s, 1.0 * s, 1.0, c);
-                    c3.draw_cube(
-                        Vector3::new(cx - 1.5 * s, cy - 0.3, z),
-                        1.4 * s,
-                        0.8 * s,
-                        1.0,
-                        c,
-                    );
-                    c3.draw_cube(
-                        Vector3::new(cx + 1.5 * s, cy - 0.25, z),
-                        1.2 * s,
-                        0.7 * s,
-                        1.0,
-                        c,
-                    );
-                    c3.draw_cube(
-                        Vector3::new(cx + 0.4 * s, cy + 0.55 * s, z),
-                        1.3 * s,
-                        0.7 * s,
-                        1.0,
-                        c,
-                    );
+                    let cx = k as f32 * CLOUD_PERIOD - off;
+                    // Vary size and altitude per lane so the repeat is invisible.
+                    let scale = cloud.scale_for_height(CLOUD_H + hash01(k, 12) * CLOUD_H_VARY);
+                    let base = 3.6 + hash01(k, 11) * 2.4;
+                    cloud.draw(&mut c3, Vector3::new(cx, base, z), scale);
                 }
             }
 
@@ -518,30 +544,22 @@ impl VoiceGame for Runner {
                 }
             }
 
-            // --- bushes (z -4, factor 0.55): clusters of green blocks ------
-            {
+            // --- bushes (z -4, factor 0.55): the kid's own drawing ----------
+            // Same deal as the clouds: one instance per lane, one draw call
+            // each, standing on the ground plane (y = 0).
+            if let Some(bush) = &gfx.bush {
                 let z = -4.0;
-                let period = 2.4;
                 let off = dist_u * 0.55;
                 let span = half_span(z);
-                let k0 = ((off - span) / period).floor() as i64;
-                let k1 = ((off + span) / period).ceil() as i64;
+                let k0 = ((off - span) / BUSH_PERIOD).floor() as i64;
+                let k1 = ((off + span) / BUSH_PERIOD).ceil() as i64;
                 for k in k0..=k1 {
                     if hash01(k, 31) < 0.25 {
                         continue; // gaps between bushes
                     }
-                    let cx = k as f32 * period - off + (hash01(k, 32) - 0.5) * 1.2;
-                    let n = 3 + (hash01(k, 33) * 4.0) as i32;
-                    for j in 0..n {
-                        let jj = k.wrapping_mul(16).wrapping_add(j as i64);
-                        let s = 0.35 + hash01(jj, 34) * 0.4;
-                        let bx = cx + (hash01(jj, 35) - 0.5) * 1.3;
-                        let by = s / 2.0 + hash01(jj, 36) * 0.5;
-                        let col = if hash01(jj, 37) > 0.5 { BUSH_A } else { BUSH_B };
-                        // Bush blocks funnel through one draw call so the
-                        // user's textures can swap in later (mesh + material).
-                        c3.draw_cube(Vector3::new(bx, by, z), s, s, s, col);
-                    }
+                    let cx = k as f32 * BUSH_PERIOD - off + (hash01(k, 32) - 0.5) * 1.2;
+                    let scale = bush.scale_for_height(BUSH_H + hash01(k, 33) * BUSH_H_VARY);
+                    bush.draw(&mut c3, Vector3::new(cx, 0.0, z), scale);
                 }
             }
 
