@@ -44,7 +44,8 @@ flowchart TD
 `calibration.json` (`vowel::VowelCalibration`, written after a child runs voice
 calibration) holds six **MFCC templates** (`mean` + `var` per vowel, indexed like
 `vowel::VOWELS`), the `channel_mean` (mic estimate removed from every template),
-`n_mfcc`, `sample_rate`, the `input_device` used, a format `version`, and `created`.
+`n_mfcc`, `sample_rate`, `min_vowel_rms` (adaptive voicing gate), the
+`input_device` used, a format `version`, and `created`.
 Absent or an older `version` (e.g. the pre-MFCC formant format) reads as "not
 calibrated" — the child is asked to recalibrate. See
 [The visualizer → Calibration](visualizer.md#calibration).
@@ -71,12 +72,26 @@ vowel-detection knobs (`vowel_voicing_threshold` / `_smoothing` /
 `active_visualizer` index, `game_reaction`, UI `language`, and pinned
 `input_device` / `output_device` names.
 
-New fields use `#[serde(default = "...")]` so upgrading never invalidates an
-existing settings file.
+Fields added after the first release use `#[serde(default = "...")]`, so older
+files keep loading. Be aware of the current sharp edges:
+
+- The original fields (`volume`, `visualizer_smoothing`, `visualizer_decay`,
+  `visualizer_num_bars`) have **no** serde default. A file missing one of them
+  fails to parse.
+- On **any** parse error, `Settings::load` silently **overwrites** `settings.json`
+  with defaults, losing pinned devices, skin and language.
+- **Two processes write the file.** The game saves `game_reaction` (reload,
+  modify, save), but the app loads settings only once in `App::new` and saves its
+  in-memory copy later (on any settings change and in `on_exit`), which overwrites
+  the game's value. Writes are not atomic (`std::fs::write`).
+
+Never remove or retype a field without a migration and a test that parses the old
+shape.
 
 ## What is embedded vs on disk
 
 | Embedded in the binary | On disk (user-owned) |
 |------------------------|----------------------|
 | Fonts, translations, picker flags | Profiles, sessions, recordings (WAV) |
-| Pad identities, theme, layout constants (Rust source) | User settings (JSON) |
+| Base skin, game shaders, 3D models (GLB) | User settings (JSON), user skins |
+| Pad identities, theme defaults, layout constants (Rust source) | Per-child calibration |

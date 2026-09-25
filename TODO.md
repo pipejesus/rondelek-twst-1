@@ -19,7 +19,7 @@ Tracked items intentionally left for later batches.
   already in place to support it).
 - **Notes attached to profiles/sessions** via their UIDs (uids already stored in
   `profile.json` / `session.json`).
-- Profile editing (rename, change picture) and deletion/archiving from the UI.
+- Profile deletion/archiving from the UI (editing is done).
 
 ## Nice-to-have
 - Per-pad labels (e.g. "ma", "pa") shown on the pads instead of the key letter.

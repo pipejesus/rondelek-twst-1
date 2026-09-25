@@ -1,10 +1,11 @@
 # The visualizer
 
 The visualizer is a **pluggable** subsystem: the app owns a
-`Box<dyn Visualizer>`, and the current dot-matrix spectrum is just one
-implementation (`SpectrumVisualizer`). New styles (waveform, VU meter, scope) can
-be added without touching the app wiring. Everything lives in
-`src/ui/visualizer.rs`.
+`Vec<Box<dyn Visualizer>>` and cycles through it. Three implementations ship:
+`SpectrumVisualizer` (dot-matrix spectrum), `VowelVisualizer` (vowel meter) and
+`OffVisualizer` (blank screen). The trait and the spectrum live in
+`app/src/ui/visualizer.rs`; the vowel meter is in `app/src/ui/vowel_visualizer.rs`.
+The detector itself is GUI-free, in `core/src/audio/vowel.rs`.
 
 ## The interface
 
@@ -20,6 +21,7 @@ pub trait Visualizer {
     fn update(&mut self, frame: &AudioFrame, settings: &Settings);
     fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, settings: &Settings);
     fn demo_fill(&mut self, _num_bars: usize) {}   // for screenshots; default no-op
+    fn set_calibration(&mut self, _cal: Option<VowelCalibration>) {} // active profile's; default no-op
 }
 ```
 
@@ -92,8 +94,9 @@ These persist in the settings JSON (see [Data model](data-model.md)).
 The app owns a `Vec<Box<dyn Visualizer>>` plus an `active_visualizer` index. The
 **square button just left of REC** (`layout.cycle`) calls `App::cycle_visualizer`,
 which advances the index (wrapping around) and persists it to settings. Only the
-active visualizer is fed audio (`update`) and drawn each frame. Two ship today:
-the [spectrum](#the-spectrum-dsp-pipeline) and the [vowel meter](#vowel-detection).
+active visualizer is fed audio (`update`) and drawn each frame. Three ship today:
+the [spectrum](#the-spectrum-dsp-pipeline), the [vowel meter](#vowel-detection), and
+"off".
 
 ## Vowel detection
 
@@ -102,7 +105,7 @@ large letter plus a match meter per vowel (**a e i o u y**). It runs the single
 detector against the active profile's calibration; an uncalibrated profile is told
 to calibrate first (there is no fallback).
 
-The detector lives in `audio/vowel.rs` and matches the **shape of the spectral
+The detector lives in `core/src/audio/vowel.rs` and matches the **shape of the spectral
 envelope** via **MFCCs** — deliberately *not* formants. Estimating formants from a
 child's high‑pitched, short‑vocal‑tract voice is a known ill‑posed problem (LPC
 reports false formants at high f0) and was the cause of the old detector's
@@ -189,5 +192,8 @@ record screen).
    available for time/frequency-axis visualizers.
 3. Add it to the `visualizers` vector in `App::new`; the cycle button picks it up
    automatically.
-
-Because the app only knows the trait, nothing else has to change.
+4. **Check the saved-index clamp.** `App::new` currently clamps the persisted
+   `active_visualizer` with a hard-coded `.min(2)`. Until that is changed to use
+   `visualizers.len() - 1`, a fourth visualizer would silently reset the saved
+   choice on every restart.
+5. Update `RONDELEK_VIZ` docs and this page.

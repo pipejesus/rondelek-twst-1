@@ -1,30 +1,56 @@
 # Architecture
 
-Rondelek is a single-window `eframe` application with **no global state** —
-everything is owned by one `App` struct (`src/app.rs`). There is no async runtime
-and no message bus; the app is a straightforward immediate-mode loop plus two
+Rondelek is a Cargo workspace of three crates:
+
+| Crate | Path | What it is |
+|---|---|---|
+| `rondelek-core` | `core/` | GUI-free shared library: audio I/O, vowel detection, settings, profiles, sessions, skin atlas geometry, game registry |
+| `rondelek` | `app/` | the `eframe`/`egui` sampler app (plus the `genskin` / `genbanner` generator binaries) |
+| `rondelek-game` | `game/` | the raylib voice games, run as a **separate child process** |
+
+The split exists because raylib and the app's windowing stack (eframe/winit on
+Windows) both define a `ShowCursor` symbol, and the two cannot be linked into one
+Windows executable. `core` must therefore never depend on egui, eframe or raylib.
+See `docs/WORKSPACE_SPLIT.md` for the full story.
+
+The app is a single-window `eframe` application with **no global state**:
+everything is owned by one `App` struct (`app/src/app.rs`). There is no async
+runtime and no message bus. It's a straightforward immediate-mode loop plus the
 audio callback threads owned by `cpal`.
 
 ## The per-frame loop
 
-`eframe` calls `App::ui()` once per rendered frame. `App` requests a repaint every
-frame, so the loop runs continuously (needed for smooth audio metering and camera
-preview). Each frame:
+`eframe` calls `App::ui()` once per rendered frame. Each frame:
 
-1. Handle global keys (F12 settings, screenshot).
-2. Dispatch to the current screen's draw function.
-3. On the sampler screen, also pump audio (`maintain_audio`, `drain_capture`).
+1. Reap a finished game child process (`game_child`).
+2. Pick a repaint policy (below).
+3. Handle global keys (F12 settings, Ctrl+Shift+S screenshot).
+4. Dispatch to the current screen's draw function.
+5. If the F12 `ConfigPanel` is open, draw it and apply its `ConfigOutcome`.
+
+**Repaint policy** (see `docs/PERF.md` for why):
+
+- **Animated screens** (`Session`, `Calibrate`, the config panel, the camera, or the
+  screenshot harness): about 30 fps (`request_repaint_after(33 ms)`).
+- **Static screens:** a 100 ms heartbeat. Input events still wake egui immediately.
+- **While a game child is running:** no repaint is requested at all. On Wayland, an
+  occluded window with a pending repaint busy-spins a whole core. The focus event
+  sent when the game window closes wakes the app again.
 
 ```mermaid
 flowchart TD
-    frame[eframe calls App::ui every frame] --> keys[global hotkeys]
+    frame[eframe calls App::ui] --> reap[reap game child]
+    reap --> keys[global hotkeys]
     keys --> screen{current screen}
     screen -->|Profiles| p[draw_profiles]
     screen -->|ProfileForm| f[draw_profile_form]
     screen -->|Sessions| s[draw_sessions]
+    screen -->|Calibrate| c[draw_calibrate + pump_calibration]
+    screen -->|Games| gm[draw_games]
     screen -->|Session| g[draw_session]
     g --> audio[maintain_audio + drain_capture]
-    audio --> render[draw faceplate + visualizer + pads]
+    audio --> render[draw skinned faceplate + visualizer + pads]
+    screen --> cfg[ConfigPanel::show if visible]
 ```
 
 ## Screen state machine
@@ -38,21 +64,26 @@ stateDiagram-v2
     Profiles --> ProfileForm: New profile
     Profiles --> Sessions: pick a profile
     ProfileForm --> Profiles: Cancel (create)
-    ProfileForm --> Sessions: Create / Save
+    ProfileForm --> Sessions: Create / Save / Cancel (edit)
     Sessions --> ProfileForm: Edit profile
+    Sessions --> Calibrate: Calibrate voice
+    Sessions --> Games: Games
     Sessions --> Session: open or start a session
     Sessions --> Profiles: Back
-    Session --> Sessions: Back
+    Calibrate --> Sessions: Save / Cancel
+    Games --> Sessions: Back
+    Session --> Profiles: Back (header key)
 ```
 
-The **profile form is shared** between "new" and "edit" via `FormMode`; the avatar
-choice is an `AvatarChoice` (`Keep` / `New(path)` / `Remove`). See
-[UI](ui.md) for the form and [Data model](data-model.md) for what it writes.
+- The **profile form is shared** between "new" and "edit" via `FormMode`. The
+  avatar choice is an `AvatarChoice` (`Keep` / `New(path)` / `Remove`).
+- **Settings** is not a screen. It's the F12 `ConfigPanel` window, drawn over any
+  screen. Its "Recalibrate" action enters `Calibrate`.
+- **Games** spawns `rondelek-game <id> --profile <dir>` from the folder the app's
+  own exe is in (`launch_game`). The app drops its `Capture` first so the game can
+  open the microphone.
 
 ## Threading model
-
-Three threads, communicating through shared, lock-guarded buffers — never through
-channels:
 
 ```mermaid
 flowchart TB
@@ -73,29 +104,43 @@ flowchart TB
 ```
 
 - The **UI thread** owns all state and rendering.
-- The **`cpal` input thread** runs the microphone callback: it folds each frame to
-  mono and pushes into a shared buffer (`Capture`).
-- The **`cpal` output thread** runs the speaker callback: it mixes queued clips and
+- The **`cpal` input thread** runs the microphone callback. It folds each frame to
+  mono and pushes it into a shared buffer (`Capture`).
+- The **`cpal` output thread** runs the speaker callback. It mixes queued clips and
   pushes the mixed signal into a shared monitor buffer (`Playback`).
+- The **camera** (`nokhwa`) is polled from the UI thread only while the webcam
+  modal is open.
+- **Games** are a separate process with their own raylib window and their own cpal
+  input stream.
 
-The UI thread drains both shared buffers each frame. Locks are held only briefly
-inside the callbacks (mirroring each other), which is why the taps use
-`Arc<Mutex<VecDeque<f32>>>` rather than channels.
+The UI thread drains both shared buffers each frame. The taps are
+`Arc<Mutex<VecDeque<f32>>>`, with locks held only briefly. This is a current
+implementation choice, **not a rule**: taking a mutex on the real-time audio
+thread can glitch under contention. A lock-free SPSC ring buffer (`ringbuf` is
+already a dependency, unused) is the better design if audio ever stutters.
 
 ## Module map
 
 ```
-src/
-  main.rs        entry point, window options, RONDELEK_* env overrides
-  app.rs         App struct, screen state machine, the per-frame loop, all screens
-  audio/         capture, playback, sample (WAV), device enumeration + watchdog
-  camera/        desktop webcam capture (nokhwa)
-  config/        layout constants, theme, user settings (JSON)
-  i18n/          runtime translations, language list, flags, locale detection
-  profile/       Profile + profile.json, library root, avatars, session listing
+core/src/
+  audio/         capture, playback, sample (WAV), device choice, vowel (MFCC)
+  config/        settings (JSON), layout constants, theme, skin atlas geometry
+  profile/       Profile + profile.json, library root, avatars, calibration, sessions
   session/       Session folder model + session.json manifest
-  ui/            layout, pad, renderer, visualizer, widgets, panels
+  games.rs       registry of voice games (id + i18n name key)
   util/          lerp, UID + timestamp helpers
+app/src/
+  main.rs        entry point, window options, --x11, RONDELEK_SIZE
+  app.rs         App struct, screen state machine, per-frame loop, all shell screens
+  camera/        desktop webcam capture (nokhwa)
+  i18n/          runtime translations, language list, flags
+  ui/            config panel, skin, layout, pad, renderer, visualizers, level meter, widgets
+  bin/           genskin (base skin), genbanner (README banner), via pixelart.rs
+game/src/
+  lib.rs         game run loop + text-free control selection screen
+  runner.rs      Vowel Runner
+  voice.rs       mic + vowel detector → per-frame game input
+  models.rs      embedded flat-draw GLB props
 ```
 
 For the responsibilities of each dependency, see [Libraries](libraries.md).

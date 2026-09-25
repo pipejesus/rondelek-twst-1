@@ -1,3 +1,5 @@
+> **HISTORICAL: do not implement.** An early design note, kept for its reasoning. The code has since moved on; the current design is in `docs/src/` and `AGENTS.md`.
+
 # Audio Device Management + Resilience — Design
 
 **Date:** 2026-07-01

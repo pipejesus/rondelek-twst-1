@@ -1,3 +1,5 @@
+> **HISTORICAL: do not implement.** An early design note, kept for its reasoning. The code has since moved on; the current design is in `docs/src/` and `AGENTS.md`.
+
 # Profile Editing — Design Spec
 
 **Date:** 2026-07-02

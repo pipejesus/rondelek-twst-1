@@ -35,7 +35,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Then restart your terminal and check it works:
 
 ```bash
-rustc --version   # should print 1.85 or newer (this project uses Rust edition 2024)
+rustc --version   # should print 1.88 or newer (edition 2024 + let-chains)
 ```
 
 ### 2. Get the code
@@ -79,9 +79,11 @@ To produce an optimized executable you can copy and run anywhere:
 cargo build --release
 ```
 
-The binary lands at **`target/release/rondelek`** (`rondelek.exe` on Windows).
-Fonts, translations, and flag images are embedded in it, so it's a single
-self-contained file.
+This builds **two** executables in `target/release/`: the sampler
+**`rondelek`** and the voice-game runner **`rondelek-game`** (`.exe` on
+Windows). Fonts, translations, flags, the base skin, shaders and 3D models are
+embedded, but the sampler launches games by running `rondelek-game` from its own
+folder, so **always ship and copy both files together**.
 
 ---
 
@@ -101,9 +103,14 @@ You'll need a few system development packages for audio, file dialogs, the
 window/GL surface, and the webcam. On Debian/Ubuntu:
 
 ```bash
-sudo apt install build-essential pkg-config \
-  libasound2-dev libgtk-3-dev libx11-dev libxcb1-dev libv4l-dev
+sudo apt install build-essential pkg-config cmake clang \
+  libasound2-dev libgtk-3-dev libudev-dev libv4l-dev \
+  libx11-dev libxcb1-dev libxrandr-dev libxinerama-dev libxcursor-dev \
+  libxi-dev libgl1-mesa-dev
 ```
+
+`cmake`, `clang` and the X11/GL headers are for raylib, which the voice-game
+binary compiles from source.
 
 Package names vary by distro — if a build fails, the compiler error usually
 names the missing library.
@@ -113,20 +120,21 @@ Install the **MSVC C++ Build Tools** (the "Desktop development with C++"
 workload from the Visual Studio Installer), then `rustup` and `cargo` work as
 above. Audio and camera use the built-in Windows APIs.
 
-### Android
-Not yet — the app targets Android in the long run, but webcam capture there is
-still stubbed out (see `TODO.md`).
-
 ---
 
 ## Everyday development
 
 ```bash
-cargo run --release          # build and run (see the release note above)
+cargo build --release        # build app + game (do this before testing Games)
+cargo run --release          # run the sampler (rebuilds only the app)
 cargo test                   # run the test suite
 cargo fmt --all              # auto-format the code
 cargo clippy --all-targets   # lint for common mistakes
 ```
+
+**Branches & worktrees.** `develop` is the main branch. Every feature or fix gets
+its own branch and its own worktree under `.claude/worktrees/`, and is merged
+back by pull request. The full workflow is in `AGENTS.md`.
 
 **Git hooks (optional but recommended).** The repo ships a formatting gate that
 runs before each commit. Enable it once per clone:
@@ -153,8 +161,9 @@ on the hero placeholder (a dragon GLB will take it over later). The selection
 screen also carries a wordless turtle↔rabbit Reaction slider (persisted as
 `game_reaction`) that trades detection steadiness for snappiness in games. Each game opens on a text-free
 control-selection screen where the therapist assigns a vowel to each move
-(▲/▼ slots, letter cards, ▶ to start); detection is then restricted to just
-that pair, so confusable unchosen vowels (e.g. e vs y) can't cause misfires. Keyboard keys A/E/I/O/U/Y simulate vowels for
+(▲ jump / ▼ duck / ★ shoot slots, letter cards), toggles which obstacle kinds
+appear, and presses ▶. Detection is then restricted to the chosen vowels, so
+confusable unchosen ones (e.g. e vs y) can't cause misfires. Keyboard keys A/E/I/O/U/Y simulate vowels for
 testing or playing without a mic; Esc returns to the sampler.
 
 Run a game directly: `cargo run -p rondelek-game -- runner --profile <profile-dir>`.
@@ -163,7 +172,10 @@ audio/config/profile logic through `core/` — raylib and the app's eframe/winit
 stack both define a Windows `ShowCursor` symbol, so they can't share a link.
 Adding a game = implement `VoiceGame` (`game/src/`), register it in the
 `match` in `game::run` and in `rondelek_core::games::GAMES`, add its i18n name
-key.
+key. Two parts are still Runner-specific and must be generalised for a second
+game: the selection screen (`select_controls` returns the Runner's moves and
+obstacle toggles) and the app's Games menu tagline (`draw_games` shows
+`games.runner.tagline` for every game).
 
 ---
 
@@ -185,9 +197,8 @@ The repo's [`skins/index.json`](skins/index.json) catalogs skins available here.
 | `Space` | toggle **REC** mode |
 | *(REC mode)* hold a pad | record while held; release or `Esc` to stop |
 | *(play mode)* tap a pad | play its sample |
-| button left of REC | cycle the visualizer (spectrum ↔ vowel meter) |
-| `F12` | Settings (audio devices, skin selection, …) |
-| `Ctrl+Shift+D` | developer panel |
+| button left of REC | cycle the visualizer (spectrum → vowel meter → off) |
+| `F12` | Settings (audio, detection, visualizer, skin & language, calibration) |
 | `Ctrl+Shift+S` | save a screenshot |
 
 ---
@@ -219,8 +230,12 @@ Useful for testing, demos, and screenshots — they jump straight to a screen an
 | `RONDELEK_SIZE=640x760` | set the initial window size |
 | `RONDELEK_PROFILE=<dir>` | open a profile's Sessions screen |
 | `RONDELEK_SESSION=<dir>` | jump straight into a session (the sampler) |
-| `RONDELEK_SCREEN=newprofile` \| `editprofile` | open the create / edit profile form |
+| `RONDELEK_SCREEN=newprofile` \| `editprofile` \| `calibrate` \| `games` | open that screen (all but `newprofile` need `RONDELEK_PROFILE`) |
+| `RONDELEK_CALIB_VOWEL=<n>` | with `calibrate`: open vowel *n*'s record screen |
+| `RONDELEK_VIZ=<n>` | select visualizer *n* (0 spectrum, 1 vowels, 2 off) |
 | `RONDELEK_SHOT=<file.png>` | render a few frames, save a screenshot, and exit |
+| `RONDELEK_GAME_SCREEN=select` | *(game)* run the harness on the selection screen |
+| `RONDELEK_GAME_FRAMES=<n>` / `RONDELEK_GAME_SHOT=<png>` | *(game)* quit after *n* frames / save a screenshot |
 
 Example — capture the sampler screen and quit:
 
@@ -236,15 +251,18 @@ RONDELEK_SHOT=out.png cargo run --release
 - **Profiles → sessions**, stored as plain folders under your OS data directory
   (`…/rondelek/profiles/<slug>-<id>/`), each with a small JSON manifest and, for
   a profile, an optional square `avatar.png`.
-- **Screens:** *Profiles* → *Profile form* (name + photo) → *Sessions* → the
-  *Sampler*.
+- **Screens:** *Profiles* → *Sessions* (the child's hub) → the *Sampler*, plus the
+  *Profile form* (name + photo), *Calibrate* (record the six vowels a e i o u y)
+  and *Games*.
+- **Vowel detection** matches the child's voice against their own calibrated
+  MFCC templates. The vowel visualizer and the games share it.
 - **Audio is mono end-to-end**, captured at the device rate and resampled on
   playback so pitch stays correct.
-- **The visualizer** is a CPU-rendered amber dot-matrix (no GPU shader — maximally
-  portable).
+- **Visualizers** are CPU-rendered (no GPU shader, so maximally portable): an amber
+  dot-matrix spectrum and a vowel meter.
 
-For the full architecture, module map, and design notes, see
-[`AGENTS.md`](AGENTS.md).
+For the full architecture see the developer handbook in [`docs/`](docs/src/introduction.md).
+The module map and contributor rules are in [`AGENTS.md`](AGENTS.md).
 
 ---
 

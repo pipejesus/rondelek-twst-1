@@ -90,7 +90,9 @@ where the kernel exposes its settings as readable files. This one says how
 much profiling non-root users may do; `4` means "none at all". Blocked — so
 we pick different tools. (On your own machine you could
 `sudo sysctl kernel.perf_event_paranoid=1` and use
-`perf record -g -p <PID>` + `perf report`.)
+`perf record -g -p <PID>` + `perf report`. That lowers a security setting
+until reboot, so put it back with `sudo sysctl kernel.perf_event_paranoid=4`
+once you're done.)
 
 🔬 **Technical**: `perf_event_paranoid=4` is a hardened-kernel setting
 (3 already blocks unprivileged sampling; 4 is distro-extra). Without

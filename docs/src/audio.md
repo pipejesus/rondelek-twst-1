@@ -4,7 +4,7 @@ Audio is **mono end-to-end**. Capture folds every input frame to a single mono
 sample; playback duplicates one mono value across all output channels. This keeps
 pitch and duration independent of device channel counts.
 
-Everything lives under `src/audio/`:
+Everything lives under `core/src/audio/` (GUI-free, shared with the game):
 
 | File | Responsibility |
 |------|----------------|
