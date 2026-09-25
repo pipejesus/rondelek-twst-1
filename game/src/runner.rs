@@ -238,9 +238,19 @@ fn obstacle_rect(o: &Obstacle) -> (f32, f32, f32, f32) {
         // Floating bar: a ducking hero fits under, a standing one does not.
         Kind::Duck => (o.x - 70.0, GROUND_Y - 78.0 - 46.0 + o.fly_y, 140.0, 46.0),
         // Tall floor-standing wall: only a star bullet clears it.
-        Kind::Wall => (o.x - WALL_W / 2.0, GROUND_Y - WALL_H + o.fly_y, WALL_W, WALL_H),
+        Kind::Wall => (
+            o.x - WALL_W / 2.0,
+            GROUND_Y - WALL_H + o.fly_y,
+            WALL_W,
+            WALL_H,
+        ),
         // Tall slim pillar: only the ninja double-jump clears it.
-        Kind::High => (o.x - HIGH_W / 2.0, GROUND_Y - HIGH_H + o.fly_y, HIGH_W, HIGH_H),
+        Kind::High => (
+            o.x - HIGH_W / 2.0,
+            GROUND_Y - HIGH_H + o.fly_y,
+            HIGH_W,
+            HIGH_H,
+        ),
     }
 }
 
@@ -667,8 +677,11 @@ impl VoiceGame for Runner {
                                     WALL_B
                                 };
                                 let col = Color::new(base.r, base.g, base.b, alpha);
-                                let (pos, size) =
-                                    wrect((left, ry + r as f32 * bh, right - left, bh - 3.0), 0.0, 0.7);
+                                let (pos, size) = wrect(
+                                    (left, ry + r as f32 * bh, right - left, bh - 3.0),
+                                    0.0,
+                                    0.7,
+                                );
                                 c3.draw_cube_v(pos, size, col);
                                 c3.draw_cube_wires_v(pos, size, WALL_MORTAR);
                             }
@@ -864,7 +877,7 @@ impl VoiceGame for Runner {
         let labels = ["a", "e", "i", "o", "u", "y"];
         let strip_w = 6.0 * 64.0 * scale;
         let strip_x = w as f32 / 2.0 - strip_w / 2.0;
-        for i in 0..6 {
+        for (i, label) in labels.iter().enumerate() {
             let bx = strip_x + i as f32 * 64.0 * scale;
             let level = self.last_scores[i].clamp(0.0, 1.0);
             let bh = (10.0 + 44.0 * level) * scale;
@@ -886,7 +899,7 @@ impl VoiceGame for Runner {
                 c,
             );
             d.draw_text(
-                labels[i],
+                label,
                 (bx + 14.0 * scale) as i32,
                 h - sl(32.0),
                 sl(22.0),

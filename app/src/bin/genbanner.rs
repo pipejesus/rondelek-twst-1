@@ -59,7 +59,15 @@ fn draw_screen(c: &mut Canvas, x: f32, y: f32, w: f32, h: f32) {
     let (cx, cy) = (x + w * 0.5, y + h * 0.5);
     for py in (y as u32)..((y + h) as u32) {
         for px in (x as u32)..((x + w) as u32) {
-            let sd = sd_rrect(px as f32 + 0.5, py as f32 + 0.5, cx, cy, w * 0.5, h * 0.5, 16.0);
+            let sd = sd_rrect(
+                px as f32 + 0.5,
+                py as f32 + 0.5,
+                cx,
+                cy,
+                w * 0.5,
+                h * 0.5,
+                16.0,
+            );
             let a = cov(sd);
             if a > 0.0 {
                 let inner = smoothstep(-24.0, -2.0, sd) * 0.10;
@@ -86,7 +94,15 @@ fn draw_screen(c: &mut Canvas, x: f32, y: f32, w: f32, h: f32) {
 }
 
 /// A flat matte keycap centred in a `size` box at (x, y), like the pads.
-fn draw_cap(c: &mut Canvas, x: f32, y: f32, size: f32, face: [f32; 3], label: Option<char>, dot: bool) {
+fn draw_cap(
+    c: &mut Canvas,
+    x: f32,
+    y: f32,
+    size: f32,
+    face: [f32; 3],
+    label: Option<char>,
+    dot: bool,
+) {
     let wall = shade(face, -0.16);
     let (cx, cy) = (x + size * 0.5, y + size * 0.5);
     let hw = size * 0.5;
@@ -102,7 +118,15 @@ fn draw_cap(c: &mut Canvas, x: f32, y: f32, size: f32, face: [f32; 3], label: Op
                 continue;
             }
             c.blend(px, py, wall, a);
-            let fa = cov(sd_rrect(fx, fy, cx, face_cy, hw - size * 0.09, face_hh, rim_r * 0.85));
+            let fa = cov(sd_rrect(
+                fx,
+                fy,
+                cx,
+                face_cy,
+                hw - size * 0.09,
+                face_hh,
+                rim_r * 0.85,
+            ));
             if fa > 0.0 {
                 let t = (fy - (face_cy - face_hh)) / (2.0 * face_hh);
                 c.blend(px, py, shade(face, 0.05 - 0.10 * t), fa);
@@ -116,7 +140,8 @@ fn draw_cap(c: &mut Canvas, x: f32, y: f32, size: f32, face: [f32; 3], label: Op
         let cream = hex("#FFF3E8");
         for py in (y as u32)..((y + size) as u32) {
             for px in (x as u32)..((x + size) as u32) {
-                let d = ((px as f32 + 0.5 - cx).powi(2) + (py as f32 + 0.5 - face_cy).powi(2)).sqrt();
+                let d =
+                    ((px as f32 + 0.5 - cx).powi(2) + (py as f32 + 0.5 - face_cy).powi(2)).sqrt();
                 c.blend(px, py, cream, cov(d - size * 0.14));
             }
         }

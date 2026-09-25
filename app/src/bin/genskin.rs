@@ -159,17 +159,22 @@ fn main() {
 
     // REC: the one orange accent, with a record dot.
     let cream = hex("#FFF3E8");
-    gen_cap(&mut c, atlas::cap(atlas::REC_CAP), hex("#FF6A1A"), |c, ox, oy| {
-        let (cx, cy) = (ox as f32 + 128.0, oy as f32 + 118.0);
-        for y in 0..256u32 {
-            for x in 0..256u32 {
-                let d = ((ox as f32 + x as f32 + 0.5 - cx).powi(2)
-                    + (oy as f32 + y as f32 + 0.5 - cy).powi(2))
-                .sqrt();
-                c.blend(ox + x, oy + y, cream, cov(d - 34.0));
+    gen_cap(
+        &mut c,
+        atlas::cap(atlas::REC_CAP),
+        hex("#FF6A1A"),
+        |c, ox, oy| {
+            let (cx, cy) = (ox as f32 + 128.0, oy as f32 + 118.0);
+            for y in 0..256u32 {
+                for x in 0..256u32 {
+                    let d = ((ox as f32 + x as f32 + 0.5 - cx).powi(2)
+                        + (oy as f32 + y as f32 + 0.5 - cy).powi(2))
+                    .sqrt();
+                    c.blend(ox + x, oy + y, cream, cov(d - 34.0));
+                }
             }
-        }
-    });
+        },
+    );
 
     // BACK: dark cap with a left-chevron (back to profiles).
     let dark = hex("#2E2A24");

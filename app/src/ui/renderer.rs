@@ -1,8 +1,8 @@
-use rondelek_core::config::Theme;
-use rondelek_core::config::atlas;
 use crate::ui::FaceLayout;
 use crate::ui::skin::Skin;
 use egui::{CornerRadius, Painter};
+use rondelek_core::config::Theme;
+use rondelek_core::config::atlas;
 
 pub struct Renderer;
 
@@ -16,7 +16,12 @@ impl Renderer {
         // window size. The bezel's inset matches `layout`'s screen inset, so the
         // visualizer fills exactly the opening and never overlaps the frame.
         skin.nine(painter, atlas::CASE, atlas::CASE_INSET, case);
-        skin.nine(painter, atlas::BEZEL, atlas::BEZEL_INSET, layout.screen_bezel);
+        skin.nine(
+            painter,
+            atlas::BEZEL,
+            atlas::BEZEL_INSET,
+            layout.screen_bezel,
+        );
         painter.rect_filled(layout.screen, CornerRadius::same(6), theme.visualizer_bg);
     }
 }

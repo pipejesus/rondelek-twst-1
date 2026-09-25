@@ -22,10 +22,30 @@ pub struct Sprite {
 pub const ATLAS_W: u32 = 1536;
 pub const ATLAS_H: u32 = 1280;
 
-pub const CASE: Sprite = Sprite { x: 0, y: 0, w: 512, h: 512 };
-pub const BEZEL: Sprite = Sprite { x: 512, y: 0, w: 384, h: 384 };
-pub const AVATAR: Sprite = Sprite { x: 896, y: 0, w: 256, h: 256 };
-pub const BG: Sprite = Sprite { x: 896, y: 256, w: 512, h: 256 };
+pub const CASE: Sprite = Sprite {
+    x: 0,
+    y: 0,
+    w: 512,
+    h: 512,
+};
+pub const BEZEL: Sprite = Sprite {
+    x: 512,
+    y: 0,
+    w: 384,
+    h: 384,
+};
+pub const AVATAR: Sprite = Sprite {
+    x: 896,
+    y: 0,
+    w: 256,
+    h: 256,
+};
+pub const BG: Sprite = Sprite {
+    x: 896,
+    y: 256,
+    w: 512,
+    h: 256,
+};
 
 /// Nine-slice corner inset for the case/bezel, in that sprite's own pixels.
 /// Also the element's on-screen frame thickness (see `ui::skin::draw_nine`), so

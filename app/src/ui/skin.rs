@@ -8,9 +8,9 @@
 //! into `skins/base/` and embedded, so the app always has a complete sheet; a
 //! user skin that omits `skin.png` or `skin.json` falls back to it.
 
+use egui::{Color32, Context, Painter, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use rondelek_core::config::atlas::{self, Sprite};
 use rondelek_core::config::{Theme, theme_light};
-use egui::{Color32, Context, Painter, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

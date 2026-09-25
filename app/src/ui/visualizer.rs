@@ -1,6 +1,6 @@
+use egui::{Color32, Painter, Pos2, Rect};
 use rondelek_core::config::{Settings, Theme};
 use rondelek_core::util::lerp;
-use egui::{Color32, Painter, Pos2, Rect};
 use rustfft::{FftPlanner, num_complex::Complex};
 
 /// One frame's audio from both taps. The two streams can run at different sample
@@ -29,10 +29,14 @@ pub trait Visualizer {
     /// Fill with a representative pattern for screenshots (no live audio needed).
     /// Default is a no-op; visualizers that can, override it.
     fn demo_fill(&mut self, _num_bars: usize) {}
-    /// Supply the active profile's vowel calibration (`None` = uncalibrated, use
-    /// the scaled reference set). Default is a no-op; the vowel visualizer
-    /// overrides it.
-    fn set_calibration(&mut self, _calibration: Option<rondelek_core::audio::vowel::VowelCalibration>) {}
+    /// Supply the active profile's vowel calibration (`None` = uncalibrated:
+    /// nothing is detected; there is no fallback). Default is a no-op; the
+    /// vowel visualizer overrides it.
+    fn set_calibration(
+        &mut self,
+        _calibration: Option<rondelek_core::audio::vowel::VowelCalibration>,
+    ) {
+    }
 }
 
 /// The default visualizer: a retro dot-matrix FFT spectrum.
@@ -251,6 +255,24 @@ fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
     )
 }
 
+/// The "screen off" visualizer: ingests nothing and draws only a dim standby
+/// dot, so the sampler can run with the display idle (also handy to measure
+/// what the visualizers themselves cost).
+pub struct OffVisualizer;
+
+impl Visualizer for OffVisualizer {
+    fn update(&mut self, _frame: &AudioFrame, _settings: &Settings) {}
+
+    fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, _settings: &Settings) {
+        let r = (rect.height() * 0.03).clamp(2.0, 4.0);
+        painter.circle_filled(
+            Pos2::new(rect.right() - 4.0 * r, rect.bottom() - 4.0 * r),
+            r,
+            theme.visualizer_dot_off,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,24 +413,6 @@ mod tests {
             louder_window(&quiet, &silent, n).as_ptr(),
             quiet.as_ptr(),
             "input should win when playback is silent"
-        );
-    }
-}
-
-/// The "screen off" visualizer: ingests nothing and draws only a dim standby
-/// dot, so the sampler can run with the display idle (also handy to measure
-/// what the visualizers themselves cost).
-pub struct OffVisualizer;
-
-impl Visualizer for OffVisualizer {
-    fn update(&mut self, _frame: &AudioFrame, _settings: &Settings) {}
-
-    fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, _settings: &Settings) {
-        let r = (rect.height() * 0.03).clamp(2.0, 4.0);
-        painter.circle_filled(
-            Pos2::new(rect.right() - 4.0 * r, rect.bottom() - 4.0 * r),
-            r,
-            theme.visualizer_dot_off,
         );
     }
 }

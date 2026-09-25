@@ -1,7 +1,7 @@
-use rondelek_core::config::atlas;
-use rondelek_core::config::{NUM_SAMPLES, PadDef, PadKind, ROUNDING_PAD, Theme};
 use crate::ui::skin::Skin;
 use egui::{Color32, CornerRadius, Key, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use rondelek_core::config::atlas;
+use rondelek_core::config::{NUM_SAMPLES, PadDef, PadKind, ROUNDING_PAD, Theme};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PadMode {

@@ -12,9 +12,9 @@
 //! what keeps that from happening.
 //!
 //! Every game starts on a control-selection screen where the therapist picks
-//! which vowel triggers which move (two big slots: jump ▲ and duck ▼). The
-//! detector is then *focused* on just that pair, so close sound-alikes among
-//! the unchosen vowels can't cause misfires. The screen is deliberately
+//! which vowel triggers which move (three slots: jump ▲, duck ▼, shoot ★) and
+//! which obstacle kinds appear. The detector is then *focused* on the chosen
+//! vowels, so close sound-alikes among the unchosen ones can't cause misfires. The screen is deliberately
 //! text-free (letters, arrows, a play button) — no font or locale issues.
 //!
 //! To add a game: write a `VoiceGame` impl in a new file, register it in the
@@ -67,7 +67,6 @@ pub trait VoiceGame {
     fn draw(&mut self, d: &mut RaylibDrawHandle, w: i32, h: i32);
 }
 
-
 /// The keyboard fallback: A/E/I/O/U/Y act as held vowels.
 fn keyboard_vowel(rl: &RaylibHandle) -> Option<usize> {
     const KEYS: [KeyboardKey; 6] = [
@@ -93,8 +92,9 @@ fn snap(rl: &mut RaylibHandle, thread: &RaylibThread, path: &str) {
 }
 
 /// Run game `id` until its window closes (Esc). Loads the profile's vowel
-/// calibration when a profile dir is given; without one the detector falls
-/// back to the scaled reference set.
+/// calibration when a profile dir is given. Without a calibration the
+/// detector recognises nothing (there is no fallback); the A/E/I/O/U/Y keys
+/// still simulate vowels.
 pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
     let (settings, _) = Settings::load();
     let calibration = profile_dir
@@ -232,7 +232,12 @@ fn draw_obstacle_icon(d: &mut RaylibDrawHandle, rect: Rectangle, kind: usize, co
         0 => {
             let (bw, bh) = (rect.width * 0.34, rect.height * 0.34);
             d.draw_rectangle_rounded(
-                Rectangle { x: cx - bw / 2.0, y: bottom - bh, width: bw, height: bh },
+                Rectangle {
+                    x: cx - bw / 2.0,
+                    y: bottom - bh,
+                    width: bw,
+                    height: bh,
+                },
                 0.2,
                 4,
                 color,
@@ -242,14 +247,24 @@ fn draw_obstacle_icon(d: &mut RaylibDrawHandle, rect: Rectangle, kind: usize, co
             let (bw, bh) = (rect.width * 0.5, rect.height * 0.14);
             let top = rect.y + rect.height * 0.30;
             d.draw_rectangle_rounded(
-                Rectangle { x: cx - bw / 2.0, y: top, width: bw, height: bh },
+                Rectangle {
+                    x: cx - bw / 2.0,
+                    y: top,
+                    width: bw,
+                    height: bh,
+                },
                 0.4,
                 4,
                 color,
             );
             for px in [cx - bw / 2.0 + bh * 0.4, cx + bw / 2.0 - bh * 0.4] {
                 d.draw_rectangle_rec(
-                    Rectangle { x: px - 2.0, y: top + bh, width: 4.0, height: bottom - (top + bh) },
+                    Rectangle {
+                        x: px - 2.0,
+                        y: top + bh,
+                        width: 4.0,
+                        height: bottom - (top + bh),
+                    },
                     color,
                 );
             }
@@ -257,7 +272,12 @@ fn draw_obstacle_icon(d: &mut RaylibDrawHandle, rect: Rectangle, kind: usize, co
         2 => {
             let bw = rect.width * 0.32;
             let top = rect.y + rect.height * 0.22;
-            let wall = Rectangle { x: cx - bw / 2.0, y: top, width: bw, height: bottom - top };
+            let wall = Rectangle {
+                x: cx - bw / 2.0,
+                y: top,
+                width: bw,
+                height: bottom - top,
+            };
             d.draw_rectangle_rec(wall, color);
             for k in 1..3 {
                 let y = (top + (bottom - top) * k as f32 / 3.0) as i32;
@@ -268,7 +288,12 @@ fn draw_obstacle_icon(d: &mut RaylibDrawHandle, rect: Rectangle, kind: usize, co
             // Tall slim pillar (double-jump), with an up-chevron hint on top.
             let bw = rect.width * 0.20;
             let top = rect.y + rect.height * 0.20;
-            let pillar = Rectangle { x: cx - bw / 2.0, y: top, width: bw, height: bottom - top };
+            let pillar = Rectangle {
+                x: cx - bw / 2.0,
+                y: top,
+                width: bw,
+                height: bottom - top,
+            };
             d.draw_rectangle_rounded(pillar, 0.4, 4, color);
             let ch = rect.height * 0.12;
             d.draw_triangle(
@@ -442,7 +467,7 @@ fn select_controls(
             }
 
             // Vowel cards; the three assigned ones wear their slot colour.
-            for i in 0..6 {
+            for (i, vowel) in VOWELS.iter().enumerate() {
                 let rect = card(i);
                 let fill = if i == sel[0] {
                     SKY
@@ -456,9 +481,9 @@ fn select_controls(
                 d.draw_rectangle_rounded(rect, 0.3, 6, fill);
                 d.draw_rectangle_rounded_lines(rect, 0.3, 6, MINT_DARK);
                 let fs = (rect.height * 0.5) as i32;
-                let tw = d.measure_text(VOWELS[i].label(), fs);
+                let tw = d.measure_text(vowel.label(), fs);
                 d.draw_text(
-                    VOWELS[i].label(),
+                    vowel.label(),
                     (rect.x + rect.width / 2.0) as i32 - tw / 2,
                     (rect.y + rect.height * 0.26) as i32,
                     fs,
@@ -490,7 +515,11 @@ fn select_controls(
                     dot.x as i32,
                     dot.y as i32,
                     7.0 * s,
-                    if on { MINT_DARK } else { Color::new(206, 200, 194, 255) },
+                    if on {
+                        MINT_DARK
+                    } else {
+                        Color::new(206, 200, 194, 255)
+                    },
                 );
             }
 

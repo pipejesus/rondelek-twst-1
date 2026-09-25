@@ -5,9 +5,9 @@
 
 use egui::{Align2, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
+use crate::ui::visualizer::{AudioFrame, Visualizer};
 use rondelek_core::audio::vowel::{self, VOWELS, VowelDetector, VowelResult};
 use rondelek_core::config::{Settings, Theme};
-use crate::ui::visualizer::{AudioFrame, Visualizer};
 use rondelek_core::util::lerp;
 
 /// Analysis window (samples) — ~45 ms at 44.1 kHz, long enough for a stable

@@ -1,8 +1,8 @@
 use egui::{Pos2, Rect, Vec2};
 
+use crate::ui::skin::slice_screen_inset;
 use rondelek_core::config::atlas;
 use rondelek_core::config::{NUM_SAMPLES, PAD_COLS, PAD_ROWS};
-use crate::ui::skin::slice_screen_inset;
 
 /// Computed faceplate geometry for a single frame. Everything is derived from
 /// the live window rectangle so the layout reflows fluidly on resize — there is

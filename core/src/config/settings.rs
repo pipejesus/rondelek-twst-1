@@ -8,9 +8,9 @@ use std::path::PathBuf;
 // the app crate (i18n is app-side; this crate stays GUI-toolkit-free so the
 // game binary can link it without pulling raylib and winit into one exe).
 const SUPPORTED_LANGS: &[&str] = &[
-    "en", "pl", "de", "fr", "es", "it", "uk", "pt", "nl", "sv", "no", "da", "fi", "is", "et",
-    "lv", "lt", "cs", "sk", "sl", "hu", "ro", "bg", "el", "hr", "sr", "bs", "mk", "sq", "ga",
-    "mt", "be", "ru", "tr", "lb", "ca",
+    "en", "pl", "de", "fr", "es", "it", "uk", "pt", "nl", "sv", "no", "da", "fi", "is", "et", "lv",
+    "lt", "cs", "sk", "sl", "hu", "ro", "bg", "el", "hr", "sr", "bs", "mk", "sq", "ga", "mt", "be",
+    "ru", "tr", "lb", "ca",
 ];
 
 fn default_language() -> String {

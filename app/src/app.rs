@@ -2,17 +2,19 @@ use egui::{Align2, Color32, Key, Pos2, Rect, Sense, Ui, Vec2};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use rondelek_core::audio::vowel::{self, CalibrationCapture};
-use rondelek_core::audio::{Capture, Playback, Sample, device};
-use rondelek_core::config::{NUM_SAMPLES, PadKind, REC_PAD, ROUNDING_PAD, SAMPLE_PADS, Settings, Theme};
 use crate::i18n::{self, EUROPEAN_LANGS, I18n};
-use rondelek_core::profile::{self, Profile, SessionInfo};
-use rondelek_core::session::Session;
 use crate::ui::{
     self, AudioFrame, ConfigPanel, OffVisualizer, Pad, PadMode, Renderer, Skin, SpectrumVisualizer,
     Visualizer, VowelVisualizer, compute_layout, draw_kid_face, gloss_overlay,
 };
+use rondelek_core::audio::vowel::{self, CalibrationCapture};
+use rondelek_core::audio::{Capture, Playback, Sample, device};
 use rondelek_core::config::atlas;
+use rondelek_core::config::{
+    NUM_SAMPLES, PadKind, REC_PAD, ROUNDING_PAD, SAMPLE_PADS, Settings, Theme,
+};
+use rondelek_core::profile::{self, Profile, SessionInfo};
+use rondelek_core::session::Session;
 use rondelek_core::util::now_secs;
 
 /// Index of the REC control pad within `self.pads` (after the sample pads).
@@ -580,7 +582,7 @@ impl App {
     }
 
     /// Push the current profile's calibration to the visualizers (or `None` when
-    /// the profile isn't calibrated, falling back to the scaled reference set).
+    /// the profile isn't calibrated; detection then stays idle, no fallback).
     fn apply_profile_calibration(&mut self) {
         let cal = self
             .current_profile
@@ -1956,7 +1958,13 @@ impl App {
             egui::Id::new("back_to_profiles"),
             Sense::click(),
         );
-        draw_cap_button(&self.skin, &painter, atlas::BACK_CAP, layout.back, &back_resp);
+        draw_cap_button(
+            &self.skin,
+            &painter,
+            atlas::BACK_CAP,
+            layout.back,
+            &back_resp,
+        );
         if back_resp.clicked() {
             self.go_to_profiles();
             return;
@@ -1964,7 +1972,13 @@ impl App {
 
         // Header: cycle-visualizer key (square, just left of REC).
         let cycle_resp = ui.interact(layout.cycle, egui::Id::new("cycle_viz"), Sense::click());
-        draw_cap_button(&self.skin, &painter, atlas::CYCLE_CAP, layout.cycle, &cycle_resp);
+        draw_cap_button(
+            &self.skin,
+            &painter,
+            atlas::CYCLE_CAP,
+            layout.cycle,
+            &cycle_resp,
+        );
         if cycle_resp.clicked() {
             self.cycle_visualizer();
         }
@@ -2020,7 +2034,13 @@ fn uv_full() -> Rect {
 }
 
 /// Draw a skinned header key cap, sinking it while held.
-fn draw_cap_button(skin: &Skin, painter: &egui::Painter, cap_idx: usize, rect: Rect, resp: &egui::Response) {
+fn draw_cap_button(
+    skin: &Skin,
+    painter: &egui::Painter,
+    cap_idx: usize,
+    rect: Rect,
+    resp: &egui::Response,
+) {
     let pressed = resp.is_pointer_button_down_on();
     skin.cap(painter, cap_idx, rect, pressed, Color32::WHITE);
 }

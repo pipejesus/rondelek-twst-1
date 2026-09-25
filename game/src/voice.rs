@@ -153,7 +153,9 @@ fn gate(
         Some(f) if !f.is_empty() => {
             // Best focused vowel, and the strongest of the rest of the focused
             // set as its runner-up — so only chosen vowels ever compete.
-            let best = *f.iter().max_by(|&&a, &&b| scores[a].total_cmp(&scores[b]))?;
+            let best = *f
+                .iter()
+                .max_by(|&&a, &&b| scores[a].total_cmp(&scores[b]))?;
             let second = f
                 .iter()
                 .filter(|&&i| i != best)
