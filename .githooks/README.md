@@ -18,7 +18,8 @@ git config --unset core.hooksPath
 | Hook         | Status | Does                                                    |
 |--------------|--------|---------------------------------------------------------|
 | `pre-commit` | active | `cargo fmt --all -- --check` (rejects unformatted code) |
-| `pre-push`   | stub   | placeholder — clippy + tests are commented out for now  |
+| `pre-push`   | active | `cargo clippy -D warnings` + `cargo test` (mirrors CI)  |
 
-Both files have `TODO` markers showing the heavier checks (clippy, tests) to
-switch on once we're ready.
+Git config is shared by every worktree of a clone, so enabling the hooks once
+covers all worktrees. The first push from a fresh worktree compiles the whole
+workspace, so expect it to take a few minutes.

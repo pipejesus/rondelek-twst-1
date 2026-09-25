@@ -4,10 +4,8 @@
 # Activate (once, per clone) with:
 #   git config core.hooksPath .githooks
 #
+# Mirrors CI (.github/workflows/ci.yml) so red code never leaves the machine.
 set -euo pipefail
 
-echo "pre-push stub — no checks enabled yet."
-
-# TODO (return later): gate pushes on lint + tests so red code never leaves the machine.
-# cargo clippy --all-targets --all-features -- -D warnings
-# cargo test --locked
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked

@@ -12,5 +12,4 @@ if ! cargo fmt --all -- --check; then
   exit 1
 fi
 
-# TODO (return later): enable the lint gate below once the tree is clippy-clean.
-# cargo clippy --all-targets --all-features -- -D warnings
+# Clippy + tests run in pre-push (slower; see that hook).
