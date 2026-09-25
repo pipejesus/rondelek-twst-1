@@ -106,13 +106,20 @@ impl Profile {
         dir.join(PROFILE_MANIFEST)
     }
 
-    /// Create a new profile folder (`<slug>-<short_uid>`) and write its manifest.
-    /// `avatar_src`, if given, is decoded and stored as a square `avatar.png`.
+    /// Create a new profile folder (`<slug>-<short_uid>`) in the user's library
+    /// and write its manifest. `avatar_src`, if given, is decoded and stored as a
+    /// square `avatar.png`.
     pub fn create(name: &str, avatar_src: Option<&Path>) -> Result<Self> {
+        Self::create_in(&library_root(), name, avatar_src)
+    }
+
+    /// [`Self::create`] under an explicit library `root` (tests use a temp dir so
+    /// they never touch the real library).
+    pub fn create_in(root: &Path, name: &str, avatar_src: Option<&Path>) -> Result<Self> {
         let name = sanitize_name(name);
         let uid = new_uid();
         let folder = format!("{}-{}", slug(&name), short_uid(&uid));
-        let dir = library_root().join(folder);
+        let dir = root.join(folder);
         std::fs::create_dir_all(dir.join(SESSIONS_DIR))
             .context("Failed to create profile folder")?;
 
@@ -282,8 +289,13 @@ fn square_avatar(img: image::DynamicImage) -> image::DynamicImage {
 
 /// List all profiles in the library, sorted by name (case-insensitive).
 pub fn list_profiles() -> Vec<Profile> {
+    list_profiles_in(&library_root())
+}
+
+/// [`list_profiles`] under an explicit library `root`.
+pub fn list_profiles_in(root: &Path) -> Vec<Profile> {
     let mut out = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(library_root()) {
+    if let Ok(entries) = std::fs::read_dir(root) {
         for entry in entries.flatten() {
             let dir = entry.path();
             if dir.is_dir()
@@ -300,6 +312,39 @@ pub fn list_profiles() -> Vec<Profile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A throwaway library root, removed when dropped (even if the test
+    /// panics), so tests never write into the user's real profile library.
+    struct TempLibrary(PathBuf);
+
+    impl TempLibrary {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!("rondelek-lib-test-{}", new_uid()));
+            std::fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn create(&self, name: &str, avatar: Option<&Path>) -> Profile {
+            Profile::create_in(&self.0, name, avatar).unwrap()
+        }
+    }
+
+    impl Drop for TempLibrary {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    #[test]
+    fn tests_use_a_private_library() {
+        let lib = TempLibrary::new();
+        let profile = lib.create("Isolated Kid", None);
+        assert!(profile.dir.starts_with(&lib.0));
+        assert!(!profile.dir.starts_with(library_root()));
+        let listed = list_profiles_in(&lib.0);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name(), "Isolated Kid");
+    }
 
     #[test]
     fn sanitize_collapses_and_trims() {
@@ -319,7 +364,8 @@ mod tests {
     #[test]
     fn calibration_round_trips() {
         use crate::audio::vowel::{N_MFCC, VOWELS, build_calibration};
-        let profile = Profile::create("Cal Kid", None).unwrap();
+        let lib = TempLibrary::new();
+        let profile = lib.create("Cal Kid", None);
         let dir = profile.dir.clone();
         assert!(profile.load_calibration().is_none(), "starts uncalibrated");
 
@@ -338,15 +384,13 @@ mod tests {
             .expect("calibration loads back");
         assert_eq!(loaded, cal);
         assert!(loaded.is_valid());
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn create_profile_and_session_roundtrip() {
-        // Redirect the library to a temp dir via a fixed name; create under it
-        // and verify structure. (Uses the real library_root; cleaned up after.)
-        let profile = Profile::create("Test Kid", None).unwrap();
+        // Create under a private temp library and verify the on-disk structure.
+        let lib = TempLibrary::new();
+        let profile = lib.create("Test Kid", None);
         assert!(profile.dir.join("profile.json").exists());
         assert!(profile.dir.join("sessions").is_dir());
         assert!(!profile.manifest.uid.is_empty());
@@ -358,13 +402,12 @@ mod tests {
         let sessions = profile.list_sessions();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].uid, session.manifest.uid);
-
-        std::fs::remove_dir_all(&profile.dir).ok();
     }
 
     #[test]
     fn set_name_preserves_identity() {
-        let mut profile = Profile::create("Old Name", None).unwrap();
+        let lib = TempLibrary::new();
+        let mut profile = lib.create("Old Name", None);
         let uid = profile.manifest.uid.clone();
         let created = profile.manifest.created;
         let dir = profile.dir.clone();
@@ -377,8 +420,6 @@ mod tests {
         assert_eq!(reloaded.manifest.uid, uid);
         assert_eq!(reloaded.manifest.created, created);
         assert!(dir.join("sessions").is_dir());
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -388,7 +429,8 @@ mod tests {
             .save(&src)
             .unwrap();
 
-        let mut profile = Profile::create("Avatar Kid", Some(&src)).unwrap();
+        let lib = TempLibrary::new();
+        let mut profile = lib.create("Avatar Kid", Some(&src));
         let dir = profile.dir.clone();
         let avatar_path = profile.avatar_path().expect("avatar should be set");
         assert!(avatar_path.exists());
@@ -401,7 +443,6 @@ mod tests {
         assert!(reloaded.manifest.avatar.is_none());
 
         std::fs::remove_file(&src).ok();
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -415,7 +456,8 @@ mod tests {
             .save(&src_b)
             .unwrap();
 
-        let mut profile = Profile::create("Swap Kid", Some(&src_a)).unwrap();
+        let lib = TempLibrary::new();
+        let mut profile = lib.create("Swap Kid", Some(&src_a));
         let dir = profile.dir.clone();
         assert!(profile.avatar_path().unwrap().exists());
 
@@ -426,6 +468,5 @@ mod tests {
 
         std::fs::remove_file(&src_a).ok();
         std::fs::remove_file(&src_b).ok();
-        std::fs::remove_dir_all(&dir).ok();
     }
 }
