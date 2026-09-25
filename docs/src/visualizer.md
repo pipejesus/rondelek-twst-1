@@ -192,8 +192,5 @@ record screen).
    available for time/frequency-axis visualizers.
 3. Add it to the `visualizers` vector in `App::new`; the cycle button picks it up
    automatically.
-4. **Check the saved-index clamp.** `App::new` currently clamps the persisted
-   `active_visualizer` with a hard-coded `.min(2)`. Until that is changed to use
-   `visualizers.len() - 1`, a fourth visualizer would silently reset the saved
-   choice on every restart.
-5. Update `RONDELEK_VIZ` docs and this page.
+4. Update the `RONDELEK_VIZ` docs and this page. (The saved `active_visualizer`
+   is clamped to the vector's length, so nothing else has to change.)

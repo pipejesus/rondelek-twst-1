@@ -209,6 +209,14 @@ impl App {
             .map(|def| Pad::from_def(def, egui::Rect::ZERO))
             .collect();
 
+        let visualizers: Vec<Box<dyn Visualizer>> = vec![
+            Box::new(SpectrumVisualizer::new()),
+            Box::new(VowelVisualizer::new()),
+            Box::new(OffVisualizer),
+        ];
+        // Clamp in case a newer config selected a visualizer we no longer have.
+        let active_visualizer = settings.active_visualizer.min(visualizers.len() - 1);
+
         let mut app = Self {
             capture: None,
             playback: None,
@@ -217,13 +225,8 @@ impl App {
             theme,
             skin,
             available_skins,
-            visualizers: vec![
-                Box::new(SpectrumVisualizer::new()),
-                Box::new(VowelVisualizer::new()),
-                Box::new(OffVisualizer),
-            ],
-            // Clamp in case a newer config selected a visualizer we no longer have.
-            active_visualizer: settings.active_visualizer.min(2),
+            visualizers,
+            active_visualizer,
             config_panel: ConfigPanel::new(),
             settings,
             settings_path,
@@ -2121,6 +2124,9 @@ impl eframe::App for App {
             && matches!(child.try_wait(), Ok(Some(_)) | Err(_))
         {
             self.game_child = None;
+            // The game owns `game_reaction` and saves it itself. Adopt its value
+            // so our next save doesn't write back the stale in-memory copy.
+            self.settings.game_reaction = Settings::load_from(&self.settings_path).game_reaction;
         }
 
         // Repaint policy. While a game child owns the fullscreen window this

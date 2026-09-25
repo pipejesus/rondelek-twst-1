@@ -1,6 +1,6 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ponytail: codes only (no endonym/display name — that's a UI concern that
 // lives in `app/src/i18n`'s `EUROPEAN_LANGS`), kept in sync with that list by
@@ -48,7 +48,15 @@ fn default_game_reaction() -> f32 {
     0.5
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// User preferences, persisted as `settings.json` in the OS config dir.
+///
+/// **This file already exists on users' machines — never break it.** The
+/// container-level `#[serde(default)]` means any missing field takes its value
+/// from [`Settings::default`]; a field of the wrong type is dropped on its own
+/// by [`Settings::load_from`] rather than resetting everything. New fields need
+/// a default; renamed fields need `#[serde(alias = "old_name")]`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub volume: f32,
     /// Installed skin folder name; None = the built-in base skin.
@@ -121,37 +129,87 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Load the user's settings from the OS config dir (see [`Self::load_from`]).
     pub fn load() -> (Self, PathBuf) {
         let path = settings_path();
-        match std::fs::read_to_string(&path) {
-            Ok(content) => match serde_json::from_str(&content) {
-                Ok(settings) => (settings, path),
-                Err(_) => {
-                    eprintln!("Failed to parse settings, using defaults");
-                    let defaults = Self::default();
-                    let _ = Self::save_to(&defaults, &path);
-                    (defaults, path)
-                }
-            },
-            Err(_) => {
-                let defaults = Self::default();
-                let _ = Self::save_to(&defaults, &path);
-                (defaults, path)
+        (Self::load_from(&path), path)
+    }
+
+    /// Load settings from `path`, salvaging as much as possible:
+    ///
+    /// - missing file → defaults (and the file is created);
+    /// - missing fields → their defaults;
+    /// - a field with an unusable value → only that field falls back;
+    /// - not JSON at all → defaults.
+    ///
+    /// Whenever the file could not be read as-is, it is first copied to
+    /// `settings.broken-<unix secs>.json` next to it, so nothing the user set is
+    /// ever silently destroyed.
+    pub fn load_from(path: &Path) -> Self {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            let defaults = Self::default();
+            let _ = defaults.save_to(path);
+            return defaults;
+        };
+        if let Ok(settings) = serde_json::from_str::<Self>(&content) {
+            return settings;
+        }
+
+        let backup =
+            path.with_file_name(format!("settings.broken-{}.json", crate::util::now_secs()));
+        let _ = std::fs::copy(path, &backup);
+        eprintln!(
+            "settings.json could not be read as-is; salvaged what was valid (original kept at {})",
+            backup.display()
+        );
+        let recovered = Self::salvage(&content);
+        let _ = recovered.save_to(path);
+        recovered
+    }
+
+    /// Build settings from a partly-invalid document: start from the defaults
+    /// and apply each field from `content` that still deserializes.
+    fn salvage(content: &str) -> Self {
+        let defaults = Self::default();
+        let Ok(serde_json::Value::Object(fields)) =
+            serde_json::from_str::<serde_json::Value>(content)
+        else {
+            return defaults;
+        };
+        let Ok(serde_json::Value::Object(mut merged)) = serde_json::to_value(&defaults) else {
+            return defaults;
+        };
+        for (key, value) in fields {
+            let previous = merged.insert(key.clone(), value);
+            let ok =
+                serde_json::from_value::<Self>(serde_json::Value::Object(merged.clone())).is_ok();
+            if !ok {
+                match previous {
+                    Some(v) => merged.insert(key, v),
+                    None => merged.remove(&key),
+                };
             }
+        }
+        serde_json::from_value(serde_json::Value::Object(merged)).unwrap_or(defaults)
+    }
+
+    pub fn save(&self, path: &Path) {
+        if let Err(e) = self.save_to(path) {
+            eprintln!("Failed to save settings: {e:#}");
         }
     }
 
-    pub fn save(&self, path: &PathBuf) {
-        let _ = Self::save_to(self, path);
-    }
-
-    fn save_to(settings: &Self, path: &PathBuf) -> anyhow::Result<()> {
+    /// Write atomically: a temp file next to the target, then rename over it,
+    /// so a crash or a second writer (the game process) never leaves a
+    /// half-written `settings.json`.
+    fn save_to(&self, path: &Path) -> anyhow::Result<()> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).context("Failed to create settings directory")?;
         }
-        let json =
-            serde_json::to_string_pretty(settings).context("Failed to serialize settings")?;
-        std::fs::write(path, json).context("Failed to write settings file")?;
+        let json = serde_json::to_string_pretty(self).context("Failed to serialize settings")?;
+        let tmp = path.with_extension(format!("json.tmp-{}", std::process::id()));
+        std::fs::write(&tmp, json).context("Failed to write settings temp file")?;
+        std::fs::rename(&tmp, path).context("Failed to replace settings file")?;
         Ok(())
     }
 }
@@ -181,6 +239,123 @@ mod tests {
         assert_eq!(s.output_device, None);
         // Field added later must fall back to its default, not fail the parse.
         assert_eq!(s.visualizer_floor_db, default_visualizer_floor_db());
+    }
+
+    /// A complete `settings.json` in the shape installs have on disk as of
+    /// 2026-09, every field non-default. It must load exactly as written —
+    /// this is the "never break users' settings" guard.
+    #[test]
+    fn current_settings_file_loads_unchanged() {
+        let json = include_str!("../../tests/fixtures/settings-2026-09.json");
+        let s: Settings = serde_json::from_str(json).expect("settings parse");
+        assert_eq!(s.volume, 0.6);
+        assert_eq!(s.skin.as_deref(), Some("sunny"));
+        assert_eq!(s.visualizer_num_bars, 48);
+        assert_eq!(s.visualizer_floor_db, -54.0);
+        assert_eq!(s.active_visualizer, 1);
+        assert_eq!(s.vowel_voicing_threshold, 0.02);
+        assert!(!s.vowel_steady);
+        assert_eq!(s.game_reaction, 0.75);
+        assert_eq!(s.language, "pl");
+        assert_eq!(s.input_device.as_deref(), Some("USB Microphone"));
+        // And it survives a save/load cycle.
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+    }
+
+    #[test]
+    fn missing_original_fields_fall_back_instead_of_failing() {
+        // `volume` and the first visualizer knobs used to be required.
+        let s: Settings = serde_json::from_str(r#"{ "language": "de" }"#).unwrap();
+        assert_eq!(s.language, "de");
+        assert_eq!(s.volume, Settings::default().volume);
+        assert_eq!(
+            s.visualizer_num_bars,
+            Settings::default().visualizer_num_bars
+        );
+    }
+
+    fn temp_settings(tag: &str, content: Option<&str>) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "rondelek-settings-test-{tag}-{}",
+            crate::util::new_uid()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        if let Some(c) = content {
+            std::fs::write(&path, c).unwrap();
+        }
+        path
+    }
+
+    fn broken_backups(path: &Path) -> Vec<PathBuf> {
+        std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.to_string_lossy().contains("settings.broken-"))
+            .collect()
+    }
+
+    #[test]
+    fn one_bad_field_keeps_all_the_others() {
+        let path = temp_settings(
+            "badfield",
+            Some(
+                r#"{ "volume": "loud", "language": "pl", "input_device": "USB Mic", "visualizer_num_bars": 60 }"#,
+            ),
+        );
+        let s = Settings::load_from(&path);
+        assert_eq!(s.volume, Settings::default().volume, "bad value falls back");
+        assert_eq!(s.language, "pl");
+        assert_eq!(s.input_device.as_deref(), Some("USB Mic"));
+        assert_eq!(s.visualizer_num_bars, 60);
+        // The original is kept for the user, and the repaired file now loads cleanly.
+        assert_eq!(broken_backups(&path).len(), 1);
+        assert_eq!(Settings::load_from(&path), s);
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn garbage_file_is_backed_up_not_lost() {
+        let path = temp_settings("garbage", Some("{ this is not json"));
+        let s = Settings::load_from(&path);
+        assert_eq!(s.volume, Settings::default().volume);
+        let backups = broken_backups(&path);
+        assert_eq!(backups.len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(&backups[0]).unwrap(),
+            "{ this is not json"
+        );
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn missing_file_creates_defaults() {
+        let path = temp_settings("missing", None);
+        let s = Settings::load_from(&path);
+        assert_eq!(s.volume, Settings::default().volume);
+        assert!(path.exists());
+        assert!(broken_backups(&path).is_empty());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn save_is_atomic_and_leaves_no_temp_files() {
+        let path = temp_settings("atomic", None);
+        let s = Settings {
+            game_reaction: 0.25,
+            ..Settings::default()
+        };
+        s.save(&path);
+        assert_eq!(Settings::load_from(&path), s);
+        let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name() != "settings.json")
+            .collect();
+        assert!(leftovers.is_empty(), "temp file left behind: {leftovers:?}");
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
     #[test]

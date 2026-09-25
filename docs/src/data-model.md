@@ -72,21 +72,26 @@ vowel-detection knobs (`vowel_voicing_threshold` / `_smoothing` /
 `active_visualizer` index, `game_reaction`, UI `language`, and pinned
 `input_device` / `output_device` names.
 
-Fields added after the first release use `#[serde(default = "...")]`, so older
-files keep loading. Be aware of the current sharp edges:
+This file already exists on users' machines, so loading is deliberately forgiving
+(`Settings::load_from`):
 
-- The original fields (`volume`, `visualizer_smoothing`, `visualizer_decay`,
-  `visualizer_num_bars`) have **no** serde default. A file missing one of them
-  fails to parse.
-- On **any** parse error, `Settings::load` silently **overwrites** `settings.json`
-  with defaults, losing pinned devices, skin and language.
-- **Two processes write the file.** The game saves `game_reaction` (reload,
-  modify, save), but the app loads settings only once in `App::new` and saves its
-  in-memory copy later (on any settings change and in `on_exit`), which overwrites
-  the game's value. Writes are not atomic (`std::fs::write`).
+- `Settings` has a container-level `#[serde(default)]`: any **missing** field
+  takes its value from `Settings::default()`.
+- If the file doesn't parse as-is (e.g. one field has the wrong type), it is first
+  **copied to `settings.broken-<unix secs>.json`**. Then every field that still
+  deserializes is kept and only the bad ones fall back to defaults. A file that
+  isn't JSON at all yields defaults, with the original still in the backup.
+- **Saves are atomic**: write a temp file, then rename it over `settings.json`.
 
-Never remove or retype a field without a migration and a test that parses the old
-shape.
+**Two processes write the file.** The game owns `game_reaction`: it reloads the
+file, changes only that field, and saves. When the app reaps the finished game
+child, it adopts `game_reaction` from disk, so its next save doesn't write back a
+stale value.
+
+The guard test `current_settings_file_loads_unchanged` parses a complete
+present-day file (`core/tests/fixtures/settings-2026-09.json`). Never remove or
+retype a field without a migration and a test that parses the old shape; rename
+with `#[serde(alias = "old_name")]`.
 
 ## What is embedded vs on disk
 

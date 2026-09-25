@@ -1,0 +1,18 @@
+{
+  "volume": 0.6,
+  "skin": "sunny",
+  "visualizer_smoothing": 0.5,
+  "visualizer_decay": 0.3,
+  "visualizer_num_bars": 48,
+  "visualizer_floor_db": -54.0,
+  "active_visualizer": 1,
+  "vowel_voicing_threshold": 0.02,
+  "vowel_smoothing": 0.9,
+  "vowel_show_threshold": 0.45,
+  "vowel_margin_threshold": 0.2,
+  "vowel_steady": false,
+  "game_reaction": 0.75,
+  "language": "pl",
+  "input_device": "USB Microphone",
+  "output_device": null
+}
