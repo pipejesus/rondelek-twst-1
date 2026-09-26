@@ -80,8 +80,11 @@ stateDiagram-v2
 - **Settings** is not a screen. It's the F12 `ConfigPanel` window, drawn over any
   screen. Its "Recalibrate" action enters `Calibrate`.
 - **Games** spawns `rondelek-game <id> --profile <dir>` from the folder the app's
-  own exe is in (`launch_game`). The app drops its `Capture` first so the game can
-  open the microphone.
+  own exe is in (`spawn_game`). The app drops its `Capture` first so the game can
+  open the microphone. Under `cargo run` (detected by the `CARGO` and
+  `CARGO_MANIFEST_DIR` env vars), `launch_game` first starts
+  `cargo build -p rondelek-game` and `poll_game_build` spawns the game when that
+  succeeds. `cargo run` alone would leave a stale game binary.
 
 ## Threading model
 

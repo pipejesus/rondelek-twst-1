@@ -53,8 +53,11 @@
   "games.title": "Games",
   "games.calibrate_hint": "Tip: calibrate the voice first so the game knows this child's vowels.",
   "games.runner.name": "Vowel Runner",
-  "games.runner.tagline": "Say “a” to jump, “e” to duck!",
+  "games.runner.tagline": "Use your voice to jump, duck and shoot stars!",
   "games.playing": "Game in progress — close the game window to come back.",
   "calibrate.reset": "Start over",
-  "calibrate.more_takes": "More takes at different pitch and loudness make recognition stronger."
+  "calibrate.more_takes": "More takes at different pitch and loudness make recognition stronger.",
+  "games.building": "Getting the game ready…",
+  "games.build_failed": "The game could not be built — see the terminal for details.",
+  "games.launch_failed": "The game could not be started."
 }

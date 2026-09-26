@@ -53,8 +53,11 @@
   "games.title": "Gry",
   "games.calibrate_hint": "Wskazówka: najpierw skalibruj głos, aby gra znała samogłoski dziecka.",
   "games.runner.name": "Biegacz samogłosek",
-  "games.runner.tagline": "Powiedz „a”, aby skoczyć, „e”, aby się schylić!",
+  "games.runner.tagline": "Skacz, schylaj się i strzelaj gwiazdkami głosem!",
   "games.playing": "Gra trwa — zamknij okno gry, aby wrócić.",
   "calibrate.reset": "Od nowa",
-  "calibrate.more_takes": "Kolejne nagrania na różnej wysokości i głośności wzmacniają rozpoznawanie."
+  "calibrate.more_takes": "Kolejne nagrania na różnej wysokości i głośności wzmacniają rozpoznawanie.",
+  "games.building": "Przygotowuję grę…",
+  "games.build_failed": "Nie udało się zbudować gry — szczegóły w terminalu.",
+  "games.launch_failed": "Nie udało się uruchomić gry."
 }

@@ -125,8 +125,7 @@ above. Audio and camera use the built-in Windows APIs.
 ## Everyday development
 
 ```bash
-cargo build --release        # build app + game (do this before testing Games)
-cargo run --release          # run the sampler (rebuilds only the app)
+cargo run --release          # build and run (games are rebuilt on launch)
 cargo test                   # run the test suite
 cargo fmt --all              # auto-format the code
 cargo clippy --all-targets   # lint for common mistakes
@@ -171,11 +170,10 @@ It's a separate binary/crate (`game/`) from the sampler app (`app/`), sharing
 audio/config/profile logic through `core/` — raylib and the app's eframe/winit
 stack both define a Windows `ShowCursor` symbol, so they can't share a link.
 Adding a game = implement `VoiceGame` (`game/src/`), register it in the
-`match` in `game::run` and in `rondelek_core::games::GAMES`, add its i18n name
-key. Two parts are still Runner-specific and must be generalised for a second
-game: the selection screen (`select_controls` returns the Runner's moves and
-obstacle toggles) and the app's Games menu tagline (`draw_games` shows
-`games.runner.tagline` for every game).
+`match` in `game::run` and in `rondelek_core::games::GAMES` (a `GameInfo`
+with its id and i18n name + tagline keys), then add those keys to every locale. The pre-game selection screen is still
+Runner-specific (`select_controls` returns the Runner's moves and obstacle
+toggles) and must be generalised for a second game.
 
 ---
 

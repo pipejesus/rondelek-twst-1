@@ -17,9 +17,10 @@ cargo fmt --all --check      # format check
 cargo run --bin genskin      # regenerate the built-in base skin (skins/base/)
 ```
 
-`cargo run` rebuilds only the app. The app launches games by running
-`rondelek-game` from the folder its own exe is in, so run `cargo build` first,
-or Games will start a stale (or missing) game binary.
+`cargo run` only rebuilds the app, but the app launches games by running
+`rondelek-game` from its own folder. So when it runs under cargo, pressing a
+game first runs `cargo build -p rondelek-game` (same profile) and launches the
+game once that finishes (`dev_game_build`). Shipped builds skip that step.
 
 ## ⚑ Git workflow: one worktree per branch
 

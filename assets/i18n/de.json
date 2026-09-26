@@ -53,8 +53,11 @@
   "games.title": "Spiele",
   "games.calibrate_hint": "Tipp: Zuerst die Stimme kalibrieren, damit das Spiel die Vokale des Kindes kennt.",
   "games.runner.name": "Vokal-Läufer",
-  "games.runner.tagline": "Sag „a“ zum Springen, „e“ zum Ducken!",
+  "games.runner.tagline": "Spring, duck dich und schieß Sterne – mit deiner Stimme!",
   "games.playing": "Spiel läuft — schließe das Spielfenster, um zurückzukehren.",
   "calibrate.reset": "Neu beginnen",
-  "calibrate.more_takes": "Weitere Aufnahmen in anderer Tonhöhe und Lautstärke machen die Erkennung robuster."
+  "calibrate.more_takes": "Weitere Aufnahmen in anderer Tonhöhe und Lautstärke machen die Erkennung robuster.",
+  "games.building": "Das Spiel wird vorbereitet…",
+  "games.build_failed": "Das Spiel konnte nicht gebaut werden — Details im Terminal.",
+  "games.launch_failed": "Das Spiel konnte nicht gestartet werden."
 }

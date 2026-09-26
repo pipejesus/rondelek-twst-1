@@ -53,8 +53,11 @@
   "games.title": "Giochi",
   "games.calibrate_hint": "Suggerimento: prima calibra la voce, così il gioco conosce le vocali del bambino.",
   "games.runner.name": "Corridore delle vocali",
-  "games.runner.tagline": "Di' «a» per saltare, «e» per abbassarti!",
+  "games.runner.tagline": "Salta, abbassati e lancia stelle con la tua voce!",
   "games.playing": "Partita in corso — chiudi la finestra del gioco per tornare.",
   "calibrate.reset": "Ricomincia",
-  "calibrate.more_takes": "Altre registrazioni con tono e volume diversi rafforzano il riconoscimento."
+  "calibrate.more_takes": "Altre registrazioni con tono e volume diversi rafforzano il riconoscimento.",
+  "games.building": "Preparo il gioco…",
+  "games.build_failed": "Impossibile compilare il gioco — dettagli nel terminale.",
+  "games.launch_failed": "Impossibile avviare il gioco."
 }

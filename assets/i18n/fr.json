@@ -53,8 +53,11 @@
   "games.title": "Jeux",
   "games.calibrate_hint": "Astuce : calibre d'abord la voix pour que le jeu connaisse les voyelles de l'enfant.",
   "games.runner.name": "Coureur de voyelles",
-  "games.runner.tagline": "Dis « a » pour sauter, « e » pour te baisser !",
+  "games.runner.tagline": "Saute, baisse-toi et lance des étoiles avec ta voix !",
   "games.playing": "Partie en cours — ferme la fenêtre du jeu pour revenir.",
   "calibrate.reset": "Recommencer",
-  "calibrate.more_takes": "D'autres prises à hauteur et volume différents renforcent la reconnaissance."
+  "calibrate.more_takes": "D'autres prises à hauteur et volume différents renforcent la reconnaissance.",
+  "games.building": "Préparation du jeu…",
+  "games.build_failed": "Impossible de compiler le jeu — détails dans le terminal.",
+  "games.launch_failed": "Impossible de lancer le jeu."
 }

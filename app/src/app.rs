@@ -123,6 +123,11 @@ pub struct App {
     calib: Option<CalibrationState>,
     /// Running voice-game child process, if any (reaped each frame).
     game_child: Option<std::process::Child>,
+    /// Dev runs only (`cargo run`): the `cargo build -p rondelek-game` started
+    /// before a game launch, plus the id of the game to spawn once it succeeds.
+    game_build: Option<(std::process::Child, String)>,
+    /// Last game build/launch problem, shown on the Games screen.
+    game_error: Option<String>,
     /// The current profile's loaded calibration (cached; drives the config
     /// panel's Calibration tab without re-reading disk each frame).
     current_calibration: Option<vowel::VowelCalibration>,
@@ -244,6 +249,8 @@ impl App {
             camera: None,
             calib: None,
             game_child: None,
+            game_build: None,
+            game_error: None,
             current_calibration: None,
             tex_cache: HashMap::new(),
             flag_cache: HashMap::new(),
@@ -1764,6 +1771,7 @@ impl App {
         ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
 
         let playing = self.game_child.is_some();
+        let building = self.game_build.is_some();
         let mut back = false;
         let mut launch: Option<&'static str> = None;
 
@@ -1797,34 +1805,44 @@ impl App {
             }
             ui.add_space(18.0);
 
-            for (id, name_key) in rondelek_core::games::GAMES {
+            for game in rondelek_core::games::GAMES {
                 let btn = egui::Button::new(
-                    egui::RichText::new(self.i18n.t(name_key))
+                    egui::RichText::new(self.i18n.t(game.name_key))
                         .size(18.0)
                         .color(Color32::WHITE),
                 )
                 .fill(ORANGE)
                 .corner_radius(10.0);
                 if ui
-                    .add_enabled(!playing, |ui: &mut Ui| ui.add_sized([320.0, 56.0], btn))
+                    .add_enabled(!playing && !building, |ui: &mut Ui| {
+                        ui.add_sized([320.0, 56.0], btn)
+                    })
                     .clicked()
                 {
-                    launch = Some(id);
+                    launch = Some(game.id);
                 }
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new(self.i18n.t("games.runner.tagline"))
+                    egui::RichText::new(self.i18n.t(game.tagline_key))
                         .color(self.theme.text_secondary),
                 );
                 ui.add_space(14.0);
             }
 
-            if playing {
+            let status = if playing {
+                Some("games.playing")
+            } else if building {
+                Some("games.building")
+            } else {
+                None
+            };
+            if let Some(key) = status {
                 ui.add_space(8.0);
-                ui.label(
-                    egui::RichText::new(self.i18n.t("games.playing"))
-                        .color(self.theme.text_primary),
-                );
+                ui.label(egui::RichText::new(self.i18n.t(key)).color(self.theme.text_primary));
+            }
+            if let Some(err) = &self.game_error {
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new(err).color(self.theme.led_full));
             }
         });
 
@@ -1845,9 +1863,52 @@ impl App {
     /// (eframe/winit) both define a `ShowCursor` symbol, which is a Windows
     /// linker error the moment both land in one binary.
     fn launch_game(&mut self, id: &str) {
-        if self.game_child.is_some() {
+        if self.game_child.is_some() || self.game_build.is_some() {
             return;
         }
+        self.game_error = None;
+        // `cargo run` rebuilds only this app, so the game binary next to it can
+        // be stale or missing. Under cargo, rebuild it first (a no-op when it's
+        // up to date); `poll_game_build` spawns the game once that succeeds.
+        if let Some(build) = dev_game_build() {
+            match build {
+                Ok(child) => self.game_build = Some((child, id.to_string())),
+                Err(e) => {
+                    self.game_error = Some(format!("{} ({e})", self.i18n.t("games.build_failed")))
+                }
+            }
+            return;
+        }
+        self.spawn_game(id);
+    }
+
+    /// Poll the dev-mode game build started by `launch_game`; spawn the game
+    /// when it succeeds, report when it fails.
+    fn poll_game_build(&mut self) {
+        let Some((child, _)) = &mut self.game_build else {
+            return;
+        };
+        let result = match child.try_wait() {
+            Ok(None) => return,
+            Ok(Some(status)) => Ok(status),
+            Err(e) => Err(e),
+        };
+        let Some((_, id)) = self.game_build.take() else {
+            return;
+        };
+        match result {
+            Ok(status) if status.success() => self.spawn_game(&id),
+            Ok(status) => {
+                self.game_error = Some(format!("{} ({status})", self.i18n.t("games.build_failed")))
+            }
+            Err(e) => {
+                self.game_error = Some(format!("{} ({e})", self.i18n.t("games.build_failed")))
+            }
+        }
+    }
+
+    /// Spawn the game binary that sits next to this one.
+    fn spawn_game(&mut self, id: &str) {
         self.capture = None;
         let profile_dir = self.current_profile.as_ref().map(|p| p.dir.clone());
         let game_bin = if cfg!(windows) {
@@ -1866,7 +1927,9 @@ impl App {
         });
         match spawned {
             Ok(child) => self.game_child = Some(child),
-            Err(e) => self.audio_status = format!("game: {e}"),
+            Err(e) => {
+                self.game_error = Some(format!("{} ({e})", self.i18n.t("games.launch_failed")))
+            }
         }
     }
 
@@ -2032,6 +2095,21 @@ impl App {
     }
 }
 
+/// When running under `cargo run` (Cargo sets `CARGO` and `CARGO_MANIFEST_DIR`
+/// for the process it runs), start `cargo build -p rondelek-game` with this
+/// binary's profile. `None` outside cargo, e.g. a shipped build.
+fn dev_game_build() -> Option<std::io::Result<std::process::Child>> {
+    let cargo = std::env::var_os("CARGO")?;
+    let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR")?;
+    let mut cmd = std::process::Command::new(cargo);
+    cmd.current_dir(manifest_dir)
+        .args(["build", "-p", "rondelek-game"]);
+    if !cfg!(debug_assertions) {
+        cmd.arg("--release");
+    }
+    Some(cmd.spawn())
+}
+
 fn uv_full() -> Rect {
     Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0))
 }
@@ -2128,6 +2206,8 @@ impl eframe::App for App {
             // so our next save doesn't write back the stale in-memory copy.
             self.settings.game_reaction = Settings::load_from(&self.settings_path).game_reaction;
         }
+
+        self.poll_game_build();
 
         // Repaint policy. While a game child owns the fullscreen window this
         // window is fully occluded; on Wayland an occluded window gets no
