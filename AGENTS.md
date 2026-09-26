@@ -119,6 +119,7 @@ core/src/                 rondelek-core: shared, GUI-toolkit-free
     sample.rs             sample buffer, WAV encode/decode via hound
     vowel.rs              MFCC template-matching vowel detector + calibration
   profile/mod.rs          Profile + profile.json, library root, avatars, calibration, sessions
+  characters.rs           built-in character avatars (shared by app + games)
   session/mod.rs          Session folder model + session.json manifest (incl. uid)
   games.rs                registry of voice games (id + i18n name key)
   util/mod.rs             lerp, UID + UTC timestamp helpers
@@ -143,7 +144,7 @@ app/src/                  rondelek: the egui sampler app
   ui/
     shell.rs              the shell look: palette, egui style, keycap buttons, icons
     settings_page.rs      the one-page "For grown-ups" settings (+ kittest UI tests)
-    characters.rs         embedded character avatars (assets/avatars/*.png)
+    characters.rs         re-exports rondelek_core::characters
     skin.rs               skin loading (skin.png spritesheet + skin.json colours)
     layout.rs             fluid faceplate layout from the live window rect
     pad.rs                sampler pad: state machine, input, drawing (skin caps)
@@ -154,6 +155,7 @@ app/src/                  rondelek: the egui sampler app
     widgets.rs            kid-face placeholder avatar
 game/src/                 rondelek-game: raylib voice games (child process)
   lib.rs                  run loop, text-free pre-game control selection
+  profile_picker.rs       reusable "who's playing?" screen (standalone launches)
   runner.rs               "Vowel Runner" 2.5D game
   voice.rs                mic + vowel detector → per-frame game input
   models.rs               embedded flat-draw GLB props (clouds, bushes)
@@ -191,7 +193,10 @@ skins/base/               generated base skin (skin.png + skin.json), embedded
   the same gate settings (`vowel_*` in `Settings`).
 - **Games** run as a separate `rondelek-game <id> --profile <dir>` process. The
   app releases the mic first and stops repainting while the game is up (see
-  `docs/PERF.md`).
+  `docs/PERF.md`). The game binary also runs **on its own**: with no id it starts
+  the first game in `GAMES`, and with no `--profile` it shows the reusable
+  "who's playing?" picker (`game/src/profile_picker.rs`) first. New games get
+  this for free through `game::run`.
 - **Skins.** One `skin.png` spritesheet (regions fixed by `config::atlas`) plus
   `skin.json` colours. The base skin is embedded; user skins are folders or zips
   in the skins dir.
@@ -214,7 +219,7 @@ skins/base/               generated base skin (skin.png + skin.json), embedded
   `RONDELEK_SCREEN=newprofile|editprofile|calibrate|games|settings`,
   `RONDELEK_CALIB_VOWEL=<n>` (with `calibrate`: open vowel n), `RONDELEK_SIZE=WxH`,
   `RONDELEK_VIZ=<n>` (visualizer index), `RONDELEK_SHOT=<png>` (capture a few frames
-  in and exit). Game: `RONDELEK_GAME_SCREEN=select`, `RONDELEK_GAME_FRAMES=<n>`,
+  in and exit). Game: `RONDELEK_GAME_SCREEN=profiles|select`, `RONDELEK_GAME_FRAMES=<n>`,
   `RONDELEK_GAME_SHOT=<png>`.
 
 ## Design notes

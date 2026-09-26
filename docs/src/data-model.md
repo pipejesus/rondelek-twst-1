@@ -31,7 +31,7 @@ profiles/
 - Avatars are always stored square: any uploaded or captured image is centre-cropped
   and resized to 256px (`profile::square_avatar`).
 - Instead of a photo, a child can use a built-in **character**: `character` holds
-  its name (e.g. `"fox"`, see `ui::characters`). A photo and a character replace
+  its name (e.g. `"fox"`, see `rondelek_core::characters`). A photo and a character replace
   each other. The field is optional and omitted when unset, so older manifests
   and older app versions are unaffected.
 - **Deleting** a child (settings page) calls `Profile::move_to_trash`. The whole

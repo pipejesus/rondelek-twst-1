@@ -33,15 +33,14 @@ pub mod palette {
 }
 use palette::*;
 
-/// Tile colours, picked per child so each one gets "their" colour.
+/// Tile colours, picked per child so each one gets "their" colour. The game's
+/// profile picker uses the same order (`game/src/profile_picker.rs`), so a
+/// child's colour matches everywhere.
 const TILE_COLORS: [Color32; 5] = [SKY, LILAC, BUTTER, MINT, ROSE];
 
 /// A stable pastel for `seed` (e.g. a profile uid).
 pub fn tile_color(seed: &str) -> Color32 {
-    let h = seed
-        .bytes()
-        .fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619));
-    TILE_COLORS[(h as usize) % TILE_COLORS.len()]
+    TILE_COLORS[rondelek_core::util::stable_pick(seed, TILE_COLORS.len())]
 }
 
 /// Mix toward white (`amount > 0`) or black (`amount < 0`).

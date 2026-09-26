@@ -152,6 +152,8 @@ app/src/
                  (character placeholders), via pixelart.rs
 game/src/
   lib.rs         game run loop + text-free control selection screen
+  profile_picker.rs  reusable "who's playing?" screen, shown when started
+                 without --profile (double-clicked / standalone)
   runner.rs      Vowel Runner
   voice.rs       mic + vowel detector → per-frame game input
   models.rs      embedded flat-draw GLB props

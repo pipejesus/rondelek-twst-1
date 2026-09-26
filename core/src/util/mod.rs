@@ -18,6 +18,15 @@ pub fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// A stable index in `0..n` for `seed` (FNV-1a). Used to give each child the
+/// same tile colour everywhere (app and games) from their profile uid.
+pub fn stable_pick(seed: &str, n: usize) -> usize {
+    let h = seed
+        .bytes()
+        .fold(2166136261u32, |h, b| (h ^ b as u32).wrapping_mul(16777619));
+    (h as usize) % n.max(1)
+}
+
 /// A fresh hyphenated UUID v4, used as a stable id for profiles and sessions.
 pub fn new_uid() -> String {
     uuid::Uuid::new_v4().to_string()

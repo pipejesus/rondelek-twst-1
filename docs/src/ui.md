@@ -71,7 +71,8 @@ check), `games.rs`, `settings.rs` (glue for the settings page) and `sampler.rs`.
 
 ### Character avatars
 
-`ui/characters.rs` embeds `assets/avatars/<name>.png`, generated placeholders from
+`rondelek_core::characters` (`core/src/characters.rs`, shared with the games'
+profile picker) embeds `assets/avatars/<name>.png`, generated placeholders from
 `cargo run --bin genavatars`. Profiles store the character's *name*
 (`ProfileManifest::character`), so replacing a PNG updates every profile using it.
 See `assets/avatars/README.md`.

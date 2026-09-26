@@ -1,7 +1,7 @@
 # Character avatars
 
 Built-in pictures a child can pick instead of a photo. Each file is embedded in
-the app (see `app/src/ui/characters.rs`).
+the app and the games (see `core/src/characters.rs`).
 
 The current images are **generated placeholders** (`cargo run --bin genavatars`).
 
@@ -17,5 +17,5 @@ Don't run `genavatars` again after replacing art: it would overwrite your files.
 ## Adding a character
 
 Add `<name>.png` here and one line to `CHARACTERS` in
-`app/src/ui/characters.rs`. Never rename or remove an existing name: profiles
+`core/src/characters.rs`. Never rename or remove an existing name: profiles
 on disk refer to it.

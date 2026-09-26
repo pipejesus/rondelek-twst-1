@@ -17,11 +17,18 @@
 //! vowels, so close sound-alikes among the unchosen ones can't cause misfires. The screen is deliberately
 //! text-free (letters, arrows, a play button) — no font or locale issues.
 //!
+//! Started **without** a profile (double-clicked, or run with no arguments),
+//! a game first shows the "who's playing?" screen ([`profile_picker`]) so the
+//! right child's voice calibration is used. The app always passes
+//! `--profile`, so launched from its Games menu the picker is skipped.
+//!
 //! To add a game: write a `VoiceGame` impl in a new file, register it in the
 //! `match` inside [`run`], and add its id + i18n name key to
-//! `rondelek_core::games::GAMES`.
+//! `rondelek_core::games::GAMES`. It gets the profile picker and the control
+//! screen for free.
 
 pub mod models;
+pub mod profile_picker;
 pub mod runner;
 pub mod voice;
 
@@ -83,7 +90,7 @@ fn keyboard_vowel(rl: &RaylibHandle) -> Option<usize> {
 /// raylib saves screenshots relative to the directory it was *initialized*
 /// in, so shoot to a bare name there and move the file to the requested
 /// destination (copy + remove — rename can't cross filesystems into /tmp).
-fn snap(rl: &mut RaylibHandle, thread: &RaylibThread, path: &str) {
+pub(crate) fn snap(rl: &mut RaylibHandle, thread: &RaylibThread, path: &str) {
     const NAME: &str = "rondelek_shot.png";
     rl.take_screenshot(thread, NAME);
     if path != NAME && std::fs::copy(NAME, path).is_ok() {
@@ -91,15 +98,13 @@ fn snap(rl: &mut RaylibHandle, thread: &RaylibThread, path: &str) {
     }
 }
 
-/// Run game `id` until its window closes (Esc). Loads the profile's vowel
-/// calibration when a profile dir is given. Without a calibration the
-/// detector recognises nothing (there is no fallback); the A/E/I/O/U/Y keys
-/// still simulate vowels.
+/// Run game `id` until its window closes (Esc). With a profile dir, uses that
+/// child's vowel calibration; without one, first asks who's playing
+/// ([`profile_picker::choose_child`]). Without a calibration the detector
+/// recognises nothing (there is no fallback); the A/E/I/O/U/Y keys still
+/// simulate vowels.
 pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
     let (settings, _) = Settings::load();
-    let calibration = profile_dir
-        .and_then(|dir| Profile::load(dir).ok())
-        .and_then(|p| p.load_calibration());
 
     let (mut rl, thread) = raylib::init()
         .size(1280, 720)
@@ -111,13 +116,35 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
 
     // Non-interactive smoke harness, mirroring the app's RONDELEK_SHOT:
     // auto-quit after N frames, optionally saving a screenshot near the end.
-    // RONDELEK_GAME_SCREEN=select runs the harness on the selection screen;
-    // otherwise the harness skips selection with the default a/e pair.
+    // RONDELEK_GAME_SCREEN=profiles / select runs the harness on the profile
+    // picker / control-selection screen; otherwise the harness skips both
+    // (no profile, default a/e/i controls).
     let max_frames: Option<u64> = std::env::var("RONDELEK_GAME_FRAMES")
         .ok()
         .and_then(|v| v.parse().ok());
     let shot: Option<String> = std::env::var("RONDELEK_GAME_SHOT").ok();
-    let harness_select = std::env::var("RONDELEK_GAME_SCREEN").as_deref() == Ok("select");
+    let harness_screen = std::env::var("RONDELEK_GAME_SCREEN").ok();
+    let harness_select = harness_screen.as_deref() == Some("select");
+    let harness_profiles = harness_screen.as_deref() == Some("profiles");
+
+    // Phase 0: whose voice? Given by the app via --profile, else asked here.
+    // (The harness skips the picker unless RONDELEK_GAME_SCREEN=profiles.)
+    let profile = match profile_dir {
+        Some(dir) => Profile::load(dir).ok(),
+        None if max_frames.is_some() && !harness_profiles => None,
+        None => {
+            let opts = profile_picker::PickerOptions {
+                harness_frames: max_frames.filter(|_| harness_profiles),
+                shot: shot.as_deref(),
+            };
+            match profile_picker::choose_child(&mut rl, &thread, &opts) {
+                profile_picker::Pick::Child(p) => Some(p),
+                profile_picker::Pick::NoChildren => None,
+                profile_picker::Pick::Closed => return Ok(()),
+            }
+        }
+    };
+    let calibration = profile.as_ref().and_then(|p| p.load_calibration());
 
     // Phase 1: the therapist picks which vowel drives which move, plus the
     // Reaction slider (turtle = steady, rabbit = snappy).

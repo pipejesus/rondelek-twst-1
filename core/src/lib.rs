@@ -5,6 +5,7 @@
 //! (mutually incompatible on Windows, see `game/src/lib.rs`) windowing stack
 //! without both ending up in the same link.
 pub mod audio;
+pub mod characters;
 pub mod config;
 pub mod games;
 pub mod profile;

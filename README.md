@@ -55,7 +55,9 @@ from source (below); it's a few commands.
    into it; press REC again and tap pads to play them back. The board is kept, so
    next time the child continues where they left off.
 4. **Games**: voice-controlled games. Before each game you choose which vowel
-   makes the hero jump, duck or shoot, and which obstacles appear.
+   makes the hero jump, duck or shoot, and which obstacles appear. The game also
+   works on its own: double-click **`rondelek-game.exe`** and it first asks who's
+   playing (the same children and pictures as in the app), then starts.
 5. **For grown-ups**: the ⚙ key (or `F12`) opens one settings page: speaker and
    microphone, how picky voice recognition is, the sampler screen, language, and
    the child's own settings (rename, redo the voice check, delete).
@@ -212,14 +214,17 @@ to the chosen vowels, so sound-alikes that weren't picked (e.g. e vs y) can't
 cause misfires. Keys A/E/I/O/U/Y simulate vowels for testing without a mic; Esc
 closes the game and returns to the app.
 
-Run a game directly: `cargo run -p rondelek-game -- runner --profile <profile-dir>`.
+Run a game directly: `cargo run -p rondelek-game` (asks who's playing), or
+`cargo run -p rondelek-game -- runner --profile <profile-dir>` (what the app does).
 It's a separate binary/crate (`game/`) from the sampler app (`app/`), sharing
 audio/config/profile logic through `core/` — raylib and the app's eframe/winit
 stack both define a Windows `ShowCursor` symbol, so they can't share a link.
 Adding a game = implement `VoiceGame` (`game/src/`), register it in the
 `match` in `game::run` and in `rondelek_core::games::GAMES` (a `GameInfo`
 with its id and i18n name + tagline keys), then add those keys to every
-locale. The pre-game selection screen is still Runner-specific (`select_controls` returns the Runner's moves and obstacle
+locale. Every game gets the "who's playing?" picker for free
+(`game/src/profile_picker.rs`, reusable via `profile_picker::choose_child`).
+The pre-game selection screen is still Runner-specific (`select_controls` returns the Runner's moves and obstacle
 toggles) and must be generalised for a second game.
 
 ---
@@ -280,7 +285,7 @@ Useful for testing, demos, and screenshots — they jump straight to a screen an
 | `RONDELEK_CALIB_VOWEL=<n>` | with `calibrate`: open vowel *n*'s record screen |
 | `RONDELEK_VIZ=<n>` | select visualizer *n* (0 spectrum, 1 vowels, 2 off) |
 | `RONDELEK_SHOT=<file.png>` | render a few frames, save a screenshot, and exit |
-| `RONDELEK_GAME_SCREEN=select` | *(game)* run the harness on the selection screen |
+| `RONDELEK_GAME_SCREEN=profiles` \| `select` | *(game)* run the harness on the profile picker / control-selection screen |
 | `RONDELEK_GAME_FRAMES=<n>` / `RONDELEK_GAME_SHOT=<png>` | *(game)* quit after *n* frames / save a screenshot |
 
 Example — capture the sampler screen and quit:

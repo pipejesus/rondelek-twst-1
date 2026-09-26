@@ -6,7 +6,7 @@
 //! pastel palette, drawn procedurally so there's something good-looking until
 //! real artwork exists. To replace one, overwrite `assets/avatars/<name>.png`
 //! with any square PNG (256×256 or larger) and rebuild. The name list lives in
-//! `app/src/ui/characters.rs` and profiles store the *name*, so new art shows up
+//! `core/src/characters.rs` and profiles store the *name*, so new art shows up
 //! on every profile that uses it. Once an image has been hand-drawn, don't run
 //! this generator again, or it will overwrite it.
 

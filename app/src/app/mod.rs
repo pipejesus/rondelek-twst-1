@@ -108,7 +108,7 @@ enum AvatarChoice {
     Keep,
     /// A freshly picked or captured image to import on submit.
     New(PathBuf),
-    /// A built-in character avatar (by name, see `ui::characters`).
+    /// A built-in character avatar (by name, see `rondelek_core::characters`).
     Character(String),
     /// Edit: clear the avatar back to the default face on submit.
     Remove,
