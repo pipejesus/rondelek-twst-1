@@ -32,6 +32,7 @@ the app, start with the repository [`README`](https://github.com/pipejesus/ronde
 | [The visualizer](visualizer.md) | The pluggable `Visualizer` trait, the spectrum DSP pipeline, vowel detection and calibration. |
 | [UI, layout & rendering](ui.md) | The fluid faceplate layout, the renderer, theming, fonts, i18n. |
 | [Data model & storage](data-model.md) | What lives on disk and how it's laid out. |
+| [Voice games](games.md) | The game process, Vowel Runner's scene, art from flat-draw, shaders and their tuning. |
 | [Libraries](libraries.md) | Every dependency and why it's here. |
 
 > **Keeping this current:** these docs are treated as part of the code. See

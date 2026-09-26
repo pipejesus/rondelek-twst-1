@@ -120,12 +120,13 @@ This is a solo project: no PRs or review needed. Keep it simple.
 
 - **Keep the developer handbook current.** The `docs/` mdBook (published to GitHub
   Pages) documents how the app is wired: audio routing, the visualizer, UI/layout,
-  the data model, and dependencies. **After any change to behaviour, wiring, data
-  layout, or dependencies, update the relevant page in `docs/src/` in the same
-  commit.** Reference code by symbol name, not line number. Which page covers
+  the data model, the voice games, and dependencies. **After any change to
+  behaviour, wiring, data layout, or dependencies, update the relevant page in
+  `docs/src/` in the same commit.** Reference code by symbol name, not line number. Which page covers
   what: audio/streams → `audio.md`; visualizer/DSP → `visualizer.md`; screens,
   layout, rendering, i18n → `ui.md` (and `architecture.md` for the state machine);
-  on-disk formats/settings → `data-model.md`; dependencies → `libraries.md`. For a
+  on-disk formats/settings → `data-model.md`; voice games (scene, art, shaders,
+  tuning) → `games.md`; dependencies → `libraries.md`. For a
   new page, add it to `docs/src/SUMMARY.md`. See `docs/src/contributing.md` to build
   locally (`mdbook serve docs`).
 
@@ -235,7 +236,17 @@ packaging/appimage/       Linux AppImage: AppRun (app / --game), desktop entry,
   `docs/PERF.md`). The game binary also runs **on its own**: with no id it starts
   the first game in `GAMES`, and with no `--profile` it shows the reusable
   "who's playing?" picker (`game/src/profile_picker.rs`) first. New games get
-  this for free through `game::run`.
+  this for free through `game::run`. Everything about the games' look (scene
+  layers, flat-draw models, Lam::pula, the water, shader tuning tables and their
+  `RONDELEK_LAMPULA`/`RONDELEK_WATER` overrides) is in `docs/src/games.md`.
+- **Game art** comes from Greg's flat-draw/Flatty editor as `.glb`. New files are
+  dropped into **`greg/`** at the repo root (gitignored, never delete the
+  folder). When one is used, **move** it into place (e.g.
+  `assets/models/<english-name>.glb`). The flat-draw repo
+  (`~/zed-projects/flat-draw`) is precious: read it, never write to it.
+- **Game scenery must stay calm.** Background motion is tiny and slow (kids get
+  dizzy), and scenery must not compete with the hero for attention (hence the
+  cloud haze, the calmed water). The blocky brick hero is permanent.
 - **Skins.** One `skin.png` spritesheet (regions fixed by `config::atlas`) plus
   `skin.json` colours. The base skin is embedded; user skins are folders or zips
   in the skins dir.

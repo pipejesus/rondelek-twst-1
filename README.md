@@ -15,7 +15,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/arcade/runner.png">
-    <img src="docs/images/arcade/runner.gif" alt="Vowel Runner gameplay in an arcade-screen frame: a little blue hero runs across a pixel meadow under smiling voxel clouds, fires stars that knock down brick walls marked with a vowel, and the star counter goes up" width="680">
+    <img src="docs/images/arcade/runner.gif" alt="Vowel Runner gameplay in an arcade-screen frame: a little blue hero runs across a pixel meadow by a sparkling sea, under soft glassy clouds, fires stars that knock down brick walls marked with a vowel, and the golden sun at the top spins round to show each new point" width="680">
   </picture>
   <br>
   <sub><b>Vowel Runner</b>: the child's voice is the controller. Say a vowel to jump,
