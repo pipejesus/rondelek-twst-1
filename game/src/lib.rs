@@ -27,10 +27,13 @@
 //! `rondelek_core::games::GAMES`. It gets the profile picker and the control
 //! screen for free.
 
+pub mod lampula;
 pub mod models;
 pub mod profile_picker;
 pub mod runner;
+mod shader_params;
 pub mod voice;
+pub mod water;
 
 use raylib::prelude::*;
 use std::path::PathBuf;

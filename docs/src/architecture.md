@@ -158,6 +158,9 @@ game/src/
   runner.rs      Vowel Runner
   voice.rs       mic + vowel detector → per-frame game input
   models.rs      embedded flat-draw GLB props (scenery, the score sun)
+  shader_params.rs  shader tuning tables + JSON overrides
+  lampula.rs     flat-draw's Lam::pula glass shader, 1:1 (the clouds)
+  water.rs       the voice-reactive water along the front
 ```
 
 For the responsibilities of each dependency, see [Libraries](libraries.md).

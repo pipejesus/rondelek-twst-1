@@ -7,8 +7,11 @@
 //! everything built from chunky 3D bricks ("pixels became big and 3-D").
 //! Parallax layers scroll by hand-tuned factors of the travelled distance:
 //! clouds 0.10, mountains 0.25 (fog shader), bushes 0.55, ground 1.0. Clouds
-//! and bushes are hand-drawn flat-draw props (GLB, see `models.rs`); mountains,
-//! ground and obstacles are still procedural bricks. The hero placeholder brick
+//! and bushes are hand-drawn flat-draw props (GLB, see `models.rs`); the clouds
+//! go through flat-draw's own Lam::pula glass shader (`lampula.rs`) and float,
+//! bob and breathe. Mountains, ground and obstacles are still procedural
+//! bricks. In front of the meadow's bank lies playful water (`water.rs`) that
+//! scrolls with the ground and dances to the child's voice. The hero placeholder brick
 //! is drawn under a comic-style toon shader — the same slot the dragon GLB model
 //! will use later. HUD (letter signs, meter, score) stays crisp 2D, projected
 //! over the scene — except the score's icon, a hand-drawn pixel sun (GLB) that
@@ -19,7 +22,9 @@
 //! same 1280x720 logical space (100 logical px = 1 world unit at draw time),
 //! so physics, collisions and their tests are identical.
 
+use super::lampula::Lampula;
 use super::models::FlatModel;
+use super::water::{self, Water};
 use super::{VoiceGame, VoiceInput};
 use raylib::prelude::*;
 use raylib::rlgl::RaylibRlgl; // matrix stack for the salto flip
@@ -70,16 +75,20 @@ const SKY_LOW: Color = Color::new(184, 228, 255, 255);
 const GRASS: Color = Color::new(112, 202, 92, 255);
 const GRASS_DARK: Color = Color::new(78, 166, 68, 255);
 const DIRT: Color = Color::new(184, 122, 78, 255);
-const DIRT_DARK: Color = Color::new(136, 86, 54, 255);
 // Far hills: meadow green, pushed back by the fog toward the horizon blue.
 const MOUNT_A: Color = Color::new(96, 178, 120, 255);
 const MOUNT_B: Color = Color::new(74, 154, 104, 255);
 // flat-draw props: world height (plus its per-lane variation) and the lane
 // spacing. Each drawing's own aspect decides the width; the height covers the
 // *whole* drawing, rain drops and all.
-const CLOUD_H: f32 = 1.9;
+const CLOUD_H: f32 = 2.7;
 const CLOUD_H_VARY: f32 = 1.3;
 const CLOUD_PERIOD: f32 = 12.0;
+// The clouds' gentle life: a slow bob, a breath (a little wider as they get a
+// little shorter, and back), and a lazy sway. Per cloud, out of step.
+const CLOUD_BOB: f32 = 0.28;
+const CLOUD_BREATH: f32 = 0.05;
+const CLOUD_SWAY_DEG: f32 = 3.0;
 const BUSH_H: f32 = 0.85;
 const BUSH_H_VARY: f32 = 0.5;
 const BUSH_PERIOD: f32 = 2.8;
@@ -87,6 +96,17 @@ const BUSH_PERIOD: f32 = 2.8;
 const WALL_A: Color = Color::new(154, 136, 126, 255);
 const WALL_B: Color = Color::new(122, 106, 98, 255);
 const WALL_MORTAR: Color = Color::new(92, 80, 74, 255);
+
+// The water in front of the meadow: its resting surface sits a little below
+// the grass, so a strip of the bank's earth shows above it; it runs from the
+// bank's face (the ground blocks are 3 deep, centred on z = 0) to past the
+// bottom of the screen.
+const WATER: water::Placement = water::Placement {
+    y: -0.5,
+    shore_z: 1.5,
+    far_z: 12.0,
+    width: 40.0,
+};
 
 // Score sun (the HUD's point icon). Its on-screen height in logical px, and how
 // far in front of the camera it floats — near enough that nothing in the scene
@@ -200,6 +220,10 @@ struct Gfx {
     sun: Option<FlatModel>,
     /// Front-lit banded shading for the sun, turning with it (sun.vs/fs).
     sun_shader: Shader,
+    /// flat-draw's glass shader, for the clouds. `None` → they draw plain.
+    lampula: Option<Lampula>,
+    /// The sea along the front. `None` → the bank's earth shows instead.
+    water: Option<Water>,
 }
 
 /// Load a flat-draw prop, or complain and carry on without it.
@@ -245,6 +269,9 @@ pub struct Runner {
     last_scores: [f32; 6],
     last_held: Option<usize>,
     last_level: f32,
+    /// The voice level, smoothed (quick up, slow down) — what the water
+    /// dances to.
+    voice_glow: f32,
     /// Therapist-chosen controls (indices into VOWELS).
     jump_vowel: usize,
     duck_vowel: usize,
@@ -283,6 +310,7 @@ impl Runner {
             last_scores: [0.0; 6],
             last_held: None,
             last_level: 0.0,
+            voice_glow: 0.0,
             jump_vowel,
             duck_vowel,
             shoot_vowel,
@@ -376,6 +404,21 @@ fn hash01(k: i64, salt: u64) -> f32 {
     (h & 0xFFFF) as f32 / 65535.0
 }
 
+/// A cloud's model matrix: standing at `base` (its pivot, bottom-centre),
+/// `s` times its drawn size, and alive — bobbing, breathing and swaying about
+/// its own middle, each cloud (lane `k`) out of step with the others.
+fn cloud_transform(cloud: &FlatModel, base: Vector3, s: f32, t: f32, k: i64) -> Matrix {
+    let phase = hash01(k, 13) * std::f32::consts::TAU;
+    let breath = (t * 0.9 + phase).sin() * CLOUD_BREATH;
+    let bob = (t * 0.55 + phase).sin() * CLOUD_BOB;
+    let sway = ((t * 0.4 + phase * 1.7).sin() * CLOUD_SWAY_DEG).to_radians();
+    let c = cloud.center;
+    Matrix::translate(-c.x, -c.y, -c.z)
+        * Matrix::scale(s * (1.0 + breath), s * (1.0 - 0.8 * breath), s)
+        * Matrix::rotate_z(sway)
+        * Matrix::translate(base.x + c.x * s, base.y + c.y * s + bob, base.z + c.z * s)
+}
+
 /// Visible half-width (world units) of a layer at depth `z` for our camera —
 /// used to know which procedural tiles are on screen.
 fn half_span(z: f32) -> f32 {
@@ -441,6 +484,8 @@ impl VoiceGame for Runner {
             bush,
             sun,
             sun_shader,
+            lampula: Lampula::load(rl, thread),
+            water: Water::load(rl, thread, WATER),
         });
     }
 
@@ -452,6 +497,14 @@ impl VoiceGame for Runner {
         self.last_scores = input.scores;
         self.last_held = input.held;
         self.last_level = input.level;
+        // A recognised vowel counts as full voice; any other sound by its level.
+        let voice = if input.held.is_some() {
+            1.0
+        } else {
+            input.level.clamp(0.0, 1.0)
+        };
+        let rate = if voice > self.voice_glow { 8.0 } else { 1.5 };
+        self.voice_glow += (voice - self.voice_glow) * (1.0 - (-rate * dt).exp());
         self.dist += self.speed * dt;
 
         // --- hero ---
@@ -641,8 +694,11 @@ impl VoiceGame for Runner {
 
             // --- clouds (z -14, factor 0.10): the kid's own drawing ---------
             // One instance per sky lane, each a single draw call of the merged
-            // flat-draw mesh; only the transform differs between them.
+            // flat-draw mesh, through Lam::pula; only the transform differs.
             if let Some(cloud) = &gfx.cloud {
+                if let Some(lamp) = gfx.lampula.as_mut() {
+                    lamp.begin_frame(camera.position, self.t);
+                }
                 let z = -14.0;
                 let off = dist_u * 0.10 + self.t * 0.12;
                 let span = half_span(z);
@@ -651,9 +707,13 @@ impl VoiceGame for Runner {
                 for k in k0..=k1 {
                     let cx = k as f32 * CLOUD_PERIOD - off;
                     // Vary size and altitude per lane so the repeat is invisible.
-                    let scale = cloud.scale_for_height(CLOUD_H + hash01(k, 12) * CLOUD_H_VARY);
-                    let base = 3.6 + hash01(k, 11) * 2.4;
-                    cloud.draw(&mut c3, Vector3::new(cx, base, z), scale);
+                    let s = cloud.scale_for_height(CLOUD_H + hash01(k, 12) * CLOUD_H_VARY);
+                    let base = 3.3 + hash01(k, 11) * 2.2;
+                    let m = cloud_transform(cloud, Vector3::new(cx, base, z), s, self.t, k);
+                    match gfx.lampula.as_mut() {
+                        Some(lamp) => lamp.draw(&mut c3, cloud, m),
+                        None => cloud.draw_transformed(&mut c3, m),
+                    }
                 }
             }
 
@@ -735,19 +795,9 @@ impl VoiceGame for Runner {
                         (DIRT.b as f32 * dg) as u8,
                         255,
                     );
-                    c3.draw_cube(Vector3::new(cx, -2.18, 0.0), period, 3.8, 3.0, dirt);
-                    // Darker speckle stones embedded in the cross-section.
-                    if hash01(k, 43) > 0.45 {
-                        let sy = -0.55 - hash01(k, 44) * 1.2;
-                        let ss = 0.14 + hash01(k, 45) * 0.16;
-                        c3.draw_cube(
-                            Vector3::new(cx + (hash01(k, 46) - 0.5) * 0.6, sy, 1.4),
-                            ss,
-                            ss,
-                            0.25,
-                            DIRT_DARK,
-                        );
-                    }
+                    // The bank: a strip of earth above the water, running on
+                    // down beneath it (deep enough for the swell's troughs).
+                    c3.draw_cube(Vector3::new(cx, -0.88, 0.0), period, 1.2, 3.0, dirt);
                     // Grass edge highlight on top, blocky dashes.
                     if hash01(k, 47) > 0.6 {
                         c3.draw_cube(
@@ -759,6 +809,11 @@ impl VoiceGame for Runner {
                         );
                     }
                 }
+            }
+
+            // --- water, in front of the bank ------------------------------
+            if let Some(water) = gfx.water.as_mut() {
+                water.draw(&mut c3, camera.position, self.t, dist_u, self.voice_glow);
             }
 
             // --- obstacles (hero plane z 0) --------------------------------
@@ -1318,6 +1373,32 @@ mod tests {
         }
         assert_eq!(r.stars, 1);
         assert_eq!(r.coin.target, 360.0);
+    }
+
+    #[test]
+    fn voice_glow_rises_fast_and_settles_slowly() {
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);
+        r.spawn_timer = 999.0;
+        let loud = VoiceInput {
+            held: None,
+            onset: None,
+            scores: [0.0; 6],
+            level: 1.0,
+        };
+        for _ in 0..15 {
+            r.update(&loud, 1.0 / 60.0); // a quarter second of sound
+        }
+        assert!(r.voice_glow > 0.8, "rise {}", r.voice_glow);
+        for _ in 0..15 {
+            r.update(&input(None, None), 1.0 / 60.0);
+        }
+        // A quarter second of quiet later it is still clearly up: it fades
+        // like a ripple, not like a switch.
+        assert!(r.voice_glow > 0.5, "decay {}", r.voice_glow);
+        for _ in 0..300 {
+            r.update(&input(None, None), 1.0 / 60.0);
+        }
+        assert!(r.voice_glow < 0.01);
     }
 
     #[test]

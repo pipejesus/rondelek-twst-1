@@ -240,7 +240,10 @@ is **Vowel Runner**: say one vowel to jump, another to duck, a third to shoot
 stars. Misses just bounce away, and every cleared obstacle earns a point: the
 hand-drawn pixel sun next to the score whirls round once per point. It's
 rendered in blocky 2.5D under a bright blue sky: parallax clouds and bushes
-(hand-drawn `flat-draw` models), fog-shaded hills, and a toon-shaded hero.
+(hand-drawn `flat-draw` models; the clouds bob and breathe through flat-draw's
+Lam::pula glass shader), fog-shaded hills, a toon-shaded hero, and a playful
+sea along the front, with goldfish, foam and twinkles, whose waves dance
+when the child makes a sound.
 
 Each game opens on a text-free control screen where the grown-up assigns a
 vowel to each move (▲ jump / ▼ duck / ★ shoot), toggles which obstacle kinds

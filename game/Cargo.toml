@@ -10,3 +10,4 @@ description = "Voice-controlled mini-games (raylib), spawned as a child process 
 rondelek-core = { path = "../core" }
 raylib = "6.0.0"
 anyhow = "1"
+serde_json = "1"

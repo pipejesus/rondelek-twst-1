@@ -49,6 +49,12 @@ pub struct FlatModel {
     /// prop about (the pivot sits at the bottom, and not every drawing fills
     /// its canvas down to the last row).
     pub center: Vector3,
+    /// Model-space bounding box corners.
+    pub min: Vector3,
+    pub max: Vector3,
+    /// The drawing's pixels per model unit (flat-draw's `pixelsPerUnit`),
+    /// recovered from the geometry — see [`MeshData::pixel_size`].
+    pub ppu: f32,
 }
 
 impl FlatModel {
@@ -84,6 +90,7 @@ impl FlatModel {
         let (min, max) = data.bounds();
         let size = max - min;
         let center = (min + max) * 0.5;
+        let ppu = data.pixel_size().map_or(1.0, |px| 1.0 / px);
         let mesh = Mesh::gen_mesh(&data.vertices, &data.texcoords)
             .normals(&data.normals)
             .indices(&data.indices)
@@ -113,6 +120,9 @@ impl FlatModel {
             mesh,
             size,
             center,
+            min,
+            max,
+            ppu,
         })
     }
 
@@ -135,13 +145,28 @@ impl FlatModel {
     /// this one call — so the shader stays owned by the caller. (Setting it on
     /// the model would make raylib free it again when the model unloads.)
     pub fn draw_shaded(&self, d: &mut impl RaylibDraw3D, transform: Matrix, shader: &Shader) {
-        let mut raw: ffi::Material = *self.material.as_ref();
-        raw.shader = *shader.as_ref();
-        // SAFETY: a by-value copy of our own material, used for one draw call.
-        // `WeakMaterial` never unloads anything, and the texture and shader it
-        // points to are owned by `self` and the caller, who outlive the call.
-        let material = unsafe { WeakMaterial::from_raw(raw) };
-        d.draw_mesh(&self.mesh, material, transform);
+        draw_mesh_with(d, &self.mesh, &self.material, shader, transform);
+    }
+
+    /// The drawing's pixel lattice: model space → (x, y in canvas cells, z in
+    /// pixels), the frame flat-draw's `brickMatrix` hands its brick shaders.
+    ///
+    /// Same shape as flat-draw's — scale by pixels-per-unit, rows flipped
+    /// because canvas rows run down — with the pivot taken from the bounding
+    /// box: the drawing's outer faces sit on cell boundaries, so its corner
+    /// is a lattice point, and only the lattice's *fraction* is ever read.
+    pub fn lattice(&self) -> Matrix {
+        let s = self.ppu;
+        Matrix {
+            m0: s,
+            m12: -s * self.min.x,
+            m5: -s,
+            m13: s * self.max.y,
+            m10: s,
+            m14: -s * self.min.z,
+            m15: 1.0,
+            ..Matrix::default()
+        }
     }
 
     /// Uniform scale that makes the prop `height` world units tall.
@@ -152,6 +177,26 @@ impl FlatModel {
             1.0
         }
     }
+}
+
+/// Draw `mesh` through `shader` with `material`'s textures, leaving the material
+/// itself untouched — the shader stays the caller's. (Putting a shader *on* a
+/// model's material hands it to raylib, which frees it again when the model
+/// unloads: a double free with our own `Shader`'s drop.)
+pub fn draw_mesh_with(
+    d: &mut impl RaylibDraw3D,
+    mesh: impl AsRef<ffi::Mesh>,
+    material: &WeakMaterial,
+    shader: &Shader,
+    transform: Matrix,
+) {
+    let mut raw: ffi::Material = *material.as_ref();
+    raw.shader = *shader.as_ref();
+    // SAFETY: a by-value copy of the material, used for one draw call.
+    // `WeakMaterial` never unloads anything, and the textures and shader it
+    // points to are owned by the caller, who outlives the call.
+    let material = unsafe { WeakMaterial::from_raw(raw) };
+    d.draw_mesh(mesh, material, transform);
 }
 
 /// Which material each of the model's meshes uses (raylib's `meshMaterial`
@@ -213,6 +258,31 @@ impl MeshData {
         }
     }
 
+    /// The size of one drawn pixel in model units, recovered from the geometry:
+    /// every vertex x and y sits on the pixel lattice, so the smallest step
+    /// between two distinct coordinates is one pixel. (flat-draw writes
+    /// `pixelsPerUnit` into `*.meshes.json`, but newer exports come without
+    /// one, and the game must not depend on a side file anyway.) `None` for a
+    /// drawing too small to have a step.
+    fn pixel_size(&self) -> Option<f32> {
+        let mut coords: Vec<f32> = self.vertices.iter().flat_map(|v| [v.x, v.y]).collect();
+        // x and y share one lattice spacing, but not one origin, so step
+        // within each axis separately.
+        let step = |mut c: Vec<f32>| -> Option<f32> {
+            c.sort_by(f32::total_cmp);
+            c.windows(2)
+                .map(|w| w[1] - w[0])
+                .filter(|&g| g > 1e-4)
+                .min_by(f32::total_cmp)
+        };
+        let ys: Vec<f32> = coords.iter().skip(1).step_by(2).copied().collect();
+        coords = coords.into_iter().step_by(2).collect();
+        match (step(coords), step(ys)) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
     /// Bounding box (min, max corners) of the merged geometry; all zero when
     /// empty.
     fn bounds(&self) -> (Vector3, Vector3) {
@@ -268,6 +338,28 @@ mod tests {
         assert_eq!(data.texcoords.len(), 4);
         assert_eq!(data.normals.len(), 4);
         assert_eq!(data.indices, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn pixel_size_is_the_smallest_lattice_step() {
+        // A 14-px-per-unit drawing (like cloud9): coordinates on k/14, with
+        // merged runs of several cells mixed in.
+        let s = 1.0 / 14.0;
+        let mut data = MeshData::default();
+        data.push(
+            &[
+                v(-8.0 * s, 4.0 * s, 0.0),
+                v(-5.0 * s, 4.0 * s, 0.0),
+                v(-4.0 * s, 11.0 * s, 0.1),
+                v(3.0 * s, 9.0 * s, 0.1),
+            ],
+            &[],
+            &[],
+            &[],
+        );
+        let px = data.pixel_size().unwrap();
+        assert!((1.0 / px - 14.0).abs() < 1e-3, "ppu {}", 1.0 / px);
+        assert!(MeshData::default().pixel_size().is_none());
     }
 
     #[test]

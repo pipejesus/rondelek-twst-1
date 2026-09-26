@@ -3542,6 +3542,7 @@ dependencies = [
  "anyhow",
  "raylib",
  "rondelek-core",
+ "serde_json",
 ]
 
 [[package]]

@@ -28,6 +28,7 @@ builds.
 | Crate | Role |
 |-------|------|
 | `raylib` | Window, 3D renderer and input for the voice mini-games. Confined to the `game` crate on purpose — see `docs/WORKSPACE_SPLIT.md`. |
+| `serde_json` | Reads the optional shader tuning files (`RONDELEK_LAMPULA`, `RONDELEK_WATER`). Already a dependency of `core` and `app`. |
 
 Game scenery is drawn by hand in our **flat-draw** tool (2D pixel drawing →
 extruded 3D layers) and exported as `.glb` into `assets/models/`, alongside the
@@ -48,6 +49,41 @@ from the front, with normals turned by `matNormal`), passed per draw through
 `FlatModel::draw_shaded`, which copies the material rather than changing the
 model's own. Setting the shader on the model would make raylib free it a
 second time when the model unloads.
+
+### Shaders from flat-draw, and tuning tables
+
+The clouds are drawn through **Lam::pula**, flat-draw's tinted-glass shader,
+taken over **1:1**: `assets/shaders/lampula.fs` is flat-draw's `lampFS` and
+`assets/shaders/flatdraw_model.vs` its shared `modelVS`, copied verbatim (each
+file names the flat-draw commit). `game/src/lampula.rs` is the driver: it feeds
+the uniforms flat-draw's `Mesh.lampula` feeds (eye, clock, the instance's
+bounding box for the lamps to stand round, and `uBrick`, the world → pixel
+lattice map flat-draw's `brickMatrix` builds). The lattice comes from
+`FlatModel::lattice`, with pixels-per-unit recovered from the geometry itself
+(the smallest step between vertex coordinates), because newer exports carry no
+`meshes.json`. `Lampula::draw` takes any `FlatModel` and any transform, so
+anything flat-draw drew can be put through the glass.
+
+Tuning follows flat-draw's arrangement (`game/src/shader_params.rs`): a shader's
+knobs are one table of rows (field, flat-draw key, default, range), from which
+the uniform name (`vibrance` → `uVibrance`), the per-frame upload and a
+`set(key, value)` that reads flat-draw's config format are all derived.
+`LampulaParams`' defaults are flat-draw's `Def` column. Tests read the GLSL and
+fail on a row without its uniform (or a uniform nothing sets), as flat-draw's
+`TestEveryExposedParamHasItsUniform` does. Nothing is exposed in the game UI.
+To experiment, edit a default, set `params` in code, or start the game with
+`RONDELEK_LAMPULA=<json>` (flat-draw's own `~/.config/flatty/config.json` works,
+so a look tuned in its Shaders pane carries straight over) or
+`RONDELEK_WATER=<json>`.
+
+The **water** (`game/src/water.rs`, `water.vs`/`water.fs`) is our own: a grid
+from `GenMeshPlane` lying in front of the meadow's bank, lifted by a swell that
+laps the bank, with toon colour steps, a moving Voronoi web of light-lines,
+foam and bubbles at the shore, "+" twinkles and goldfish. It scrolls with the
+ground; every x-frequency is a whole number of turns per `PERIOD`, the distance
+the scroll wraps on, so the surface never jumps at the wrap (a test checks each
+`kx(n)`). It takes the child's smoothed voice level: sound swells the waves and
+lights more twinkles.
 
 ## Camera & images
 
