@@ -68,6 +68,24 @@ This is a solo project: no PRs or review needed. Keep it simple.
      was pushed).
 - `git worktree list` shows what's in flight. `git worktree prune` cleans up
   entries whose folders were deleted by hand.
+- **Releasing** (only when the user asks): `.github/workflows/release.yml` runs
+  on a pushed `v*` tag and currently builds **Windows only** (macOS/Linux
+  targets are commented out). It zips `rondelek.exe` + `rondelek-game.exe` and
+  attaches them to a GitHub Release with auto-generated notes.
+  1. Bump `version` in the root `Cargo.toml` so the tag, the release and the
+     app's About card agree, run `cargo build` (updates `Cargo.lock`), commit
+     in the worktree, and land.
+  2. Wait for CI on that `develop` commit to be green (`gh run watch <id>`).
+  3. `git tag -a vX.Y.Z -m "…" develop && git push origin vX.Y.Z`, then watch
+     the `Release` run (about 8–10 min).
+  4. Verify: `gh release download vX.Y.Z`, check that the zip holds both exes.
+     Both must be GUI-subsystem binaries: PE `Subsystem` = 2 (read the
+     u16 at `e_lfanew + 24 + 68`), otherwise Windows shows a console window.
+  The user renames releases on GitHub themselves; leave the title as the tag.
+- `gh` authenticates with a fine-grained `GH_TOKEN`. It can read the repo and
+  watch/inspect runs and releases. It could **not** create PRs (needs
+  "Pull requests: write"); that's fine because this workflow doesn't use PRs.
+  Pushes go over SSH and don't need the token.
 - **CodeGraph** indexes only the main checkout (`develop`). Inside a worktree its
   answers describe `develop`, not your branch. Trust the files on disk for
   anything you've changed, or run `codegraph init -i` in the worktree to give it
@@ -221,6 +239,13 @@ skins/base/               generated base skin (skin.png + skin.json), embedded
   `RONDELEK_VIZ=<n>` (visualizer index), `RONDELEK_SHOT=<png>` (capture a few frames
   in and exit). Game: `RONDELEK_GAME_SCREEN=profiles|select`, `RONDELEK_GAME_FRAMES=<n>`,
   `RONDELEK_GAME_SHOT=<png>`.
+- **Screenshots without real data (Linux):** the profile library and settings
+  live under `dirs::data_dir()` / `dirs::config_dir()`, which follow
+  `XDG_DATA_HOME` / `XDG_CONFIG_HOME`. Point both at a temp folder and write a
+  few fake `profiles/<slug>-<id>/profile.json` files (e.g.
+  `{"uid":"demo-1","name":"Maya","avatar":null,"character":"fox","created":0}`)
+  to get clean, publishable screenshots. Never publish screenshots of the
+  user's real library: it contains real photos.
 
 ## Design notes
 

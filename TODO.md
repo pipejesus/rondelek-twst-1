@@ -20,6 +20,14 @@ Tracked items intentionally left for later batches.
 - **Notes attached to profiles/sessions** via their UIDs (uids already stored in
   `profile.json` / `session.json`).
 - Real artwork for the character avatars (`assets/avatars/`, placeholders now).
+- Game profile picker: a "back" key from the control screen to the picker, and
+  a friendly "add a child in Rondelek first" message when the library is empty
+  (needs translated text in the game, which has none yet).
+- CI: bump `actions/checkout` and `softprops/action-gh-release` to versions
+  that run on Node 24 (GitHub warns Node 20 is deprecated); `ubuntu-latest`
+  moves to Ubuntu 26 on 2026-10-19, so recheck the apt package list then.
+- Re-enable the macOS/Linux release targets in `release.yml` when wanted.
+- Prune old merged local/remote branches (`feat/*`, `fix/skinning-better`, …).
 - UI tests beyond the settings page (Home/Hub navigation) with `egui_kittest`.
 
 ## Nice-to-have
