@@ -36,12 +36,23 @@ fn main() -> eframe::Result {
             })
         });
 
+    // The generated app icon (`cargo run --bin genicon`), also the AppImage's.
+    let mut viewport = ViewportBuilder::default()
+        .with_inner_size([init_w, init_h])
+        .with_min_inner_size([520.0, 560.0])
+        .with_title("Rondelek TWST-1")
+        // Wayland app_id / X11 WM_CLASS: matches `StartupWMClass` in the Linux
+        // desktop entry, so the dock shows the right icon.
+        .with_app_id("rondelek")
+        .with_resizable(true);
+    if let Ok(icon) =
+        eframe::icon_data::from_png_bytes(include_bytes!("../../assets/icon/rondelek.png"))
+    {
+        viewport = viewport.with_icon(std::sync::Arc::new(icon));
+    }
+
     let options = eframe::NativeOptions {
-        viewport: ViewportBuilder::default()
-            .with_inner_size([init_w, init_h])
-            .with_min_inner_size([520.0, 560.0])
-            .with_title("Rondelek TWST-1")
-            .with_resizable(true),
+        viewport,
         #[cfg(target_os = "linux")]
         event_loop_builder: x11_hook,
         ..Default::default()

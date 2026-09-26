@@ -25,10 +25,15 @@ your computer.
 
 ---
 
-## Download (Windows)
+## Download
 
-1. Open the [latest release](https://github.com/pipejesus/rondelek-twst-1/releases/latest)
-   and download the `.zip` under **Assets**.
+Ready-made downloads are on the
+[latest release](https://github.com/pipejesus/rondelek-twst-1/releases/latest)
+page, under **Assets**.
+
+### Windows
+
+1. Download the `.zip` (`…-windows-msvc.zip`).
 2. Unzip it anywhere, e.g. into *Documents*.
 3. Double-click **`rondelek.exe`**.
 
@@ -38,8 +43,22 @@ starts the games from there.
 The first time, Windows may show *“Windows protected your PC”*. The app isn't
 code-signed (that costs money every year), so click **More info → Run anyway**.
 
-Ready-made downloads are Windows-only for now. On macOS and Linux, build it
-from source (below); it's a few commands.
+### Linux
+
+1. Download **`rondelek-…-x86_64.AppImage`**: one file, nothing to install.
+2. Make it executable: right-click → *Properties* → *Allow executing as a
+   program*, or in a terminal `chmod +x rondelek-*.AppImage`.
+3. Double-click it.
+
+It runs on Ubuntu 22.04 or newer, Debian 12+, Fedora, Arch and other current
+distros. To start the games on their own, run it with `--game`. To get a menu
+entry and one-click updates, open it with
+[Gear Lever](https://flathub.org/apps/it.mijorus.gearlever). A plain
+`.tar.gz` of the same two programs is there too.
+
+### macOS
+
+No ready-made download yet: build it from source (below); it's a few commands.
 
 ---
 
@@ -56,7 +75,8 @@ from source (below); it's a few commands.
    next time the child continues where they left off.
 4. **Games**: voice-controlled games. Before each game you choose which vowel
    makes the hero jump, duck or shoot, and which obstacles appear. The game also
-   works on its own: double-click **`rondelek-game.exe`** and it first asks who's
+   works on its own: double-click **`rondelek-game.exe`** (on Linux, run the
+   AppImage with `--game`) and it first asks who's
    playing (the same children and pictures as in the app), then starts.
 5. **For grown-ups**: the ⚙ key (or `F12`) opens one settings page: speaker and
    microphone, how picky voice recognition is, the sampler screen, language, and
@@ -137,7 +157,8 @@ folder, so **always ship and copy both files together**.
 ## Platform notes
 
 Rondelek runs on **Windows, macOS and Linux**. Ready-made downloads are
-currently built for Windows only.
+built for Windows and Linux (an AppImage; see
+[`packaging/appimage`](packaging/appimage/README.md)).
 
 ### macOS
 Nothing extra to install — audio (CoreAudio) and camera (AVFoundation) are

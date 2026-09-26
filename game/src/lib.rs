@@ -113,6 +113,12 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
         .build();
     rl.toggle_borderless_windowed();
     rl.set_target_fps(60);
+    // Same icon as the sampler app (`cargo run --bin genicon`).
+    if let Ok(icon) =
+        Image::load_image_from_mem(".png", include_bytes!("../../assets/icon/rondelek.png"))
+    {
+        rl.set_window_icon(&icon);
+    }
 
     // Non-interactive smoke harness, mirroring the app's RONDELEK_SHOT:
     // auto-quit after N frames, optionally saving a screenshot near the end.

@@ -9,4 +9,5 @@
 - [UI, layout & rendering](ui.md)
 - [Data model & storage](data-model.md)
 - [Libraries](libraries.md)
+- [Releases & packaging](releases.md)
 - [Contributing to these docs](contributing.md)

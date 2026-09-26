@@ -1,0 +1,28 @@
+#!/bin/sh
+# The AppImage's entry point. appimagetool requires it at the AppDir root and
+# runs it in place of a binary, so it finds the binaries relative to itself.
+# readlink -f, because $0 can be a symlink into the mounted image.
+#
+# One AppImage, two programs:
+#   Rondelek.AppImage            the sampler app (usr/bin/rondelek)
+#   Rondelek.AppImage --game     the voice games on their own (asks who's playing)
+#   a symlink named rondelek-game pointing at the AppImage does the same;
+#   the AppImage runtime puts the invoked name in $ARGV0.
+#
+# The app itself starts games as `rondelek-game` next to its own executable
+# (App::spawn_game), which inside the mount is usr/bin/rondelek-game, so that
+# path needs nothing from this script.
+#
+# exec, so the program *is* the process: exit status and signals pass through.
+HERE="$(dirname "$(readlink -f "$0")")"
+
+case "${ARGV0##*/}" in
+  rondelek-game) exec "$HERE/usr/bin/rondelek-game" "$@" ;;
+esac
+
+if [ "${1:-}" = "--game" ]; then
+  shift
+  exec "$HERE/usr/bin/rondelek-game" "$@"
+fi
+
+exec "$HERE/usr/bin/rondelek" "$@"
