@@ -22,7 +22,7 @@
 //! same 1280x720 logical space (100 logical px = 1 world unit at draw time),
 //! so physics, collisions and their tests are identical.
 
-use super::lampula::Lampula;
+use super::lampula::{Lampula, LampulaParams};
 use super::models::FlatModel;
 use super::water::{self, Water};
 use super::{VoiceGame, VoiceInput};
@@ -404,6 +404,17 @@ fn hash01(k: i64, salt: u64) -> f32 {
     (h & 0xFFFF) as f32 / 65535.0
 }
 
+/// Lam::pula as the clouds wear it: flat-draw's look, with one change — the
+/// "room below" it reflects at the silhouette is our horizon blue instead of
+/// flat-draw's dark floor, which read as mud on a sunny sky. (The warm gold
+/// lamps and "room above" stay: that is the glass's character.)
+fn cloud_glass() -> LampulaParams {
+    LampulaParams {
+        ground: [SKY_LOW.r, SKY_LOW.g, SKY_LOW.b],
+        ..LampulaParams::default()
+    }
+}
+
 /// A cloud's model matrix: standing at `base` (its pivot, bottom-centre),
 /// `s` times its drawn size, and alive — bobbing, breathing and swaying about
 /// its own middle, each cloud (lane `k`) out of step with the others.
@@ -455,8 +466,8 @@ impl VoiceGame for Runner {
         let cloud = load_prop(
             rl,
             thread,
-            "cloud9",
-            include_bytes!("../../assets/models/cloud9.glb"),
+            "cloud",
+            include_bytes!("../../assets/models/cloud.glb"),
         );
         let bush = load_prop(
             rl,
@@ -484,7 +495,7 @@ impl VoiceGame for Runner {
             bush,
             sun,
             sun_shader,
-            lampula: Lampula::load(rl, thread),
+            lampula: Lampula::load(rl, thread, cloud_glass()),
             water: Water::load(rl, thread, WATER),
         });
     }

@@ -12,9 +12,10 @@
 //!   The texture atlas travels inside the GLB, so that one file is enough.
 //!
 //! * **One mesh, one draw call.** flat-draw emits a mesh per drawn layer/part
-//!   (8 for `cloud9`), all sharing a single texture-atlas material. raylib does
-//!   *not* batch or instance models on its own: `DrawModel` issues one
-//!   `glDrawElements` per mesh per call, so a sky full of clouds would cost
+//!   (3 for the cloud: back, middle and front), all sharing a single
+//!   texture-atlas material. raylib does *not* batch or instance models on
+//!   its own: `DrawModel` issues one `glDrawElements` per mesh per call, so a
+//!   sky full of clouds would cost
 //!   parts × instances draw calls. [`FlatModel::load`] concatenates the parts
 //!   into one mesh (they share a material, so nothing is lost) and
 //!   [`FlatModel::draw`] renders that with a per-instance transform — one call
@@ -229,7 +230,7 @@ impl MeshData {
     /// raylib meshes index with `u16`, so a merge past 65536 vertices would wrap
     /// — `MeshBuilder::build` rejects such a mesh outright, so that shows up as
     /// a load error rather than as scrambled geometry. (Our drawings are in the
-    /// hundreds: `cloud9` is 520.)
+    /// hundreds.)
     fn push(
         &mut self,
         vertices: &[Vector3],
@@ -342,7 +343,7 @@ mod tests {
 
     #[test]
     fn pixel_size_is_the_smallest_lattice_step() {
-        // A 14-px-per-unit drawing (like cloud9): coordinates on k/14, with
+        // A 14-px-per-unit drawing (like the cloud): coordinates on k/14, with
         // merged runs of several cells mixed in.
         let s = 1.0 / 14.0;
         let mut data = MeshData::default();

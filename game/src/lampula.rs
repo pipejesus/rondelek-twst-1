@@ -99,7 +99,13 @@ pub const OVERRIDES_ENV: &str = "RONDELEK_LAMPULA";
 impl LampulaParams {
     /// flat-draw's defaults, plus whatever `RONDELEK_LAMPULA` points at.
     pub fn from_env() -> Self {
-        let mut p = Self::default();
+        Self::default().with_env()
+    }
+
+    /// These values, with whatever `RONDELEK_LAMPULA` points at on top — so a
+    /// scene's own look (e.g. the clouds' room colour) is still overridable.
+    pub fn with_env(self) -> Self {
+        let mut p = self;
         if let Some(path) = std::env::var_os(OVERRIDES_ENV) {
             shader_params::apply_overrides(path.as_ref(), "lampula", &mut |k, v| p.set(k, v));
         }
@@ -125,9 +131,11 @@ pub struct Lampula {
 }
 
 impl Lampula {
-    /// Compile the shader. `None` (logged) if it didn't — the caller then draws
-    /// its props plain, as flat-draw falls back to its flat shader.
-    pub fn load(rl: &mut RaylibHandle, thread: &RaylibThread) -> Option<Self> {
+    /// Compile the shader, starting from `look` (`LampulaParams::default()` is
+    /// flat-draw's own) with `RONDELEK_LAMPULA` applied on top. `None` (logged)
+    /// if it didn't compile — the caller then draws its props plain, as
+    /// flat-draw falls back to its flat shader.
+    pub fn load(rl: &mut RaylibHandle, thread: &RaylibThread, look: LampulaParams) -> Option<Self> {
         let shader = rl.load_shader_from_memory(thread, Some(VS), Some(FS));
         // raylib quietly substitutes its default shader for one that failed to
         // compile, so ask for a uniform only ours has (and reads — an unread
@@ -149,7 +157,7 @@ impl Lampula {
             loc_brick,
             loc_params,
             shader,
-            params: LampulaParams::from_env(),
+            params: look.with_env(),
         })
     }
 

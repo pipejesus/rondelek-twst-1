@@ -62,7 +62,11 @@ lattice map flat-draw's `brickMatrix` builds). The lattice comes from
 `FlatModel::lattice`, with pixels-per-unit recovered from the geometry itself
 (the smallest step between vertex coordinates), because newer exports carry no
 `meshes.json`. `Lampula::draw` takes any `FlatModel` and any transform, so
-anything flat-draw drew can be put through the glass.
+anything flat-draw drew can be put through the glass. The clouds wear it with
+one change from flat-draw's defaults (`cloud_glass` in `runner.rs`): the "room
+below" reflected at the silhouette is the horizon blue, not flat-draw's dark
+floor, which turned the clouds muddy against a sunny sky. `RONDELEK_LAMPULA`
+still applies on top.
 
 Tuning follows flat-draw's arrangement (`game/src/shader_params.rs`): a shader's
 knobs are one table of rows (field, flat-draw key, default, range), from which
