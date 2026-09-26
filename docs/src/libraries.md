@@ -66,7 +66,12 @@ anything flat-draw drew can be put through the glass. The clouds wear it with
 one change from flat-draw's defaults (`cloud_glass` in `runner.rs`): the "room
 below" reflected at the silhouette is the horizon blue, not flat-draw's dark
 floor, which turned the clouds muddy against a sunny sky. `RONDELEK_LAMPULA`
-still applies on top.
+still applies on top. To keep them a backdrop rather than an attraction, the
+cloud layer is then hazed: the sky's own gradient is drawn once more over it,
+see-through (`CLOUD_HAZE`), which is invisible over bare sky and pulls the
+clouds toward it (atmospheric perspective, without touching the shader). Their
+motion is deliberately tiny and slow (a float of a few pixels, a faint breath,
+no tilt), because sky motion is what makes children dizzy.
 
 Tuning follows flat-draw's arrangement (`game/src/shader_params.rs`): a shader's
 knobs are one table of rows (field, flat-draw key, default, range), from which

@@ -84,11 +84,18 @@ const MOUNT_B: Color = Color::new(74, 154, 104, 255);
 const CLOUD_H: f32 = 2.7;
 const CLOUD_H_VARY: f32 = 1.3;
 const CLOUD_PERIOD: f32 = 12.0;
-// The clouds' gentle life: a slow bob, a breath (a little wider as they get a
-// little shorter, and back), and a lazy sway. Per cloud, out of step.
-const CLOUD_BOB: f32 = 0.28;
-const CLOUD_BREATH: f32 = 0.05;
-const CLOUD_SWAY_DEG: f32 = 3.0;
+// The clouds' gentle life: a slow float up and down and a faint breath (a
+// touch wider as they get a touch shorter, and back), each cloud out of step.
+// Kept small and slow on purpose — they are scenery, and big or quick sky
+// motion is what makes a child dizzy. (A sway was tried and dropped: the
+// tilt was the most unsettling part, and it made the glass glints flicker.)
+const CLOUD_BOB: f32 = 0.07;
+const CLOUD_BOB_RATE: f32 = 0.35;
+const CLOUD_BREATH: f32 = 0.015;
+const CLOUD_BREATH_RATE: f32 = 0.5;
+// Atmospheric haze over the cloud layer: how far the clouds are pulled toward
+// the sky behind them (0 = not at all, 1 = gone). See the haze pass in draw().
+const CLOUD_HAZE: f32 = 0.45;
 const BUSH_H: f32 = 0.85;
 const BUSH_H_VARY: f32 = 0.5;
 const BUSH_PERIOD: f32 = 2.8;
@@ -416,17 +423,15 @@ fn cloud_glass() -> LampulaParams {
 }
 
 /// A cloud's model matrix: standing at `base` (its pivot, bottom-centre),
-/// `s` times its drawn size, and alive — bobbing, breathing and swaying about
-/// its own middle, each cloud (lane `k`) out of step with the others.
+/// `s` times its drawn size, gently floating and breathing about its own
+/// middle, each cloud (lane `k`) out of step with the others.
 fn cloud_transform(cloud: &FlatModel, base: Vector3, s: f32, t: f32, k: i64) -> Matrix {
     let phase = hash01(k, 13) * std::f32::consts::TAU;
-    let breath = (t * 0.9 + phase).sin() * CLOUD_BREATH;
-    let bob = (t * 0.55 + phase).sin() * CLOUD_BOB;
-    let sway = ((t * 0.4 + phase * 1.7).sin() * CLOUD_SWAY_DEG).to_radians();
+    let breath = (t * CLOUD_BREATH_RATE + phase).sin() * CLOUD_BREATH;
+    let bob = (t * CLOUD_BOB_RATE + phase).sin() * CLOUD_BOB;
     let c = cloud.center;
     Matrix::translate(-c.x, -c.y, -c.z)
         * Matrix::scale(s * (1.0 + breath), s * (1.0 - 0.8 * breath), s)
-        * Matrix::rotate_z(sway)
         * Matrix::translate(base.x + c.x * s, base.y + c.y * s + bob, base.z + c.z * s)
 }
 
@@ -727,6 +732,19 @@ impl VoiceGame for Runner {
                     }
                 }
             }
+        }
+
+        // --- haze: the clouds are far away, so they take on the sky -------
+        // The sky's own gradient once more, see-through. Over bare sky it is
+        // the same colour, so it vanishes; over a cloud it pulls the colours
+        // toward the sky behind — how a painter pushes things into the
+        // distance. The clouds stay a soft backdrop rather than something to
+        // look at, and the Lam::pula shader itself is left as it is.
+        let haze = |c: Color| Color::new(c.r, c.g, c.b, (255.0 * CLOUD_HAZE) as u8);
+        d.draw_rectangle_gradient_v(0, 0, w, h, haze(SKY_TOP), haze(SKY_LOW));
+
+        {
+            let mut c3 = d.begin_mode3D(camera);
 
             // --- mountains (z -9, factor 0.25): stepped pyramids in fog ----
             {
