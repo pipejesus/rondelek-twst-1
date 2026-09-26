@@ -173,7 +173,7 @@ app/src/                  rondelek: the egui sampler app
     widgets.rs            kid-face placeholder avatar
 game/src/                 rondelek-game: raylib voice games (child process)
   lib.rs                  run loop, text-free pre-game control selection
-  profile_picker.rs       reusable "who's playing?" screen (standalone launches)
+  profile_picker.rs       reusable "who's playing?" screen (standalone launches; no Cyrillic yet, see TODO)
   runner.rs               "Vowel Runner" 2.5D game
   voice.rs                mic + vowel detector → per-frame game input
   models.rs               embedded flat-draw GLB props (clouds, bushes)

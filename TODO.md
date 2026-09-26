@@ -20,6 +20,13 @@ Tracked items intentionally left for later batches.
 - **Notes attached to profiles/sessions** via their UIDs (uids already stored in
   `profile.json` / `session.json`).
 - Real artwork for the character avatars (`assets/avatars/`, placeholders now).
+- **Game profile picker can't draw Cyrillic names (bug).** It draws names with
+  Space Grotesk, which has no Cyrillic glyphs (U+0400–04FF), so a Ukrainian
+  name shows as missing-glyph boxes. raylib has no per-glyph font fallback: load
+  a second TTF that has Cyrillic (e.g. the Ubuntu/Noto font egui already ships
+  in `epaint_default_fonts`) and use it for names Space Grotesk can't render.
+  The app itself is fine (egui falls back to its default fonts).
+  `font_codepoints` only checks what's *requested*, not what the TTF contains.
 - Game profile picker: a "back" key from the control screen to the picker, and
   a friendly "add a child in Rondelek first" message when the library is empty
   (needs translated text in the game, which has none yet).
