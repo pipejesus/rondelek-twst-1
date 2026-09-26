@@ -16,14 +16,17 @@ use super::models::draw_mesh_with;
 use super::shader_params::{self, Uniform, shader_params};
 use raylib::prelude::*;
 
+// The 2026-09-27 calming pass: the water took too much of the child's
+// attention, so its motion was slowed and its colours softened. Each row that
+// changed says what it was ("was …") so the livelier look can come back.
 shader_params! {
     /// The water's look. Keys double as uniform names (`deep` → `uDeep`).
     pub struct WaterParams {
         // Colour -----------------------------------------------------------
-        /// At the bank.
-        shallow: [u8; 3] = "shallow", [72, 214, 214];
-        /// Out in front.
-        deep: [u8; 3] = "deep", [38, 128, 226];
+        /// At the bank. (Was [72, 214, 214].)
+        shallow: [u8; 3] = "shallow", [112, 206, 212];
+        /// Out in front. (Was [38, 128, 226].)
+        deep: [u8; 3] = "deep", [70, 142, 210];
         /// How far out (world units) the water is fully deep.
         deep_dist: f32 = "deepDist", 4.5, 0.5 ..= 12.0;
         /// Toon colour steps between the two; 0 = a smooth blend.
@@ -31,7 +34,8 @@ shader_params! {
 
         // Swell (in the vertex shader) -------------------------------------
         swell_amp: f32 = "swellAmp", 0.06, 0.0 ..= 0.3;
-        swell_speed: f32 = "swellSpeed", 1.6, 0.0 ..= 6.0;
+        /// How fast the rolls come in. (Was 1.6.)
+        swell_speed: f32 = "swellSpeed", 0.9, 0.0 ..= 6.0;
         /// Wavelength of the roll toward the bank, world units.
         swell_length: f32 = "swellLength", 2.6, 0.5 ..= 8.0;
         /// Extra swell at full voice (a multiple of `swellAmp`).
@@ -41,29 +45,39 @@ shader_params! {
         line: [u8; 3] = "line", [214, 248, 255];
         /// Web cells per world unit.
         cell_scale: f32 = "cellScale", 1.4, 0.3 ..= 4.0;
-        cell_speed: f32 = "cellSpeed", 0.9, 0.0 ..= 4.0;
+        /// How fast the light-line web shifts. (Was 0.9.)
+        cell_speed: f32 = "cellSpeed", 0.35, 0.0 ..= 4.0;
         line_width: f32 = "lineWidth", 0.05, 0.0 ..= 0.3;
-        line_gain: f32 = "lineGain", 0.55, 0.0 ..= 1.0;
-        crest_gain: f32 = "crestGain", 0.35, 0.0 ..= 1.0;
+        /// How strongly the light-lines show. (Was 0.55.)
+        line_gain: f32 = "lineGain", 0.38, 0.0 ..= 1.0;
+        /// How pale the crests go. (Was 0.35.)
+        crest_gain: f32 = "crestGain", 0.2, 0.0 ..= 1.0;
 
         // Shore ------------------------------------------------------------
         foam: [u8; 3] = "foam", [250, 253, 255];
         /// Foam band width at the bank, world units.
         foam_width: f32 = "foamWidth", 0.14, 0.0 ..= 0.6;
         foam_wobble: f32 = "foamWobble", 0.45, 0.0 ..= 1.0;
+        /// Speed of the foam's wobble and the bubbles' pulse, as a multiple
+        /// of the original motion. (Was fixed at 1.0.)
+        foam_speed: f32 = "foamSpeed", 0.6, 0.0 ..= 3.0;
         bubble_gain: f32 = "bubbleGain", 0.9, 0.0 ..= 1.0;
 
         // Twinkles ---------------------------------------------------------
         sparkle: [u8; 3] = "sparkle", [255, 255, 240];
         /// Twinkle cells per world unit.
         sparkle_scale: f32 = "sparkleScale", 1.1, 0.2 ..= 4.0;
-        /// Share of cells that twinkle when all is quiet…
-        sparkle_density: f32 = "sparkleDensity", 0.22, 0.0 ..= 1.0;
+        /// Share of cells that twinkle when all is quiet… (Was 0.22.)
+        sparkle_density: f32 = "sparkleDensity", 0.12, 0.0 ..= 1.0;
         /// …and how many more join in at full voice.
         voice_sparkle: f32 = "voiceSparkle", 0.6, 0.0 ..= 1.0;
         /// Arm length of a twinkle, world units.
         sparkle_size: f32 = "sparkleSize", 0.16, 0.02 ..= 0.6;
-        sparkle_gain: f32 = "sparkleGain", 1.0, 0.0 ..= 2.0;
+        /// (Was 1.0.)
+        sparkle_gain: f32 = "sparkleGain", 0.85, 0.0 ..= 2.0;
+        /// How fast twinkles flash, as a multiple of the original. (Was fixed
+        /// at 1.0.)
+        twinkle_speed: f32 = "twinkleSpeed", 0.7, 0.0 ..= 3.0;
 
         // Goldfish ---------------------------------------------------------
         fish_on: bool = "fishOn", true;

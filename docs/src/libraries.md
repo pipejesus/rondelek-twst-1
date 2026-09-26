@@ -44,11 +44,25 @@ It floats a few units in front of the camera, turned to face it, so it sits
 over the HUD but is a real 3D prop: each point adds one full turn to where a
 spring is heading (`SunCoin` in `runner.rs`), so the sun whirls round, swings a
 little past and settles, and points in quick succession simply add turns. It is
-lit by its own `sun.vs`/`sun.fs` (banded like the hero's toon shader, but lit
-from the front, with normals turned by `matNormal`), passed per draw through
+drawn in Lam::pula glass (its own `Lampula` instance, `sun_glass` in
+`runner.rs`, so its look is tuned apart from the clouds'), falling back to its
+own `sun.vs`/`sun.fs` (banded, front-lit, normals turned by `matNormal`) if
+that shader won't compile. Shaders go in per draw through
 `FlatModel::draw_shaded`, which copies the material rather than changing the
 model's own. Setting the shader on the model would make raylib free it a
 second time when the model unloads.
+
+The count is printed *on* the sun's face, like a coin's value: raylib's pixel
+font, light with a warm outline, drawn inside the 3D pass with the sun's own
+matrix pushed on rlgl's stack, so it turns with the sun. It changes while the
+face is turned away (`SunCoin::shown`), so the sun comes back round showing the
+new number. Two raylib details are in that code. **raylib-rs 6's
+`rl_mult_matrixf` passes the matrix transposed**: it casts the `Matrix` struct,
+whose fields are laid out row by row, straight to the column-major `float[16]`
+`rlMultMatrixf` reads, so the translation is lost. We pass `transpose()` to
+cancel that. The text is also drawn with the depth test off (fenced by batch
+flushes), because the glyph quads' see-through corners would otherwise hide the
+light face behind its own outline.
 
 ### Shaders from flat-draw, and tuning tables
 
@@ -92,7 +106,11 @@ foam and bubbles at the shore, "+" twinkles and goldfish. It scrolls with the
 ground; every x-frequency is a whole number of turns per `PERIOD`, the distance
 the scroll wraps on, so the surface never jumps at the wrap (a test checks each
 `kx(n)`). It takes the child's smoothed voice level: sound swells the waves and
-lights more twinkles.
+lights more twinkles. Its defaults were calmed on 2026-09-27 (slower rolls, web
+and foam, softer colours, fewer idle twinkles) so it keeps less of the child's
+attention. Every changed row notes its old value, and the foam and twinkle
+speeds, fixed in the shader until then, became rows (`foamSpeed`,
+`twinkleSpeed`).
 
 ## Camera & images
 

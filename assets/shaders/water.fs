@@ -40,6 +40,7 @@ uniform float uCrestGain;
 uniform vec3  uFoam;
 uniform float uFoamWidth;
 uniform float uFoamWobble;
+uniform float uFoamSpeed;
 uniform float uBubbleGain;
 uniform vec3  uSparkle;
 uniform float uSparkleScale;
@@ -47,6 +48,7 @@ uniform float uSparkleDensity;
 uniform float uSparkleSize;
 uniform float uSparkleGain;
 uniform float uVoiceSparkle;
+uniform float uTwinkleSpeed;
 uniform float uFishOn;
 uniform vec3  uFish;
 uniform float uFishGain;
@@ -111,7 +113,7 @@ float twinkles(vec2 p) {
     if (h.x > density) return 0.0;
     vec2 centre = 0.2 + 0.6 * hash2(wrapCell(cell, cols) + 3.0);
     // Short flashes: mostly dark, a quick bright peak.
-    float flash = pow(max(sin(uTime * (1.5 + 2.0 * h.y) + TAU * h.x * 7.0), 0.0), 10.0);
+    float flash = pow(max(sin(uTime * uTwinkleSpeed * (1.5 + 2.0 * h.y) + TAU * h.x * 7.0), 0.0), 10.0);
     return plusStar((fract(g) - centre) / sc, uSparkleSize) * flash;
 }
 
@@ -173,8 +175,9 @@ void main() {
     col = mix(col, uLine, (1.0 - smoothstep(uLineWidth, uLineWidth + aa, d)) * uLineGain);
 
     // Foam at the bank: a wobbly frothy edge, and a row of bubbles beyond it.
-    float edge = uFoamWidth * (1.0 + uFoamWobble * (0.6 * sin(p.x * kx(22.0) + uTime * 2.1)
-                                                  + 0.4 * sin(p.x * kx(57.0) - uTime * 3.3)));
+    float ft = uTime * uFoamSpeed;
+    float edge = uFoamWidth * (1.0 + uFoamWobble * (0.6 * sin(p.x * kx(22.0) + ft * 2.1)
+                                                  + 0.4 * sin(p.x * kx(57.0) - ft * 3.3)));
     float foam = 1.0 - smoothstep(edge, edge + 0.03, p.y);
     {
         float sc = fitScale(3.0);
@@ -182,7 +185,7 @@ void main() {
         vec2 cell = floor(g);
         if (cell.y == 0.0) {
             vec2 h = hash2(wrapCell(cell, PERIOD * sc) + 41.0);
-            float r = 0.18 + 0.14 * h.y + 0.05 * sin(uTime * 3.0 + TAU * h.x);
+            float r = 0.18 + 0.14 * h.y + 0.05 * sin(ft * 3.0 + TAU * h.x);
             float dist = length(fract(g) - vec2(0.5, 0.5));
             float ring = 1.0 - smoothstep(0.03, 0.08, abs(dist - r));
             foam = max(foam, ring * uBubbleGain * step(0.35, h.x));

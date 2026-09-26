@@ -238,7 +238,8 @@ The vowel engine powers mini-games (raylib, in their own fullscreen window,
 launched from a child's **Games** tile as a separate process). The first game
 is **Vowel Runner**: say one vowel to jump, another to duck, a third to shoot
 stars. Misses just bounce away, and every cleared obstacle earns a point: the
-hand-drawn pixel sun next to the score whirls round once per point. It's
+hand-drawn pixel sun with the count on its face whirls round once per point and
+comes back showing the new number, like a coin flipping over. It's
 rendered in blocky 2.5D under a bright blue sky: parallax clouds and bushes
 (hand-drawn `flat-draw` models; the clouds bob and breathe through flat-draw's
 Lam::pula glass shader), fog-shaded hills, a toon-shaded hero, and a playful

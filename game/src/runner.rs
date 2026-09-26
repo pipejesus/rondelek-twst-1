@@ -14,9 +14,10 @@
 //! scrolls with the ground and dances to the child's voice. The hero placeholder brick
 //! is drawn under a comic-style toon shader — the same slot the dragon GLB model
 //! will use later. HUD (letter signs, meter, score) stays crisp 2D, projected
-//! over the scene — except the score's icon, a hand-drawn pixel sun (GLB) that
-//! floats just in front of the camera and whirls round once per point (see
-//! [`SunCoin`]).
+//! over the scene — except the score, a hand-drawn pixel sun (GLB) in
+//! Lam::pula glass that floats just in front of the camera with the count
+//! printed on its face like a coin's value; it whirls round once per point and
+//! comes back showing the new number (see [`SunCoin`]).
 //!
 //! Gameplay math is untouched from the 2D version: `update()` works in the
 //! same 1280x720 logical space (100 logical px = 1 world unit at draw time),
@@ -129,6 +130,14 @@ const POP_DUR: f32 = 0.7;
 // The sun's own colours (its rays and its middle), for the sparks it throws.
 const SUN_GOLD: Color = Color::new(232, 172, 72, 255);
 const SUN_EMBER: Color = Color::new(214, 112, 64, 255);
+// The count on the sun's face: light digits in raylib's pixel font (it suits
+// the pixel sun) with a warm dark outline so they read on the orange middle.
+// Height and the widest it may get, in the sun drawing's own units (the whole
+// sun is ~1.33 tall and wide); more digits shrink to fit.
+const SCORE_DIGIT_H: f32 = 0.46;
+const SCORE_MAX_W: f32 = 0.95;
+const SCORE_LIGHT: Color = Color::new(255, 250, 232, 255);
+const SCORE_INK: Color = Color::new(110, 52, 24, 255);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Kind {
@@ -164,11 +173,14 @@ struct Sparkle {
     age: f32,
 }
 
-/// The score icon's motion: each earned point adds one full turn to where the
+/// The score sun's motion: each earned point adds one full turn to where the
 /// sun is heading, and an underdamped spring chases that. So a point is a quick
 /// whirl that swings a touch past and settles facing the kid again, and points
 /// that come in fast simply whirl on (two points = two turns) instead of
-/// restarting the animation. Raylib-free so the feel is unit-testable.
+/// restarting the animation. The count printed on the sun's face changes while
+/// the face is turned away ([`SunCoin::shown`]), so the sun *comes back* with
+/// the new number, like a coin flipping over. Raylib-free so the feel is
+/// unit-testable.
 #[derive(Default)]
 struct SunCoin {
     /// Current spin about the vertical axis, degrees.
@@ -204,6 +216,14 @@ impl SunCoin {
         self.pop = (self.pop - dt / POP_DUR).max(0.0);
     }
 
+    /// The count to print on the face, given the real one: points whose turn
+    /// hasn't yet taken the face past its back-most moment (half a turn to go)
+    /// are not shown yet. The swap therefore happens while nobody can see it.
+    fn shown(&self, stars: u32) -> u32 {
+        let pending = ((self.target - self.angle - 180.0) / 360.0).ceil().max(0.0) as u32;
+        stars.saturating_sub(pending)
+    }
+
     /// Scale factor: a jelly wobble — swell fast, dip a hair under, settle.
     fn scale(&self) -> f32 {
         if self.pop <= 0.0 {
@@ -225,8 +245,12 @@ struct Gfx {
     bush: Option<FlatModel>,
     /// The score icon. `None` → the HUD falls back to a plain gold disc.
     sun: Option<FlatModel>,
-    /// Front-lit banded shading for the sun, turning with it (sun.vs/fs).
+    /// Front-lit banded shading for the sun, turning with it (sun.vs/fs) —
+    /// the fallback if Lam::pula didn't compile.
     sun_shader: Shader,
+    /// Lam::pula for the sun: its own instance, so its look is tuned apart
+    /// from the clouds'.
+    sun_glass: Option<Lampula>,
     /// flat-draw's glass shader, for the clouds. `None` → they draw plain.
     lampula: Option<Lampula>,
     /// The sea along the front. `None` → the bank's earth shows instead.
@@ -422,6 +446,15 @@ fn cloud_glass() -> LampulaParams {
     }
 }
 
+/// Lam::pula as the score sun wears it: flat-draw's look with the same sky
+/// "room below" as the clouds, so the glass sits in our sky.
+fn sun_glass() -> LampulaParams {
+    LampulaParams {
+        ground: [SKY_LOW.r, SKY_LOW.g, SKY_LOW.b],
+        ..LampulaParams::default()
+    }
+}
+
 /// A cloud's model matrix: standing at `base` (its pivot, bottom-centre),
 /// `s` times its drawn size, gently floating and breathing about its own
 /// middle, each cloud (lane `k`) out of step with the others.
@@ -501,6 +534,7 @@ impl VoiceGame for Runner {
             sun,
             sun_shader,
             lampula: Lampula::load(rl, thread, cloud_glass()),
+            sun_glass: Lampula::load(rl, thread, sun_glass()),
             water: Water::load(rl, thread, WATER),
         });
     }
@@ -667,19 +701,14 @@ impl VoiceGame for Runner {
 
         let dist_u = self.dist / PPU;
 
-        // Score row layout (screen px): [sun] [gap] [number], centred at the
-        // top, where the kid is already looking. The number pops with the sun.
+        // The score: the sun, centred at the top where the kid is already
+        // looking, with the count on its face.
         let scale = (w as f32 / LW).min(h as f32 / 720.0);
         let sl = |v: f32| (v * scale) as i32;
-        let score_txt = format!("{}", self.stars);
+        let shown = self.coin.shown(self.stars).to_string();
         let pop = self.coin.scale();
-        let score_fs = sl(84.0 * pop);
-        let score_tw = d.measure_text(&score_txt, sl(84.0));
         let icon_r = 40.0 * scale;
-        let score_gap = sl(24.0);
-        let score_left = (w - ((icon_r * 2.0) as i32 + score_gap + score_tw)) / 2;
-        let score_cy = sl(120.0);
-        let icon_c = Vector2::new(score_left as f32 + icon_r, score_cy as f32);
+        let icon_c = Vector2::new(w as f32 / 2.0, sl(110.0) as f32);
         // Where the sun floats in the world: SUN_DIST along the camera ray
         // through the icon's screen spot, turned to face the camera square-on
         // so it reads like a HUD icon — but a real 3D one when it whirls.
@@ -697,12 +726,30 @@ impl VoiceGame for Runner {
             // Idle: a slow, shy sway; on top of it, the point whirls.
             let spin = self.coin.angle + (self.t * 1.3).sin() * 10.0;
             let c = sun.center;
-            Matrix::translate(-c.x, -c.y, -c.z)
+            let m = Matrix::translate(-c.x, -c.y, -c.z)
                 * Matrix::scale(s, s, s)
                 * Matrix::rotate_y(spin.to_radians())
                 * Matrix::rotate_x(-to_cam.y.asin())
                 * Matrix::rotate_y(to_cam.x.atan2(to_cam.z))
-                * Matrix::translate(pos.x, pos.y + bob, pos.z)
+                * Matrix::translate(pos.x, pos.y + bob, pos.z);
+            (m, spin)
+        });
+        // The count, laid out in the pixel font's own px (size 20 = the
+        // 10-px font at 2x), then mapped onto the sun's face: x right, y down
+        // → the drawing's x right, y up, just in front of its front layer.
+        // It turns with the sun because it is drawn with the sun's matrix.
+        let score_plate = gfx.sun.as_ref().zip(sun_place).map(|(sun, (m, _))| {
+            let fs = 20;
+            let tw = d.measure_text(&shown, fs).max(1) as f32;
+            let k = (SCORE_DIGIT_H / fs as f32).min(SCORE_MAX_W / tw);
+            let c = sun.center;
+            Matrix::scale(k, -k, k)
+                * Matrix::translate(
+                    c.x - tw * k / 2.0,
+                    c.y + fs as f32 * k / 2.0,
+                    sun.max.z + 0.03,
+                )
+                * m
         });
 
         {
@@ -1026,8 +1073,57 @@ impl VoiceGame for Runner {
             }
 
             // --- score sun: last, and nearest the camera -------------------
-            if let (Some(sun), Some(m)) = (&gfx.sun, sun_place) {
-                sun.draw_shaded(&mut c3, m, &gfx.sun_shader);
+            if let (Some(sun), Some((m, spin))) = (&gfx.sun, sun_place) {
+                match gfx.sun_glass.as_mut() {
+                    Some(glass) => {
+                        glass.begin_frame(camera.position, self.t);
+                        glass.draw(&mut c3, sun, m);
+                    }
+                    None => sun.draw_shaded(&mut c3, m, &gfx.sun_shader),
+                }
+                // The count on its face — only while the face is towards us
+                // (from behind, the glyphs would read mirrored).
+                if let (Some(plate), true) = (score_plate, spin.to_radians().cos() > 0.0) {
+                    // Without depth testing: the glyph quads' see-through
+                    // corners would otherwise hide the light face behind its
+                    // own outline. Safe, because the sun is the frontmost
+                    // thing on screen. (rlgl batches these quads, so flush
+                    // before and after to fence the state change in.)
+                    // SAFETY: plain rlgl state calls inside our 3D mode.
+                    unsafe {
+                        raylib::ffi::rlDrawRenderBatchActive();
+                        raylib::ffi::rlDisableDepthTest();
+                    }
+                    {
+                        let mut mm = c3.rl_push_matrix();
+                        // Transposed on purpose: raylib-rs 6's rl_mult_matrixf
+                        // casts the Matrix struct straight to the float[16]
+                        // rlMultMatrixf reads column-major, but the struct's
+                        // fields are laid out m0, m4, m8, m12, … (row order),
+                        // so the matrix would arrive transposed and lose its
+                        // translation. raylib's own callers use MatrixToFloat.
+                        mm.rl_mult_matrixf(plate.transpose());
+                        // A one-font-pixel outline all round, then the light face.
+                        for (dx, dy) in [
+                            (-2, 0),
+                            (2, 0),
+                            (0, -2),
+                            (0, 2),
+                            (-2, -2),
+                            (2, -2),
+                            (-2, 2),
+                            (2, 2),
+                        ] {
+                            mm.draw_text(&shown, dx, dy, 20, SCORE_INK);
+                        }
+                        mm.draw_text(&shown, 0, 0, 20, SCORE_LIGHT);
+                    }
+                    // SAFETY: as above.
+                    unsafe {
+                        raylib::ffi::rlDrawRenderBatchActive();
+                        raylib::ffi::rlEnableDepthTest();
+                    }
+                }
             }
         }
 
@@ -1077,11 +1173,20 @@ impl VoiceGame for Runner {
         }
 
         // Score: the sun (drawn in 3D above) or, if its model failed to load,
-        // a plain gold disc; then the number.
+        // a plain gold disc with the count on it.
         if sun_place.is_none() {
             let r = icon_r * 0.8 * pop;
             d.draw_circle_v(icon_c, r, BUTTER);
             d.draw_circle_lines(icon_c.x as i32, icon_c.y as i32, r, CHARCOAL);
+            let fs = sl(40.0);
+            let tw = d.measure_text(&shown, fs);
+            d.draw_text(
+                &shown,
+                icon_c.x as i32 - tw / 2,
+                icon_c.y as i32 - fs / 2,
+                fs,
+                CHARCOAL,
+            );
         }
         // Sparks thrown off by a fresh point: a ring of little pixel-art
         // "+" twinkles (the same shape as the ones in the sun's own drawing),
@@ -1110,14 +1215,6 @@ impl VoiceGame for Runner {
                 );
             }
         }
-        // The number grows with the pop, anchored at its left edge.
-        d.draw_text(
-            &score_txt,
-            score_left + (icon_r * 2.0) as i32 + score_gap,
-            score_cy - score_fs / 2,
-            score_fs,
-            CHARCOAL,
-        );
 
         // Vowel meter strip, bottom-centre.
         let labels = ["a", "e", "i", "o", "u", "y"];
@@ -1358,6 +1455,43 @@ mod tests {
             c.step(1.0 / 60.0);
         }
         assert!((c.angle - 720.0).abs() < 1.0, "angle {}", c.angle);
+    }
+
+    #[test]
+    fn the_face_shows_the_new_count_only_once_turned_away() {
+        let mut c = SunCoin::default();
+        assert_eq!(c.shown(0), 0);
+        c.earn(); // stars is now 1
+        assert_eq!(c.shown(1), 0, "still facing us: the old number");
+        let mut swapped_at = None;
+        for _ in 0..120 {
+            c.step(1.0 / 60.0);
+            if swapped_at.is_none() && c.shown(1) == 1 {
+                swapped_at = Some(c.angle);
+            }
+        }
+        // It swapped while the face was turned away (90°..270° into the turn)…
+        let at = swapped_at.expect("never showed the new count");
+        assert!((90.0..=270.0).contains(&at), "swapped at {at}°");
+        // …and stays swapped through the springy settle.
+        assert_eq!(c.shown(1), 1);
+    }
+
+    #[test]
+    fn quick_points_are_revealed_one_turn_each() {
+        let mut c = SunCoin::default();
+        c.earn();
+        c.earn(); // two points at once: stars = 2
+        assert_eq!(c.shown(2), 0);
+        let mut seen = vec![0];
+        for _ in 0..240 {
+            c.step(1.0 / 60.0);
+            let s = c.shown(2);
+            if *seen.last().unwrap() != s {
+                seen.push(s);
+            }
+        }
+        assert_eq!(seen, vec![0, 1, 2], "one reveal per turn, in order");
     }
 
     #[test]
