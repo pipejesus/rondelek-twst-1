@@ -45,6 +45,10 @@ pub struct FlatModel {
     mesh: Mesh,
     /// Model-space extent of the drawing (`y` = height above the pivot).
     pub size: Vector3,
+    /// Model-space centre of the drawing's bounding box — the point to spin a
+    /// prop about (the pivot sits at the bottom, and not every drawing fills
+    /// its canvas down to the last row).
+    pub center: Vector3,
 }
 
 impl FlatModel {
@@ -77,7 +81,9 @@ impl FlatModel {
             );
         }
         anyhow::ensure!(!data.vertices.is_empty(), "{name}.glb has no geometry");
-        let size = data.size();
+        let (min, max) = data.bounds();
+        let size = max - min;
+        let center = (min + max) * 0.5;
         let mesh = Mesh::gen_mesh(&data.vertices, &data.texcoords)
             .normals(&data.normals)
             .indices(&data.indices)
@@ -106,6 +112,7 @@ impl FlatModel {
             material,
             mesh,
             size,
+            center,
         })
     }
 
@@ -114,7 +121,27 @@ impl FlatModel {
     pub fn draw(&self, d: &mut impl RaylibDraw3D, pos: Vector3, scale: f32) {
         // Same order raylib uses in DrawModelEx: scale, then translate.
         let transform = Matrix::scale(scale, scale, scale) * Matrix::translate(pos.x, pos.y, pos.z);
+        self.draw_transformed(d, transform);
+    }
+
+    /// Draw one instance under an arbitrary model matrix (spins, tilts…). Still
+    /// one draw call: only the matrix differs from [`FlatModel::draw`].
+    pub fn draw_transformed(&self, d: &mut impl RaylibDraw3D, transform: Matrix) {
         d.draw_mesh(&self.mesh, self.material.clone(), transform);
+    }
+
+    /// Like [`FlatModel::draw_transformed`], but lit by `shader` instead of the
+    /// material's own. The model's material is not touched — only copied for
+    /// this one call — so the shader stays owned by the caller. (Setting it on
+    /// the model would make raylib free it again when the model unloads.)
+    pub fn draw_shaded(&self, d: &mut impl RaylibDraw3D, transform: Matrix, shader: &Shader) {
+        let mut raw: ffi::Material = *self.material.as_ref();
+        raw.shader = *shader.as_ref();
+        // SAFETY: a by-value copy of our own material, used for one draw call.
+        // `WeakMaterial` never unloads anything, and the texture and shader it
+        // points to are owned by `self` and the caller, who outlive the call.
+        let material = unsafe { WeakMaterial::from_raw(raw) };
+        d.draw_mesh(&self.mesh, material, transform);
     }
 
     /// Uniform scale that makes the prop `height` world units tall.
@@ -186,8 +213,9 @@ impl MeshData {
         }
     }
 
-    /// Bounding-box extent of the merged geometry.
-    fn size(&self) -> Vector3 {
+    /// Bounding box (min, max corners) of the merged geometry; all zero when
+    /// empty.
+    fn bounds(&self) -> (Vector3, Vector3) {
         let mut min = Vector3::new(f32::MAX, f32::MAX, f32::MAX);
         let mut max = Vector3::new(f32::MIN, f32::MIN, f32::MIN);
         for v in &self.vertices {
@@ -195,9 +223,9 @@ impl MeshData {
             max = Vector3::new(max.x.max(v.x), max.y.max(v.y), max.z.max(v.z));
         }
         if self.vertices.is_empty() {
-            Vector3::zero()
+            (Vector3::zero(), Vector3::zero())
         } else {
-            max - min
+            (min, max)
         }
     }
 }
@@ -243,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn size_spans_the_merged_geometry() {
+    fn bounds_span_the_merged_geometry() {
         let mut data = MeshData::default();
         data.push(
             &[v(-2.0, 0.0, 0.0), v(2.0, 0.0, 0.0), v(0.0, 3.0, 0.5)],
@@ -251,10 +279,15 @@ mod tests {
             &[],
             &[],
         );
-        let s = data.size();
+        let (min, max) = data.bounds();
+        let s = max - min;
         assert_eq!(s.x, 4.0);
         assert_eq!(s.y, 3.0);
         assert_eq!(s.z, 0.5);
-        assert!(MeshData::default().size().y.abs() < f32::EPSILON);
+        // The centre is what a spinning prop turns about.
+        let c = (min + max) * 0.5;
+        assert_eq!((c.x, c.y, c.z), (0.0, 1.5, 0.25));
+        let (min, max) = MeshData::default().bounds();
+        assert!((max - min).y.abs() < f32::EPSILON);
     }
 }

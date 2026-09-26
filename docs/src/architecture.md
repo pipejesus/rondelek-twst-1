@@ -157,7 +157,7 @@ game/src/
                  without --profile (double-clicked / standalone)
   runner.rs      Vowel Runner
   voice.rs       mic + vowel detector → per-frame game input
-  models.rs      embedded flat-draw GLB props
+  models.rs      embedded flat-draw GLB props (scenery, the score sun)
 ```
 
 For the responsibilities of each dependency, see [Libraries](libraries.md).

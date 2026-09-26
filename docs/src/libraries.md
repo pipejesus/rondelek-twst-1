@@ -37,6 +37,18 @@ embeds the GLB in the binary, loads it through raylib, merges the drawing's
 per-layer meshes into one (they share a single texture atlas) so each prop costs
 one draw call, and draws it many times with per-instance transforms.
 
+The same path draws Vowel Runner's score icon, `sun.glb` (exported by the newer
+build of the tool, which calls itself "Flatty" and writes no `*.meshes.json`).
+It floats a few units in front of the camera, turned to face it, so it sits
+over the HUD but is a real 3D prop: each point adds one full turn to where a
+spring is heading (`SunCoin` in `runner.rs`), so the sun whirls round, swings a
+little past and settles, and points in quick succession simply add turns. It is
+lit by its own `sun.vs`/`sun.fs` (banded like the hero's toon shader, but lit
+from the front, with normals turned by `matNormal`), passed per draw through
+`FlatModel::draw_shaded`, which copies the material rather than changing the
+model's own. Setting the shader on the model would make raylib free it a
+second time when the model unloads.
+
 ## Camera & images
 
 | Crate | Role |

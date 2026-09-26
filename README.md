@@ -237,9 +237,10 @@ every seeded locale (`pl, de, fr, es, it, uk`) must carry the same keys. A test
 The vowel engine powers mini-games (raylib, in their own fullscreen window,
 launched from a child's **Games** tile as a separate process). The first game
 is **Vowel Runner**: say one vowel to jump, another to duck, a third to shoot
-stars. Misses just bounce away, and every cleared obstacle earns a star. It's
-rendered in blocky 2.5D: parallax clouds and bushes (hand-drawn `flat-draw`
-models), fog-shaded mountains, and a toon-shaded hero placeholder.
+stars. Misses just bounce away, and every cleared obstacle earns a point: the
+hand-drawn pixel sun next to the score whirls round once per point. It's
+rendered in blocky 2.5D under a bright blue sky: parallax clouds and bushes
+(hand-drawn `flat-draw` models), fog-shaded hills, and a toon-shaded hero.
 
 Each game opens on a text-free control screen where the grown-up assigns a
 vowel to each move (▲ jump / ▼ duck / ★ shoot), toggles which obstacle kinds

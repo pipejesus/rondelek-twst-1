@@ -10,8 +10,10 @@
 //! and bushes are hand-drawn flat-draw props (GLB, see `models.rs`); mountains,
 //! ground and obstacles are still procedural bricks. The hero placeholder brick
 //! is drawn under a comic-style toon shader — the same slot the dragon GLB model
-//! will use later. HUD (letter signs, meter, stars) stays crisp 2D, projected
-//! over the scene.
+//! will use later. HUD (letter signs, meter, score) stays crisp 2D, projected
+//! over the scene — except the score's icon, a hand-drawn pixel sun (GLB) that
+//! floats just in front of the camera and whirls round once per point (see
+//! [`SunCoin`]).
 //!
 //! Gameplay math is untouched from the 2D version: `update()` works in the
 //! same 1280x720 logical space (100 logical px = 1 world unit at draw time),
@@ -23,7 +25,7 @@ use raylib::prelude::*;
 use raylib::rlgl::RaylibRlgl; // matrix stack for the salto flip
 use rondelek_core::audio::vowel::VOWELS;
 
-use super::{BUTTER, CHARCOAL, CREAM, LILAC, MINT_DARK, PEACH, ROSE, SKY};
+use super::{BUTTER, CHARCOAL, LILAC, MINT_DARK, PEACH, ROSE, SKY};
 
 // Logical canvas (gameplay space, matches the 2D version).
 const LW: f32 = 1280.0;
@@ -60,13 +62,18 @@ const HIGH_H: f32 = 360.0;
 // Logical px per world unit.
 const PPU: f32 = 100.0;
 
-// 2.5D palette additions.
-const GRASS: Color = Color::new(139, 205, 130, 255);
-const GRASS_DARK: Color = Color::new(110, 176, 105, 255);
-const DIRT: Color = Color::new(173, 128, 94, 255);
-const DIRT_DARK: Color = Color::new(128, 92, 66, 255);
-const MOUNT_A: Color = Color::new(151, 165, 196, 255);
-const MOUNT_B: Color = Color::new(126, 142, 178, 255);
+// 2.5D palette: a clear, sunny-day world — saturated sky blue and meadow
+// green, so the kid's own drawings (white clouds, the gold score sun) and the
+// obstacles stand out against it instead of melting into a pastel wash.
+const SKY_TOP: Color = Color::new(84, 176, 240, 255);
+const SKY_LOW: Color = Color::new(184, 228, 255, 255);
+const GRASS: Color = Color::new(112, 202, 92, 255);
+const GRASS_DARK: Color = Color::new(78, 166, 68, 255);
+const DIRT: Color = Color::new(184, 122, 78, 255);
+const DIRT_DARK: Color = Color::new(136, 86, 54, 255);
+// Far hills: meadow green, pushed back by the fog toward the horizon blue.
+const MOUNT_A: Color = Color::new(96, 178, 120, 255);
+const MOUNT_B: Color = Color::new(74, 154, 104, 255);
 // flat-draw props: world height (plus its per-lane variation) and the lane
 // spacing. Each drawing's own aspect decides the width; the height covers the
 // *whole* drawing, rain drops and all.
@@ -80,6 +87,21 @@ const BUSH_PERIOD: f32 = 2.8;
 const WALL_A: Color = Color::new(154, 136, 126, 255);
 const WALL_B: Color = Color::new(122, 106, 98, 255);
 const WALL_MORTAR: Color = Color::new(92, 80, 74, 255);
+
+// Score sun (the HUD's point icon). Its on-screen height in logical px, and how
+// far in front of the camera it floats — near enough that nothing in the scene
+// (all of it at z ≤ 1.5, the camera at 12.5) can ever pass in front of it.
+const SUN_PX: f32 = 104.0;
+const SUN_DIST: f32 = 3.0;
+// The spin spring: ω = 10 rad/s, damping ratio 0.6 — one point reads as a quick
+// whirl (~0.35 s to come round) that swings a little past and settles back.
+const SPIN_K: f32 = 100.0;
+const SPIN_C: f32 = 12.0;
+// The jelly "pop" (scale swell + sparks) that rides along with each point.
+const POP_DUR: f32 = 0.7;
+// The sun's own colours (its rays and its middle), for the sparks it throws.
+const SUN_GOLD: Color = Color::new(232, 172, 72, 255);
+const SUN_EMBER: Color = Color::new(214, 112, 64, 255);
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Kind {
@@ -115,6 +137,56 @@ struct Sparkle {
     age: f32,
 }
 
+/// The score icon's motion: each earned point adds one full turn to where the
+/// sun is heading, and an underdamped spring chases that. So a point is a quick
+/// whirl that swings a touch past and settles facing the kid again, and points
+/// that come in fast simply whirl on (two points = two turns) instead of
+/// restarting the animation. Raylib-free so the feel is unit-testable.
+#[derive(Default)]
+struct SunCoin {
+    /// Current spin about the vertical axis, degrees.
+    angle: f32,
+    /// Spin velocity, degrees/s.
+    vel: f32,
+    /// Where the spring is heading: 360 per point earned (minus wraps).
+    target: f32,
+    /// Pop animation, 1 → 0 over `POP_DUR` (0 = resting).
+    pop: f32,
+}
+
+impl SunCoin {
+    fn earn(&mut self) {
+        self.target += 360.0;
+        self.pop = 1.0;
+    }
+
+    fn step(&mut self, dt: f32) {
+        // Semi-implicit Euler in small substeps: stable even if a frame hitches.
+        let n = (dt * 240.0).ceil().max(1.0);
+        let h = dt / n;
+        for _ in 0..n as u32 {
+            let acc = SPIN_K * (self.target - self.angle) - SPIN_C * self.vel;
+            self.vel += acc * h;
+            self.angle += self.vel * h;
+        }
+        // Whole turns look identical, so drop them before f32 loses precision.
+        if self.angle > 3600.0 && self.target > 3600.0 {
+            self.angle -= 3600.0;
+            self.target -= 3600.0;
+        }
+        self.pop = (self.pop - dt / POP_DUR).max(0.0);
+    }
+
+    /// Scale factor: a jelly wobble — swell fast, dip a hair under, settle.
+    fn scale(&self) -> f32 {
+        if self.pop <= 0.0 {
+            return 1.0;
+        }
+        let p = 1.0 - self.pop; // progress 0..1
+        1.0 + 0.8 * (-6.0 * p).exp() * (p * 3.0 * std::f32::consts::PI).sin()
+    }
+}
+
 /// GPU-side resources, loaded in `init` (absent in unit tests — no window).
 struct Gfx {
     camera: Camera3D,
@@ -124,6 +196,10 @@ struct Gfx {
     /// that layer then stays empty rather than the game dying.
     cloud: Option<FlatModel>,
     bush: Option<FlatModel>,
+    /// The score icon. `None` → the HUD falls back to a plain gold disc.
+    sun: Option<FlatModel>,
+    /// Front-lit banded shading for the sun, turning with it (sun.vs/fs).
+    sun_shader: Shader,
 }
 
 /// Load a flat-draw prop, or complain and carry on without it.
@@ -155,6 +231,8 @@ pub struct Runner {
     bullets: Vec<Bullet>,
     sparkles: Vec<Sparkle>,
     stars: u32,
+    /// The score icon's spin/pop, kicked by every point.
+    coin: SunCoin,
     speed: f32,
     spawn_timer: f32,
     /// Hero squash feedback after a bump (seconds remaining).
@@ -195,6 +273,7 @@ impl Runner {
             bullets: Vec::new(),
             sparkles: Vec::new(),
             stars: 0,
+            coin: SunCoin::default(),
             speed: 260.0,
             spawn_timer: 1.2,
             squash: 0.0,
@@ -316,11 +395,17 @@ impl VoiceGame for Runner {
             None,
             Some(include_str!("../../assets/shaders/fog.fs")),
         );
+        let sun_shader = rl.load_shader_from_memory(
+            thread,
+            Some(include_str!("../../assets/shaders/sun.vs")),
+            Some(include_str!("../../assets/shaders/sun.fs")),
+        );
         let loc_color = fog.get_shader_location("fogColor");
         let loc_amount = fog.get_shader_location("fogAmount");
-        // Fog toward the sky wash; constant per layer, so set once.
-        fog.set_shader_value(loc_color, [0.965, 0.87, 0.8, 1.0f32]);
-        fog.set_shader_value(loc_amount, 0.45f32);
+        // Fog toward the horizon blue (SKY_LOW); constant per layer, so set once.
+        let horizon = [SKY_LOW.r, SKY_LOW.g, SKY_LOW.b].map(|c| c as f32 / 255.0);
+        fog.set_shader_value(loc_color, [horizon[0], horizon[1], horizon[2], 1.0f32]);
+        fog.set_shader_value(loc_amount, 0.3f32);
 
         // Scenery drawn in flat-draw and exported as GLB; each drawing's parts
         // are merged into one mesh, so every prop on screen is one draw call.
@@ -336,6 +421,12 @@ impl VoiceGame for Runner {
             "bush",
             include_bytes!("../../assets/models/bush.glb"),
         );
+        let sun = load_prop(
+            rl,
+            thread,
+            "sun",
+            include_bytes!("../../assets/models/sun.glb"),
+        );
 
         self.gfx = Some(Gfx {
             camera: Camera3D::perspective(
@@ -348,6 +439,8 @@ impl VoiceGame for Runner {
             fog,
             cloud,
             bush,
+            sun,
+            sun_shader,
         });
     }
 
@@ -355,6 +448,7 @@ impl VoiceGame for Runner {
         self.t += dt;
         self.squash = (self.squash - dt).max(0.0);
         self.salto = (self.salto - dt).max(0.0);
+        self.coin.step(dt);
         self.last_scores = input.scores;
         self.last_held = input.held;
         self.last_level = input.level;
@@ -432,6 +526,7 @@ impl VoiceGame for Runner {
             } else if o.x < HERO_X - 90.0 && !o.counted {
                 o.counted = true;
                 self.stars += 1;
+                self.coin.earn();
                 starred = true;
                 self.sparkles.push(Sparkle {
                     x: o.x,
@@ -468,6 +563,7 @@ impl VoiceGame for Runner {
                     o.fly_vy = -640.0;
                     self.bullets[bi].dead = true;
                     self.stars += 1;
+                    self.coin.earn();
                     self.speed = (self.speed + 8.0).min(500.0);
                     for k in 0..7 {
                         let jitter = (self.rand() - 0.5) * rw;
@@ -496,11 +592,50 @@ impl VoiceGame for Runner {
         };
         let camera = gfx.camera;
 
-        // Sky wash behind everything.
-        d.clear_background(CREAM);
-        d.draw_rectangle_gradient_v(0, 0, w, h, CREAM, PEACH);
+        // Sky behind everything: deep blue overhead, paler toward the horizon.
+        d.clear_background(SKY_LOW);
+        d.draw_rectangle_gradient_v(0, 0, w, h, SKY_TOP, SKY_LOW);
 
         let dist_u = self.dist / PPU;
+
+        // Score row layout (screen px): [sun] [gap] [number], centred at the
+        // top, where the kid is already looking. The number pops with the sun.
+        let scale = (w as f32 / LW).min(h as f32 / 720.0);
+        let sl = |v: f32| (v * scale) as i32;
+        let score_txt = format!("{}", self.stars);
+        let pop = self.coin.scale();
+        let score_fs = sl(84.0 * pop);
+        let score_tw = d.measure_text(&score_txt, sl(84.0));
+        let icon_r = 40.0 * scale;
+        let score_gap = sl(24.0);
+        let score_left = (w - ((icon_r * 2.0) as i32 + score_gap + score_tw)) / 2;
+        let score_cy = sl(120.0);
+        let icon_c = Vector2::new(score_left as f32 + icon_r, score_cy as f32);
+        // Where the sun floats in the world: SUN_DIST along the camera ray
+        // through the icon's screen spot, turned to face the camera square-on
+        // so it reads like a HUD icon — but a real 3D one when it whirls.
+        let sun_place = gfx.sun.as_ref().map(|sun| {
+            let ray = d.get_screen_to_world_ray(icon_c, camera);
+            let pos = ray.position + ray.direction * SUN_DIST;
+            let fwd = (camera.target - camera.position).normalize();
+            // World units per screen px at that depth (fovy 45°).
+            let depth = SUN_DIST * ray.direction.dot(fwd);
+            let per_px = 2.0 * depth * (22.5f32).to_radians().tan() / h as f32;
+            let bob = (self.t * 2.2).sin() * 4.0 * scale * per_px;
+            let size = SUN_PX * scale * per_px * pop;
+            let s = size / sun.size.y.max(f32::EPSILON);
+            let to_cam = -ray.direction;
+            // Idle: a slow, shy sway; on top of it, the point whirls.
+            let spin = self.coin.angle + (self.t * 1.3).sin() * 10.0;
+            let c = sun.center;
+            Matrix::translate(-c.x, -c.y, -c.z)
+                * Matrix::scale(s, s, s)
+                * Matrix::rotate_y(spin.to_radians())
+                * Matrix::rotate_x(-to_cam.y.asin())
+                * Matrix::rotate_y(to_cam.x.atan2(to_cam.z))
+                * Matrix::translate(pos.x, pos.y + bob, pos.z)
+        });
+
         {
             let mut c3 = d.begin_mode3D(camera);
 
@@ -600,7 +735,7 @@ impl VoiceGame for Runner {
                         (DIRT.b as f32 * dg) as u8,
                         255,
                     );
-                    c3.draw_cube(Vector3::new(cx, -1.23, 0.0), period, 1.9, 3.0, dirt);
+                    c3.draw_cube(Vector3::new(cx, -2.18, 0.0), period, 3.8, 3.0, dirt);
                     // Darker speckle stones embedded in the cross-section.
                     if hash01(k, 43) > 0.45 {
                         let sy = -0.55 - hash01(k, 44) * 1.2;
@@ -805,11 +940,14 @@ impl VoiceGame for Runner {
                 let sz = 0.18 + 0.22 * s.age;
                 c3.draw_cube(Vector3::new(wx(s.x), wy(s.y), 0.4), sz, sz, sz, c);
             }
+
+            // --- score sun: last, and nearest the camera -------------------
+            if let (Some(sun), Some(m)) = (&gfx.sun, sun_place) {
+                sun.draw_shaded(&mut c3, m, &gfx.sun_shader);
+            }
         }
 
         // --- HUD: crisp 2D over the 3D scene -------------------------------
-        let scale = (w as f32 / LW).min(h as f32 / 720.0);
-        let sl = |v: f32| (v * scale) as i32;
 
         // Letter signs above live obstacles, projected from world space.
         for o in &self.obstacles {
@@ -854,22 +992,46 @@ impl VoiceGame for Runner {
             );
         }
 
-        // Star counter: big and centred, where the kid is already looking.
-        let txt = format!("{}", self.stars);
-        let fs = sl(84.0);
-        let tw = d.measure_text(&txt, fs);
-        let star_r = 32.0 * scale;
-        let gap = sl(24.0);
-        let total = (star_r * 2.0) as i32 + gap + tw;
-        let left = (w - total) / 2;
-        let cy = sl(120.0);
-        d.draw_circle(left + star_r as i32, cy, star_r, BUTTER);
-        d.draw_circle_lines(left + star_r as i32, cy, star_r, CHARCOAL);
+        // Score: the sun (drawn in 3D above) or, if its model failed to load,
+        // a plain gold disc; then the number.
+        if sun_place.is_none() {
+            let r = icon_r * 0.8 * pop;
+            d.draw_circle_v(icon_c, r, BUTTER);
+            d.draw_circle_lines(icon_c.x as i32, icon_c.y as i32, r, CHARCOAL);
+        }
+        // Sparks thrown off by a fresh point: a ring of little pixel-art
+        // "+" twinkles (the same shape as the ones in the sun's own drawing),
+        // flying outward, shrinking and fading as the pop settles.
+        if self.coin.pop > 0.0 {
+            let p = 1.0 - self.coin.pop;
+            let alpha = (255.0 * (1.0 - p)) as u8;
+            for k in 0..8 {
+                let long = k % 2 == 0;
+                let a = k as f32 * std::f32::consts::TAU / 8.0 - 0.3 + p * 0.5;
+                let reach = icon_r * (0.9 + (if long { 1.6 } else { 1.1 }) * p.sqrt());
+                let arm = (if long { 26.0 } else { 18.0 }) * scale * (1.0 - 0.5 * p);
+                let bar = (arm / 3.0).max(2.0);
+                let base = if long { SUN_GOLD } else { SUN_EMBER };
+                let c = Color::new(base.r, base.g, base.b, alpha);
+                let (sx, sy) = (icon_c.x + reach * a.cos(), icon_c.y + reach * a.sin());
+                d.draw_rectangle_v(
+                    Vector2::new(sx - arm / 2.0, sy - bar / 2.0),
+                    Vector2::new(arm, bar),
+                    c,
+                );
+                d.draw_rectangle_v(
+                    Vector2::new(sx - bar / 2.0, sy - arm / 2.0),
+                    Vector2::new(bar, arm),
+                    c,
+                );
+            }
+        }
+        // The number grows with the pop, anchored at its left edge.
         d.draw_text(
-            &txt,
-            left + (star_r * 2.0) as i32 + gap,
-            cy - fs / 2,
-            fs,
+            &score_txt,
+            score_left + (icon_r * 2.0) as i32 + score_gap,
+            score_cy - score_fs / 2,
+            score_fs,
             CHARCOAL,
         );
 
@@ -1080,6 +1242,82 @@ mod tests {
         // A third jump-vowel mid-air must be ignored (no re-launch).
         r.update(&input(None, Some(0)), 1.0 / 60.0);
         assert!(r.vy > vy, "vy should decay under gravity, not re-launch");
+    }
+
+    #[test]
+    fn a_point_spins_the_sun_one_full_turn() {
+        let mut c = SunCoin::default();
+        c.earn();
+        let mut peak = 0.0f32;
+        for _ in 0..180 {
+            c.step(1.0 / 60.0);
+            peak = peak.max(c.angle);
+        }
+        // Comes to rest facing the kid again, one whole turn later…
+        assert!((c.angle - 360.0).abs() < 1.0, "angle {}", c.angle);
+        assert!(c.vel.abs() < 5.0);
+        // …with a springy swing past it, but not a second lap.
+        assert!(peak > 365.0 && peak < 420.0, "peak {peak}");
+        assert_eq!(c.pop, 0.0);
+        assert_eq!(c.scale(), 1.0);
+    }
+
+    #[test]
+    fn quick_points_add_turns_instead_of_restarting() {
+        let mut c = SunCoin::default();
+        c.earn();
+        for _ in 0..6 {
+            c.step(1.0 / 60.0); // a tenth of a second into the whirl…
+        }
+        c.earn(); // …another point
+        for _ in 0..240 {
+            c.step(1.0 / 60.0);
+        }
+        assert!((c.angle - 720.0).abs() < 1.0, "angle {}", c.angle);
+    }
+
+    #[test]
+    fn sun_pop_swells_then_settles() {
+        let mut c = SunCoin::default();
+        c.earn();
+        c.step(0.1);
+        assert!(c.scale() > 1.15, "swell {}", c.scale());
+        c.step(POP_DUR);
+        assert_eq!(c.scale(), 1.0);
+    }
+
+    #[test]
+    fn long_runs_wrap_whole_turns() {
+        let mut c = SunCoin::default();
+        for _ in 0..12 {
+            c.earn();
+            for _ in 0..120 {
+                c.step(1.0 / 60.0);
+            }
+        }
+        // 12 turns = 4320°; the whole 10-turn block is dropped.
+        assert!((c.angle - 720.0).abs() < 1.0, "angle {}", c.angle);
+    }
+
+    #[test]
+    fn earning_a_star_kicks_the_sun() {
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Wall]);
+        r.spawn_timer = 999.0;
+        r.obstacles.push(Obstacle {
+            x: HERO_X + 320.0,
+            kind: Kind::Wall,
+            bounced: false,
+            counted: false,
+            fly_y: 0.0,
+            fly_vy: 0.0,
+            rot: 0.0,
+        });
+        r.update(&input(None, Some(2)), 1.0 / 60.0);
+        for _ in 0..120 {
+            r.update(&input(None, None), 1.0 / 60.0);
+        }
+        assert_eq!(r.stars, 1);
+        assert_eq!(r.coin.target, 360.0);
     }
 
     #[test]

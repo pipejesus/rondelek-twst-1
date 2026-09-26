@@ -35,3 +35,7 @@ Thumbs.db
 
 # --- Git worktrees (one per feature/fix branch — see AGENTS.md) ---
 /.claude/worktrees/
+
+# --- Greg's artwork drop folder: raw art waiting to be used. Files move from
+# here into assets/ when the app starts using them; the folder stays local. ---
+/greg/
