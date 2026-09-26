@@ -23,27 +23,31 @@ cargo run --bin genavatars   # regenerate placeholder character avatars (assets/
 game first runs `cargo build -p rondelek-game` (same profile) and launches the
 game once that finishes (`dev_game_build`). Shipped builds skip that step.
 
-## ⚑ Git workflow: one worktree per branch
+## ⚑ Git workflow: solo, one worktree per session
 
-- **`develop` is the main branch** (the GitHub default and the base for every PR).
-  The main checkout (`rondelek-twst-1/`) always stays on `develop`. Never commit
-  there directly. Only update it with `git pull --ff-only`, create worktrees from
-  it, and run the current `develop` app.
-- **Every feature, fix, refactor, docs change or experiment gets its own branch
-  and its own worktree** under `.claude/worktrees/` (gitignored). The folder name
-  is the branch name with `/` replaced by `-`:
+This is a solo project: no PRs or review needed. Keep it simple.
+
+- **`develop` is the main branch** (the GitHub default). The main checkout
+  (`rondelek-twst-1/`) always stays on `develop`. Don't commit there directly:
+  it only moves by fast-forward (`git pull --ff-only` or
+  `git merge --ff-only <branch>`).
+- **One worktree per working session** under `.claude/worktrees/` (gitignored),
+  on one branch for that session's work. Several related fixes can share it,
+  each as its own commit. Start a separate worktree only for work that should be
+  able to land (or be dropped) independently. The folder name is the branch
+  name with `/` replaced by `-`:
 
   ```bash
   # from the main checkout
   git pull --ff-only
-  git worktree add .claude/worktrees/feat-friendly-shell -b feat/friendly-shell develop
+  git worktree add .claude/worktrees/feat-something -b feat/something develop
   ```
 
   Branch prefixes: `feat/`, `fix/`, `refactor/`, `docs/`, `experiment/`.
   Use kebab-case slugs.
-- **Claude sessions:** after creating a worktree, switch into it with
+- **Claude sessions:** after creating the worktree, switch into it with
   `EnterWorktree(path=…)` (or start `claude` inside that folder). Do all edits,
-  builds and commits there. Don't `cd` back into the main checkout to edit.
+  builds and commits there.
 - **Each worktree has its own `target/`.** The first build is a full compile,
   raylib included, and takes a few minutes. Run `cargo build` (whole workspace)
   before running the app; see Commands for why.
@@ -52,17 +56,16 @@ game once that finishes (`dev_game_build`). Shipped builds skip that step.
   **real user data**: `settings.json` in the OS config dir and the profile
   library in the OS data dir. An app running in any worktree reads and writes
   the same files, so be careful with experiments that change the on-disk format.
-- **Finishing a branch:**
+- **Landing a branch** (agents: only when the user says to land/push):
   1. `cargo fmt --all --check && cargo clippy --all-targets -- -D warnings && cargo test`
   2. Update docs/translations as the rules below require.
-  3. `git push -u origin <branch>` → `gh pr create --base develop`. Agents
-     **ask the user before pushing or opening a PR** unless they already asked
-     for it in this task.
-  4. After the PR is merged on GitHub (CI must be green): from the main checkout,
-     `git pull --ff-only`, `git worktree remove .claude/worktrees/<dir>`,
-     `git branch -d <branch>`.
-- Follow-up work after a merge goes on a new branch and worktree. Don't reuse
-  merged branches.
+  3. Rebase onto `develop` if it has moved (`git rebase develop` in the worktree),
+     so landing stays a fast-forward.
+  4. From the main checkout: `git merge --ff-only <branch>` and
+     `git push origin develop`. Then check the CI run (`gh run list`).
+  5. Clean up: `git worktree remove .claude/worktrees/<dir>` and
+     `git branch -d <branch>` (plus `git push origin --delete <branch>` if it
+     was pushed).
 - `git worktree list` shows what's in flight. `git worktree prune` cleans up
   entries whose folders were deleted by hand.
 - **CodeGraph** indexes only the main checkout (`develop`). Inside a worktree its

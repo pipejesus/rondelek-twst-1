@@ -131,9 +131,9 @@ cargo fmt --all              # auto-format the code
 cargo clippy --all-targets   # lint for common mistakes
 ```
 
-**Branches & worktrees.** `develop` is the main branch. Every feature or fix gets
-its own branch and its own worktree under `.claude/worktrees/`, and is merged
-back by pull request. The full workflow is in `AGENTS.md`.
+**Branches & worktrees.** `develop` is the main branch. Work happens on a branch
+in its own worktree under `.claude/worktrees/` (usually one per session) and
+lands on `develop` as a fast-forward. The full workflow is in `AGENTS.md`.
 
 **Git hooks (optional but recommended).** The repo ships a formatting gate that
 runs before each commit. Enable it once per clone:
