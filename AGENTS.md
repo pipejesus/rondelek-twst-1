@@ -17,6 +17,8 @@ cargo fmt --all --check      # format check
 cargo run --bin genskin      # regenerate the built-in base skin (skins/base/)
 cargo run --bin genavatars   # regenerate placeholder character avatars (assets/avatars/)
 cargo run --bin genicon      # regenerate the app icon (assets/icon/rondelek.png)
+cargo run --bin genarcade    # regenerate the README's arcade frames + marquee (docs/images/arcade/)
+docs/images/arcade/record-runner.sh  # re-record the README's gameplay GIF (Linux: Xvfb, xdotool, ffmpeg)
 packaging/appimage/build.sh target/release v0.0.0-local dist  # Linux AppImage from a release build
 ```
 
@@ -170,6 +172,7 @@ app/src/                  rondelek: the egui sampler app
   bin/genbanner.rs        generates docs/images/banner.png
   bin/genavatars.rs       generates placeholder character avatars
   bin/genicon.rs          generates assets/icon/rondelek.png (window + AppImage icon)
+  bin/genarcade.rs        generates docs/images/arcade/ (README marquee + framed shots)
   ui/
     shell.rs              the shell look: palette, egui style, keycap buttons, icons
     settings_page.rs      the one-page "For grown-ups" settings (+ kittest UI tests)

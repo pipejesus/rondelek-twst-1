@@ -5,7 +5,7 @@ Rondelek is a Cargo workspace of three crates:
 | Crate | Path | What it is |
 |---|---|---|
 | `rondelek-core` | `core/` | GUI-free shared library: audio I/O, vowel detection, settings, profiles, sessions, skin atlas geometry, game registry |
-| `rondelek` | `app/` | the `eframe`/`egui` sampler app (plus the `genskin` / `genbanner` / `genicon` / `genavatars` generator binaries) |
+| `rondelek` | `app/` | the `eframe`/`egui` sampler app (plus the `genskin` / `genbanner` / `genarcade` / `genicon` / `genavatars` generator binaries) |
 | `rondelek-game` | `game/` | the raylib voice games, run as a **separate child process** |
 
 The split exists because raylib and the app's windowing stack (eframe/winit on
@@ -148,8 +148,8 @@ app/src/
   i18n/          runtime translations, language list, flags
   ui/            shell kit, settings page, characters, skin, layout, pad, renderer,
                  visualizers, level meter, widgets
-  bin/           genskin (base skin), genbanner (README banner), genicon (app
-                 icon), genavatars
+  bin/           genskin (base skin), genbanner (README banner), genarcade
+                 (README arcade frames), genicon (app icon), genavatars
                  (character placeholders), via pixelart.rs
 game/src/
   lib.rs         game run loop + text-free control selection screen

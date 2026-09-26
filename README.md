@@ -9,13 +9,27 @@
 > game.
 
 <p align="center">
-  <img src="docs/images/home.png" alt="The start screen, “Who’s playing?”: a row of pastel tiles, one per child, each with a cartoon character picture, and a “New child” tile" width="760">
+  <img src="docs/images/arcade/marquee.png" alt="An 8-bit arcade marquee with rainbow stripes and a starfield: 1UP, HI-SCORE and CREDIT counters above a big PRESS START and “Say a vowel to play”" width="100%">
 </p>
 
 <p align="center">
-  <img src="docs/images/hub.png" alt="A child’s hub: their picture and name above three big tiles — Sounds, Games and Voice check" width="420">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/arcade/runner.png">
+    <img src="docs/images/arcade/runner.gif" alt="Vowel Runner gameplay in an arcade-screen frame: a little blue hero runs across a pixel meadow under smiling voxel clouds, fires stars that knock down brick walls marked with a vowel, and the star counter goes up" width="680">
+  </picture>
+  <br>
+  <sub><b>Vowel Runner</b>: the child's voice is the controller. Say a vowel to jump,
+  duck or fire a star; grown-ups pick which vowel does what.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/images/arcade/home.png" alt="The start screen, “Who’s playing?”, in an arcade frame captioned PLAYER SELECT: a row of pastel tiles, one per child, each with a cartoon character picture, and a “New child” tile" width="680">
+</p>
+
+<p align="center">
+  <img src="docs/images/arcade/hub.png" alt="A child’s hub, captioned PICK A MODE: their picture and name above three big tiles — Sounds, Games and Voice check" width="430">
   &nbsp;
-  <img src="docs/images/sampler.png" alt="The sampler: a dark screen above a 4×3 grid of keycap pads labelled 1–4, Q/W/E/R, A/S/D/F" width="300">
+  <img src="docs/images/arcade/sampler.png" alt="The sampler, captioned SOUND BOARD: a dark screen above a 4×3 grid of keycap pads labelled 1–4, Q/W/E/R, A/S/D/F" width="292">
 </p>
 
 Rondelek is a small, self-contained desktop app. One install serves many
