@@ -32,13 +32,15 @@
 
 use raylib::ffi;
 use raylib::prelude::*;
+use std::rc::Rc;
 
 /// A flat-draw prop, ready to draw many times: merged geometry plus the
 /// material (texture atlas) that came with the GLB.
 pub struct FlatModel {
     /// Kept alive purely to own the material: the atlas texture and its shader
     /// are freed when the model unloads, and `material` points into it.
-    _model: Model,
+    /// Shared by every part [`FlatModel::load_parts`] splits one file into.
+    _model: Rc<Model>,
     /// Borrowed view of `_model`'s single material — safe as long as the two
     /// live and die together, which they do (same struct).
     material: WeakMaterial,
@@ -59,27 +61,58 @@ pub struct FlatModel {
 }
 
 impl FlatModel {
-    /// Load an embedded flat-draw GLB. `name` only labels the temp file.
+    /// Load an embedded flat-draw GLB as one prop: every part merged into one
+    /// mesh. `name` only labels the temp file and errors.
     pub fn load(
         rl: &mut RaylibHandle,
         thread: &RaylibThread,
         name: &str,
         glb: &[u8],
     ) -> anyhow::Result<Self> {
-        // raylib picks its loader from the extension, so the temp file must
-        // keep `.glb`; the pid keeps two running games from racing each other.
-        let path = std::env::temp_dir().join(format!("rondelek-{name}-{}.glb", std::process::id()));
-        std::fs::write(&path, glb)?;
-        let loaded = rl.load_model(
-            thread,
-            path.to_str()
-                .ok_or_else(|| anyhow::anyhow!("non-UTF-8 temp path"))?,
-        );
-        let _ = std::fs::remove_file(&path);
-        let model = loaded?;
+        let model = Rc::new(load_glb(rl, thread, name, glb)?);
+        let all: Vec<usize> = (0..model.meshes().len()).collect();
+        Self::from_parts(thread, &model, &all, name)
+    }
 
+    /// Load an embedded flat-draw GLB as **several props, one per named mesh**
+    /// (e.g. `phoneme_a` … `phoneme_y` in `letters.glb`), in file order. Parts
+    /// that share a name are merged. Every prop is still one mesh and one draw
+    /// call, and all of them share the file's single texture atlas — so one
+    /// file of many drawings costs no more to draw than separate files, and
+    /// loads one texture instead of many.
+    pub fn load_parts(
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        name: &str,
+        glb: &[u8],
+    ) -> anyhow::Result<Vec<(String, Self)>> {
+        let names = glb_mesh_names(glb)?;
+        let model = Rc::new(load_glb(rl, thread, name, glb)?);
+        anyhow::ensure!(
+            names.len() == model.meshes().len(),
+            "{name}.glb: raylib loaded {} meshes, the file lists {}",
+            model.meshes().len(),
+            names.len()
+        );
+        group_by_name(&names)
+            .into_iter()
+            .map(|(part, idx)| {
+                let label = format!("{name}/{part}");
+                Ok((part, Self::from_parts(thread, &model, &idx, &label)?))
+            })
+            .collect()
+    }
+
+    /// Merge the given meshes of `model` into one prop.
+    fn from_parts(
+        thread: &RaylibThread,
+        model: &Rc<Model>,
+        parts: &[usize],
+        name: &str,
+    ) -> anyhow::Result<Self> {
         let mut data = MeshData::default();
-        for part in model.meshes() {
+        for &i in parts {
+            let part = &model.meshes()[i];
             data.push(
                 part.vertices(),
                 part.texcoords(),
@@ -87,7 +120,7 @@ impl FlatModel {
                 part.indices(),
             );
         }
-        anyhow::ensure!(!data.vertices.is_empty(), "{name}.glb has no geometry");
+        anyhow::ensure!(!data.vertices.is_empty(), "{name} has no geometry");
         let (min, max) = data.bounds();
         let size = max - min;
         let center = (min + max) * 0.5;
@@ -102,21 +135,25 @@ impl FlatModel {
         // after it. The atlas is therefore at whatever index the mesh→material
         // table points to — taking the first material silently renders the
         // drawing blank white.
-        let used = mesh_materials(&model);
+        let table = mesh_materials(model);
+        let used: Vec<i32> = parts
+            .iter()
+            .filter_map(|&i| table.get(i).copied())
+            .collect();
         let index = used.first().copied().unwrap_or(0).max(0) as usize;
         anyhow::ensure!(
             used.iter().all(|&m| m as usize == index),
-            "{name}.glb spreads its parts over several materials — merging them \
+            "{name} spreads its parts over several materials — merging them \
              into one mesh would lose all but one"
         );
         let material = model
             .materials()
             .get(index)
-            .ok_or_else(|| anyhow::anyhow!("{name}.glb has no material {index}"))?
+            .ok_or_else(|| anyhow::anyhow!("{name} has no material {index}"))?
             .clone();
 
         Ok(Self {
-            _model: model,
+            _model: Rc::clone(model),
             material,
             mesh,
             size,
@@ -198,6 +235,70 @@ pub fn draw_mesh_with(
     // points to are owned by the caller, who outlives the call.
     let material = unsafe { WeakMaterial::from_raw(raw) };
     d.draw_mesh(mesh, material, transform);
+}
+
+/// Load a GLB through raylib. raylib can only load a model from a *path*, so
+/// the embedded bytes are spilled to a temp file for the one call.
+fn load_glb(
+    rl: &mut RaylibHandle,
+    thread: &RaylibThread,
+    name: &str,
+    glb: &[u8],
+) -> anyhow::Result<Model> {
+    // raylib picks its loader from the extension, so the temp file must keep
+    // `.glb`; the pid keeps two running games from racing each other.
+    let path = std::env::temp_dir().join(format!("rondelek-{name}-{}.glb", std::process::id()));
+    std::fs::write(&path, glb)?;
+    let loaded = rl.load_model(
+        thread,
+        path.to_str()
+            .ok_or_else(|| anyhow::anyhow!("non-UTF-8 temp path"))?,
+    );
+    let _ = std::fs::remove_file(&path);
+    Ok(loaded?)
+}
+
+/// The name of every mesh raylib will load from a GLB, **in raylib's order**:
+/// its glTF loader walks the nodes in file order and emits one mesh per
+/// primitive of each node's mesh. The name is the node's (flat-draw names the
+/// node that holds a layer's mesh, e.g. `phoneme_a`), else the mesh's.
+fn glb_mesh_names(glb: &[u8]) -> anyhow::Result<Vec<String>> {
+    anyhow::ensure!(glb.len() >= 20 && &glb[0..4] == b"glTF", "not a GLB");
+    let len = u32::from_le_bytes(glb[12..16].try_into()?) as usize;
+    anyhow::ensure!(
+        &glb[16..20] == b"JSON" && glb.len() >= 20 + len,
+        "GLB has no JSON chunk"
+    );
+    let json: serde_json::Value = serde_json::from_slice(&glb[20..20 + len])?;
+    let meshes = json["meshes"].as_array().cloned().unwrap_or_default();
+    let mut names = Vec::new();
+    for (n, node) in json["nodes"].as_array().into_iter().flatten().enumerate() {
+        let Some(m) = node["mesh"].as_u64() else {
+            continue;
+        };
+        let mesh = meshes
+            .get(m as usize)
+            .ok_or_else(|| anyhow::anyhow!("node {n} points at missing mesh {m}"))?;
+        let name = node["name"]
+            .as_str()
+            .or_else(|| mesh["name"].as_str())
+            .map_or_else(|| format!("mesh{m}"), str::to_string);
+        let prims = mesh["primitives"].as_array().map_or(0, Vec::len);
+        names.extend(std::iter::repeat_n(name, prims));
+    }
+    Ok(names)
+}
+
+/// Mesh indices grouped by name, groups in order of first appearance.
+fn group_by_name(names: &[String]) -> Vec<(String, Vec<usize>)> {
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    for (i, n) in names.iter().enumerate() {
+        match groups.iter_mut().find(|(g, _)| g == n) {
+            Some((_, idx)) => idx.push(i),
+            None => groups.push((n.clone(), vec![i])),
+        }
+    }
+    groups
 }
 
 /// Which material each of the model's meshes uses (raylib's `meshMaterial`
@@ -307,6 +408,59 @@ mod tests {
 
     fn v(x: f32, y: f32, z: f32) -> Vector3 {
         Vector3::new(x, y, z)
+    }
+
+    /// A minimal GLB: header + JSON chunk (no binary chunk needed to name).
+    fn glb(json: &str) -> Vec<u8> {
+        let mut body = json.as_bytes().to_vec();
+        while body.len() % 4 != 0 {
+            body.push(b' ');
+        }
+        let mut out = b"glTF".to_vec();
+        out.extend(2u32.to_le_bytes());
+        out.extend(((20 + body.len()) as u32).to_le_bytes());
+        out.extend((body.len() as u32).to_le_bytes());
+        out.extend(b"JSON");
+        out.extend(body);
+        out
+    }
+
+    #[test]
+    fn mesh_names_follow_raylibs_node_order() {
+        // Like letters.glb: mesh nodes first (named per letter), then the
+        // layer nodes and the root, which hold no mesh.
+        let g = glb(r#"{"meshes":[{"name":"m0","primitives":[{}]},
+                          {"name":"m1","primitives":[{},{}]}],
+                "nodes":[{"name":"phoneme_a","mesh":1},
+                         {"name":"phoneme_e","mesh":0},
+                         {"name":"a","children":[0]},
+                         {"mesh":0}]}"#);
+        assert_eq!(
+            glb_mesh_names(&g).unwrap(),
+            ["phoneme_a", "phoneme_a", "phoneme_e", "m0"]
+        );
+        assert!(glb_mesh_names(b"nope").is_err());
+    }
+
+    #[test]
+    fn parts_group_by_name_in_first_seen_order() {
+        let names: Vec<String> = ["b", "a", "b", "c"].map(String::from).to_vec();
+        assert_eq!(
+            group_by_name(&names),
+            vec![
+                ("b".to_string(), vec![0, 2]),
+                ("a".to_string(), vec![1]),
+                ("c".to_string(), vec![3]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_letters_file_names_every_vowel() {
+        let names = glb_mesh_names(include_bytes!("../../assets/models/letters.glb")).unwrap();
+        for v in ["a", "e", "i", "o", "u", "y"] {
+            assert!(names.contains(&format!("phoneme_{v}")), "no phoneme_{v}");
+        }
     }
 
     #[test]

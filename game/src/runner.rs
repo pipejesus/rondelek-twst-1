@@ -105,6 +105,16 @@ const WALL_A: Color = Color::new(154, 136, 126, 255);
 const WALL_B: Color = Color::new(122, 106, 98, 255);
 const WALL_MORTAR: Color = Color::new(92, 80, 74, 255);
 
+// Vowel signs over the obstacles: a tablet (placeholder slab, to become a
+// pixel-art stone tablet) standing a little in front of the obstacle, with the
+// carved 3D letter (letters.glb) on its face. World units.
+const SIGN_W: f32 = 1.25;
+const SIGN_D: f32 = 0.16;
+const SIGN_Z: f32 = 0.5;
+const SIGN_FACE: Color = Color::new(250, 248, 240, 255);
+// Height of the tallest letter; the others keep their drawn proportions.
+const LETTER_H: f32 = 0.84;
+
 // The water in front of the meadow: its resting surface sits a little below
 // the grass, so a strip of the bank's earth shows above it; it runs from the
 // bank's face (the ground blocks are 3 deep, centred on z = 0) to past the
@@ -234,6 +244,50 @@ impl SunCoin {
     }
 }
 
+/// Greg's carved 3D vowel letters: `letters.glb` holds all six as named
+/// meshes (`phoneme_a` … `phoneme_y`), split at load into one prop each (one
+/// draw call per sign, one shared texture).
+struct Letters {
+    /// Indexed like `VOWELS`.
+    glyphs: Vec<FlatModel>,
+    /// One scale for all, so the letters keep their drawn proportions.
+    scale: f32,
+}
+
+fn load_letters(rl: &mut RaylibHandle, thread: &RaylibThread) -> Option<Letters> {
+    let parts = match FlatModel::load_parts(
+        rl,
+        thread,
+        "letters",
+        include_bytes!("../../assets/models/letters.glb"),
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("letters model unavailable: {e}");
+            return None;
+        }
+    };
+    let mut slots: Vec<Option<FlatModel>> = VOWELS.iter().map(|_| None).collect();
+    for (name, glyph) in parts {
+        if let Some(i) = VOWELS
+            .iter()
+            .position(|v| name == format!("phoneme_{}", v.label()))
+        {
+            slots[i] = Some(glyph);
+        }
+    }
+    let glyphs: Option<Vec<FlatModel>> = slots.into_iter().collect();
+    let Some(glyphs) = glyphs else {
+        eprintln!("letters.glb is missing a phoneme_* letter; signs stay 2D");
+        return None;
+    };
+    let tallest = glyphs.iter().map(|g| g.size.y).fold(0.0, f32::max);
+    Some(Letters {
+        scale: LETTER_H / tallest.max(f32::EPSILON),
+        glyphs,
+    })
+}
+
 /// GPU-side resources, loaded in `init` (absent in unit tests — no window).
 struct Gfx {
     camera: Camera3D,
@@ -255,6 +309,8 @@ struct Gfx {
     lampula: Option<Lampula>,
     /// The sea along the front. `None` → the bank's earth shows instead.
     water: Option<Water>,
+    /// The 3D sign letters. `None` → the old flat 2D signs.
+    letters: Option<Letters>,
 }
 
 /// Load a flat-draw prop, or complain and carry on without it.
@@ -389,6 +445,28 @@ fn obstacle_rect(o: &Obstacle) -> (f32, f32, f32, f32) {
             HIGH_W,
             HIGH_H,
         ),
+    }
+}
+
+/// Where an obstacle's vowel sign hangs (world units, z = 0 plane). Tall
+/// obstacles (wall/pillar) carry it over their upper part rather than a fixed
+/// height above their (off-screen-high) top edge.
+fn sign_anchor(o: &Obstacle) -> Vector3 {
+    let (rx, ry, rw, _) = obstacle_rect(o);
+    let y = match o.kind {
+        Kind::Wall => wy(ry + WALL_H * 0.35),
+        Kind::High => wy(ry + HIGH_H * 0.30),
+        _ => wy(ry) + 1.15,
+    };
+    Vector3::new(wx(rx + rw / 2.0), y, 0.0)
+}
+
+/// Which vowel (index into `VOWELS`) clears this kind of obstacle.
+fn sign_vowel(kind: Kind, jump: usize, duck: usize, shoot: usize) -> usize {
+    match kind {
+        Kind::Jump | Kind::High => jump,
+        Kind::Duck => duck,
+        Kind::Wall => shoot,
     }
 }
 
@@ -536,6 +614,7 @@ impl VoiceGame for Runner {
             lampula: Lampula::load(rl, thread, cloud_glass()),
             sun_glass: Lampula::load(rl, thread, sun_glass()),
             water: Water::load(rl, thread, WATER),
+            letters: load_letters(rl, thread),
         });
     }
 
@@ -971,6 +1050,28 @@ impl VoiceGame for Runner {
                 }
             }
 
+            // --- vowel signs: tablet + carved letter ----------------------
+            if let Some(letters) = &gfx.letters {
+                for o in &self.obstacles {
+                    if o.bounced {
+                        continue;
+                    }
+                    let a = sign_anchor(o);
+                    let c = Vector3::new(a.x, a.y, SIGN_Z);
+                    c3.draw_cube(c, SIGN_W, SIGN_W, SIGN_D, SIGN_FACE);
+                    c3.draw_cube_wires(c, SIGN_W, SIGN_W, SIGN_D, CHARCOAL);
+                    let v = sign_vowel(o.kind, self.jump_vowel, self.duck_vowel, self.shoot_vowel);
+                    let g = &letters.glyphs[v];
+                    let s = letters.scale;
+                    // Centred on the tablet, its back resting on the face.
+                    let front = SIGN_Z + SIGN_D / 2.0 + 0.005;
+                    let m = Matrix::translate(-g.center.x, -g.center.y, -g.min.z)
+                        * Matrix::scale(s, s, s)
+                        * Matrix::translate(a.x, a.y, front);
+                    g.draw_transformed(&mut c3, m);
+                }
+            }
+
             // --- star bullets: spinning 2.5D gold bursts -------------------
             for b in &self.bullets {
                 let (cx, cy, z) = (wx(b.x), wy(b.y), 0.3);
@@ -1129,29 +1230,22 @@ impl VoiceGame for Runner {
 
         // --- HUD: crisp 2D over the 3D scene -------------------------------
 
-        // Letter signs above live obstacles, projected from world space.
-        for o in &self.obstacles {
+        // Flat 2D letter signs — only if the 3D letters didn't load.
+        let flat_signs = if gfx.letters.is_some() {
+            &[][..]
+        } else {
+            &self.obstacles[..]
+        };
+        for o in flat_signs {
             if o.bounced {
                 continue;
             }
-            let (rx, ry, rw, _) = obstacle_rect(o);
-            // Tall obstacles (wall/pillar) get their sign over the upper part,
-            // not a fixed height above the (off-screen-high) top edge.
-            let sign_y = match o.kind {
-                Kind::Wall => wy(ry + WALL_H * 0.35),
-                Kind::High => wy(ry + HIGH_H * 0.30),
-                _ => wy(ry) + 1.15,
-            };
-            let anchor = Vector3::new(wx(rx + rw / 2.0), sign_y, 0.0);
-            let sp = d.get_world_to_screen(anchor, camera);
+            let sp = d.get_world_to_screen(sign_anchor(o), camera);
             if sp.x < -100.0 || sp.x > w as f32 + 100.0 {
                 continue;
             }
-            let letter = match o.kind {
-                Kind::Jump | Kind::High => VOWELS[self.jump_vowel].label(),
-                Kind::Duck => VOWELS[self.duck_vowel].label(),
-                Kind::Wall => VOWELS[self.shoot_vowel].label(),
-            };
+            let v = sign_vowel(o.kind, self.jump_vowel, self.duck_vowel, self.shoot_vowel);
+            let letter = VOWELS[v].label();
             let side = 88.0 * scale;
             let sign = Rectangle {
                 x: sp.x - side / 2.0,

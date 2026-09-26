@@ -1,0 +1,146 @@
+{
+  "generator": "Flatty",
+  "model": "2026-09-27_011849_literki.glb",
+  "canvas": {
+    "w": 128,
+    "h": 128
+  },
+  "pixelsPerUnit": 16,
+  "pivot": "bottom-center",
+  "stance": "as-designed",
+  "orientation": "back-to-front",
+  "bounds": {
+    "min": [
+      -2.4375,
+      1.0625,
+      -0.5625
+    ],
+    "max": [
+      2.4375,
+      6.9375,
+      0.5625
+    ]
+  },
+  "meshes": [
+    {
+      "index": 0,
+      "name": "phoneme_a",
+      "layer": "a",
+      "path": "a/phoneme_a",
+      "layerIndex": 0,
+      "cells": 3540,
+      "bounds": {
+        "min": [
+          -2.25,
+          1.0625,
+          0.0625
+        ],
+        "max": [
+          2.4375,
+          6.9375,
+          0.5625
+        ]
+      }
+    },
+    {
+      "index": 1,
+      "name": "phoneme_y",
+      "layer": "y",
+      "path": "y/phoneme_y",
+      "layerIndex": 1,
+      "cells": 2687,
+      "bounds": {
+        "min": [
+          -2.4375,
+          1.0625,
+          -0.5625
+        ],
+        "max": [
+          2.375,
+          6.9375,
+          -0.0625
+        ]
+      }
+    },
+    {
+      "index": 2,
+      "name": "phoneme_u",
+      "layer": "u",
+      "path": "u/phoneme_u",
+      "layerIndex": 2,
+      "cells": 3360,
+      "bounds": {
+        "min": [
+          -1.875,
+          1.0625,
+          -0.4375
+        ],
+        "max": [
+          1.9375,
+          6.875,
+          0.0625
+        ]
+      }
+    },
+    {
+      "index": 3,
+      "name": "phoneme_o",
+      "layer": "o",
+      "path": "o/phoneme_o",
+      "layerIndex": 3,
+      "cells": 3586,
+      "bounds": {
+        "min": [
+          -2.0625,
+          1.8125,
+          -0.3125
+        ],
+        "max": [
+          2.1875,
+          6.875,
+          0.1875
+        ]
+      }
+    },
+    {
+      "index": 4,
+      "name": "phoneme_i",
+      "layer": "i",
+      "path": "i/phoneme_i",
+      "layerIndex": 4,
+      "cells": 2942,
+      "bounds": {
+        "min": [
+          -1.5625,
+          1.0625,
+          -0.1875
+        ],
+        "max": [
+          2.125,
+          6.9375,
+          0.3125
+        ]
+      }
+    },
+    {
+      "index": 5,
+      "name": "phoneme_e",
+      "layer": "e",
+      "path": "e/phoneme_e",
+      "layerIndex": 5,
+      "cells": 3754,
+      "bounds": {
+        "min": [
+          -1.9375,
+          1.0625,
+          -0.0625
+        ],
+        "max": [
+          2.125,
+          6.9375,
+          0.4375
+        ]
+      }
+    }
+  ]
+}
