@@ -214,6 +214,61 @@ impl Settings {
     }
 }
 
+/// Named bundles of the five vowel-detection knobs, so a parent or therapist
+/// can pick "how picky" recognition is without touching raw thresholds.
+/// Nothing extra is stored: the settings page shows the preset whose values
+/// match the current settings (or "custom").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DetectionPreset {
+    /// Reacts to quieter, less clear sounds (more hits, more mix-ups).
+    Relaxed,
+    /// The shipped defaults.
+    Normal,
+    /// Needs a clear, confident sound (fewer mix-ups, fewer hits).
+    Strict,
+}
+
+impl DetectionPreset {
+    pub const ALL: [Self; 3] = [Self::Relaxed, Self::Normal, Self::Strict];
+
+    /// (voicing, smoothing, show, margin, steady)
+    fn values(self) -> (f32, f32, f32, f32, bool) {
+        match self {
+            Self::Relaxed => (0.008, 0.4, 0.3, 0.08, true),
+            Self::Normal => (
+                default_vowel_voicing_threshold(),
+                default_vowel_smoothing(),
+                default_vowel_show_threshold(),
+                default_vowel_margin_threshold(),
+                true,
+            ),
+            Self::Strict => (0.02, 0.6, 0.5, 0.25, true),
+        }
+    }
+
+    pub fn apply(self, s: &mut Settings) {
+        let (voicing, smoothing, show, margin, steady) = self.values();
+        s.vowel_voicing_threshold = voicing;
+        s.vowel_smoothing = smoothing;
+        s.vowel_show_threshold = show;
+        s.vowel_margin_threshold = margin;
+        s.vowel_steady = steady;
+    }
+
+    /// The preset `s` currently matches, if any.
+    pub fn matching(s: &Settings) -> Option<Self> {
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        Self::ALL.into_iter().find(|p| {
+            let (voicing, smoothing, show, margin, steady) = p.values();
+            close(s.vowel_voicing_threshold, voicing)
+                && close(s.vowel_smoothing, smoothing)
+                && close(s.vowel_show_threshold, show)
+                && close(s.vowel_margin_threshold, margin)
+                && s.vowel_steady == steady
+        })
+    }
+}
+
 fn settings_path() -> PathBuf {
     let base = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join("rondelek").join("settings.json")
@@ -356,6 +411,44 @@ mod tests {
             .collect();
         assert!(leftovers.is_empty(), "temp file left behind: {leftovers:?}");
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn defaults_are_the_normal_preset() {
+        assert_eq!(
+            DetectionPreset::matching(&Settings::default()),
+            Some(DetectionPreset::Normal)
+        );
+    }
+
+    #[test]
+    fn presets_apply_and_are_recognised() {
+        for preset in DetectionPreset::ALL {
+            let mut s = Settings::default();
+            preset.apply(&mut s);
+            assert_eq!(DetectionPreset::matching(&s), Some(preset));
+        }
+    }
+
+    #[test]
+    fn hand_tuned_values_are_custom() {
+        let mut s = Settings::default();
+        s.vowel_margin_threshold = 0.33;
+        assert_eq!(DetectionPreset::matching(&s), None);
+    }
+
+    #[test]
+    fn applying_a_preset_touches_only_detection() {
+        let mut s = Settings {
+            volume: 0.3,
+            language: "uk".into(),
+            game_reaction: 0.9,
+            ..Settings::default()
+        };
+        DetectionPreset::Strict.apply(&mut s);
+        assert_eq!(s.volume, 0.3);
+        assert_eq!(s.language, "uk");
+        assert_eq!(s.game_reaction, 0.9);
     }
 
     #[test]

@@ -13,6 +13,9 @@ const PROFILE_MANIFEST: &str = "profile.json";
 const AVATAR_FILE: &str = "avatar.png";
 const CALIBRATION_FILE: &str = "calibration.json";
 const SESSIONS_DIR: &str = "sessions";
+/// Deleted profiles are moved here (inside the library root), not erased.
+/// `list_profiles` skips it because it has no `profile.json`.
+const TRASH_DIR: &str = ".trash";
 const AVATAR_SIZE: u32 = 256;
 const MAX_NAME_LEN: usize = 80;
 
@@ -79,8 +82,13 @@ pub struct ProfileManifest {
     pub uid: String,
     /// Display name (sanitised, but may contain spaces/unicode).
     pub name: String,
-    /// Avatar filename relative to the profile folder, if set.
+    /// Avatar photo filename relative to the profile folder, if set.
+    #[serde(default)]
     pub avatar: Option<String>,
+    /// Built-in character avatar (app asset name), used when there is no photo.
+    /// Stored by name, so redrawing the character art updates every profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character: Option<String>,
     pub created: u64,
 }
 
@@ -129,6 +137,7 @@ impl Profile {
                 uid,
                 name,
                 avatar: None,
+                character: None,
                 created: now_secs(),
             },
         };
@@ -176,7 +185,53 @@ impl Profile {
             .save_with_format(&path, image::ImageFormat::Png)
             .context("Failed to write avatar.png")?;
         self.manifest.avatar = Some(AVATAR_FILE.to_string());
+        self.manifest.character = None;
         self.save_manifest()
+    }
+
+    /// The built-in character avatar, if one is chosen (and there is no photo).
+    pub fn character(&self) -> Option<&str> {
+        self.manifest.character.as_deref()
+    }
+
+    /// Use a built-in character as the avatar. Removes any photo first, so the
+    /// two never compete.
+    pub fn set_character(&mut self, name: &str) -> Result<()> {
+        self.remove_avatar_file()?;
+        self.manifest.character = Some(name.to_string());
+        self.save_manifest()
+    }
+
+    fn remove_avatar_file(&mut self) -> Result<()> {
+        if let Some(file) = self.manifest.avatar.take() {
+            let path = self.dir.join(file);
+            if path.exists() {
+                std::fs::remove_file(&path).context("Failed to remove avatar file")?;
+            }
+        }
+        Ok(())
+    }
+
+    /// "Delete" this profile by moving its whole folder (sessions, recordings,
+    /// calibration) into the library's `.trash/`, so a mistake can still be
+    /// undone by hand. Returns where it went.
+    pub fn move_to_trash(self) -> Result<PathBuf> {
+        let root = self
+            .dir
+            .parent()
+            .context("Profile folder has no parent")?
+            .to_path_buf();
+        let trash = root.join(TRASH_DIR);
+        std::fs::create_dir_all(&trash).context("Failed to create trash folder")?;
+        let folder = self
+            .dir
+            .file_name()
+            .context("Profile folder has no name")?
+            .to_string_lossy()
+            .into_owned();
+        let dest = trash.join(format!("{folder}-{}", now_secs()));
+        std::fs::rename(&self.dir, &dest).context("Failed to move profile to trash")?;
+        Ok(dest)
     }
 
     /// Update the display name (sanitised) and persist. The on-disk folder name
@@ -187,15 +242,11 @@ impl Profile {
         self.save_manifest()
     }
 
-    /// Remove the stored avatar (file + manifest field), reverting to the default
-    /// face. A no-op if no avatar is set.
+    /// Remove the stored avatar (photo and/or character), reverting to the
+    /// default face. A no-op if none is set.
     pub fn clear_avatar(&mut self) -> Result<()> {
-        if let Some(file) = self.manifest.avatar.take() {
-            let path = self.dir.join(file);
-            if path.exists() {
-                std::fs::remove_file(&path).context("Failed to remove avatar file")?;
-            }
-        }
+        self.remove_avatar_file()?;
+        self.manifest.character = None;
         self.save_manifest()
     }
 
@@ -333,6 +384,60 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.0).ok();
         }
+    }
+
+    #[test]
+    fn character_and_photo_replace_each_other() {
+        let src = std::env::temp_dir().join(format!("rondelek_char_{}.png", new_uid()));
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
+            .save(&src)
+            .unwrap();
+        let lib = TempLibrary::new();
+        let mut profile = lib.create("Char Kid", Some(&src));
+        let photo = profile.avatar_path().unwrap();
+
+        profile.set_character("fox").unwrap();
+        assert_eq!(profile.character(), Some("fox"));
+        assert!(profile.avatar_path().is_none());
+        assert!(!photo.exists(), "photo file removed");
+
+        profile.set_avatar(&src).unwrap();
+        assert!(profile.avatar_path().is_some());
+        assert_eq!(profile.character(), None);
+
+        profile.set_character("owl").unwrap();
+        profile.clear_avatar().unwrap();
+        let reloaded = Profile::load(profile.dir.clone()).unwrap();
+        assert_eq!(reloaded.character(), None);
+        assert!(reloaded.avatar_path().is_none());
+        std::fs::remove_file(&src).ok();
+    }
+
+    #[test]
+    fn manifests_without_character_still_load() {
+        let lib = TempLibrary::new();
+        let dir = lib.0.join("old-kid-1234");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("profile.json"),
+            r#"{ "uid": "u1", "name": "Old Kid", "avatar": null, "created": 5 }"#,
+        )
+        .unwrap();
+        let p = Profile::load(dir).unwrap();
+        assert_eq!(p.name(), "Old Kid");
+        assert_eq!(p.character(), None);
+    }
+
+    #[test]
+    fn trash_moves_the_whole_profile_out_of_the_list() {
+        let lib = TempLibrary::new();
+        let profile = lib.create("Gone Kid", None);
+        profile.new_session().unwrap();
+        let dest = profile.move_to_trash().unwrap();
+        assert!(list_profiles_in(&lib.0).is_empty());
+        assert!(dest.starts_with(lib.0.join(TRASH_DIR)));
+        assert!(dest.join("profile.json").exists(), "kept, recoverable");
+        assert!(dest.join("sessions").is_dir());
     }
 
     #[test]
