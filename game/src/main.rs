@@ -1,6 +1,10 @@
 //! `rondelek-game <id> [--profile <dir>]` — runs one voice mini-game in its
 //! own raylib window. Spawned as a child process by the sampler app (see
-//! `app/src/app.rs::launch_game`); never invoked directly by a user.
+//! `app/src/app/games.rs::spawn_game`); never invoked directly by a user.
+
+// Release builds on Windows are GUI apps: without this, every launch also
+// opens a black console window. Debug builds keep the console for logs.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

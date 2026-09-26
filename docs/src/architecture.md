@@ -14,7 +14,7 @@ Windows executable. `core` must therefore never depend on egui, eframe or raylib
 See `docs/WORKSPACE_SPLIT.md` for the full story.
 
 The app is a single-window `eframe` application with **no global state**:
-everything is owned by one `App` struct (`app/src/app.rs`). There is no async
+everything is owned by one `App` struct (`app/src/app/mod.rs`). There is no async
 runtime and no message bus. It's a straightforward immediate-mode loop plus the
 audio callback threads owned by `cpal`.
 

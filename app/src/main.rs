@@ -1,3 +1,7 @@
+// Release builds on Windows are GUI apps: without this, every launch also
+// opens a black console window. Debug builds keep the console for logs.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod app;
 mod camera;
 mod i18n;

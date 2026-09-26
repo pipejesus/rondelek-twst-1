@@ -1,7 +1,7 @@
 //! Voice-controlled mini-games, rendered by raylib in their own
 //! borderless-fullscreen window. The sampler app spawns the sibling
 //! `rondelek-game <id> [--profile <dir>]` binary as a child process (see
-//! `app/src/app.rs::launch_game`); this crate owns everything past that
+//! `app/src/app/games.rs::spawn_game`); this crate owns everything past that
 //! point.
 //!
 //! This is a separate crate (not a module of the `rondelek` app) on purpose:
