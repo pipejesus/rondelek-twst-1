@@ -206,15 +206,6 @@ pub const EUROPEAN_LANGS: &[Lang] = &[
     },
 ];
 
-/// The endonym for a code, or the code itself if unknown.
-pub fn endonym(code: &str) -> &str {
-    EUROPEAN_LANGS
-        .iter()
-        .find(|l| l.code == code)
-        .map(|l| l.endonym)
-        .unwrap_or(code)
-}
-
 /// Embedded translation JSON for fully-translated locales.
 fn embedded(code: &str) -> Option<&'static str> {
     match code {

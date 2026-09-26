@@ -1,7 +1,8 @@
 //! Shared procedural-art primitives for the build-time image generators
-//! (`genskin`, `genbanner`). Not part of the app binary — it's pulled in by the
-//! `src/bin/*` tools via `#[path = "../pixelart.rs"]`, so the whole visual
-//! language (matte shading, the 5×7 pixel font) lives in one place.
+//! (`genskin`, `genbanner`, `genavatars`, pulled in via
+//! `#[path = "../pixelart.rs"]`). The app itself only uses the 5×7 pixel font
+//! (`char_bits`) for the shell's wordmark, so the whole visual language (matte
+//! shading, the pixel font) lives in one place.
 //!
 //! Each tool uses a different subset, so unused items here are expected.
 #![allow(dead_code)]

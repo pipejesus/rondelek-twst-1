@@ -1,22 +1,7 @@
-//! A drawn kid-face placeholder avatar (used when a profile has no picture)
-//! and the translucent gloss band the profile screens lay over avatar photos.
+//! A drawn kid-face placeholder avatar (used when a profile has no picture).
 
-use egui::{Color32, CornerRadius, Painter, Pos2, Rect, Stroke};
+use egui::{Color32, Painter, Pos2, Rect, Stroke};
 use rondelek_core::config::Theme;
-
-/// Overlay a translucent top-highlight band, e.g. on top of an avatar image so
-/// it reads as "under glass".
-pub fn gloss_overlay(painter: &Painter, rect: Rect, rounding: f32) {
-    let band = Rect::from_min_max(
-        rect.min,
-        Pos2::new(rect.right(), rect.top() + rect.height() * 0.42),
-    );
-    painter.rect_filled(
-        band,
-        CornerRadius::same(rounding as u8),
-        Color32::from_white_alpha(28),
-    );
-}
 
 /// Lighten (`amount > 0`) or darken (`amount < 0`) a colour by mixing toward
 /// white or black.

@@ -432,8 +432,10 @@ mod tests {
 
     #[test]
     fn hand_tuned_values_are_custom() {
-        let mut s = Settings::default();
-        s.vowel_margin_threshold = 0.33;
+        let s = Settings {
+            vowel_margin_threshold: 0.33,
+            ..Settings::default()
+        };
         assert_eq!(DetectionPreset::matching(&s), None);
     }
 

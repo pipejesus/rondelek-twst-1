@@ -1,5 +1,5 @@
 //! A tiny input-level meter: a horizontal bar coloured by how usable the signal
-//! is. Shown during calibration and in the config panel's Audio tab so a helper
+//! is. Shown during the voice check and on the settings page so a helper
 //! can see at a glance that the mic is neither clipping nor too quiet.
 //!
 //! There is deliberately no microphone *frequency* calibration (a sweep): vowel
@@ -29,11 +29,11 @@ pub fn classify_peak(peak: f32) -> MicLevel {
 }
 
 impl MicLevel {
-    fn label(self) -> &'static str {
+    fn label_key(self) -> &'static str {
         match self {
-            MicLevel::TooQuiet => "Too quiet — move closer or turn up the mic",
-            MicLevel::Ok => "Level OK",
-            MicLevel::Clipping => "Too loud — clipping! back off the mic",
+            MicLevel::TooQuiet => "meter.quiet",
+            MicLevel::Ok => "meter.ok",
+            MicLevel::Clipping => "meter.loud",
         }
     }
 
@@ -48,12 +48,12 @@ impl MicLevel {
 
 /// Draw a `width`-wide level meter for a peak amplitude (0..=1) plus a status
 /// line. Cheap enough to call every frame.
-pub fn level_meter(ui: &mut egui::Ui, peak: f32, width: f32) {
+pub fn level_meter(ui: &mut egui::Ui, peak: f32, width: f32, i18n: &crate::i18n::I18n) {
     let state = classify_peak(peak);
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 16.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 18.0), Sense::hover());
     let painter = ui.painter();
-    let radius = egui::CornerRadius::same(4);
-    painter.rect_filled(rect, radius, Color32::from_gray(60));
+    let radius = egui::CornerRadius::same(9);
+    painter.rect_filled(rect, radius, Color32::from_rgb(0xE8, 0xDD, 0xCF));
     let fill_w = rect.width() * peak.clamp(0.0, 1.0);
     if fill_w > 0.5 {
         let fill = egui::Rect::from_min_size(rect.min, Vec2::new(fill_w, rect.height()));
@@ -61,8 +61,8 @@ pub fn level_meter(ui: &mut egui::Ui, peak: f32, width: f32) {
     }
     ui.add_space(2.0);
     ui.label(
-        egui::RichText::new(state.label())
+        egui::RichText::new(i18n.t(state.label_key()))
             .color(state.color())
-            .size(12.0),
+            .size(14.0),
     );
 }

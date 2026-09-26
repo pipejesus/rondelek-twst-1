@@ -1,4 +1,5 @@
-//! Per-child vowel calibration: the overview grid and the hold-to-record screen.
+//! The voice check (per-child vowel calibration): the overview of six vowel
+//! keys and the hold-to-record screen.
 
 use super::*;
 
@@ -23,7 +24,7 @@ impl App {
     }
 
     /// Finish: build MFCC templates from the six captured vowels, save them to
-    /// the profile, and return to the Sessions screen.
+    /// the profile, and return to the hub.
     pub(super) fn finish_calibration(&mut self) {
         if let Some(state) = self.calib.take()
             && state.captured.len() == vowel::VOWELS.len()
@@ -50,7 +51,11 @@ impl App {
         }
         self.calib = None;
         self.apply_profile_calibration();
-        self.screen = AppScreen::Sessions;
+        if let Some(p) = self.current_profile.as_ref() {
+            self.calibrated
+                .insert(p.dir.clone(), self.current_calibration.is_some());
+        }
+        self.screen = AppScreen::Hub;
     }
 
     /// Pull the mic each frame. While the user is **holding** the record button
@@ -101,7 +106,7 @@ impl App {
         let selected = match self.calib.as_ref() {
             Some(s) => s.selected,
             None => {
-                self.screen = AppScreen::Sessions;
+                self.screen = AppScreen::Hub;
                 return;
             }
         };
@@ -111,11 +116,11 @@ impl App {
         }
     }
 
-    /// Overview: a grid of the six vowels showing which are recorded. Tap one to
-    /// record (or re-record) it; Save is enabled once all six are captured.
+    /// Overview: the six vowels as big keys (green with a tick once recorded).
+    /// Tap one to record (or re-record) it; Save is enabled once all six are in.
     pub(super) fn draw_calibrate_overview(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
-        ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
+        shell::background(ui.painter(), full);
 
         let takes: Vec<u32> = self
             .calib
@@ -132,102 +137,108 @@ impl App {
                     .collect()
             })
             .unwrap_or_default();
+        let done_count = recorded.iter().filter(|&&b| b).count();
         let all_recorded = recorded.len() == vowel::VOWELS.len() && recorded.iter().all(|&b| b);
 
-        let done = Color32::from_rgb(0x3C, 0xB0, 0x4B);
+        let (back, _) = self.top_bar(ui, full, true, false);
         let mut open: Option<usize> = None;
-        let mut cancel = false;
+        let mut cancel = back;
         let mut save = false;
 
-        ui.vertical_centered(|ui| {
-            ui.add_space((full.height() * 0.08).min(48.0));
-            ui.label(
-                egui::RichText::new(self.i18n.t("calibrate.title"))
-                    .color(self.theme.text_primary)
-                    .size(24.0)
-                    .strong(),
-            );
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new(self.i18n.t("calibrate.overview_hint"))
-                    .color(self.theme.text_secondary)
-                    .size(15.0),
-            );
-            ui.add_space(24.0);
+        let content = Rect::from_min_max(Pos2::new(full.left(), full.top() + 20.0), full.max);
+        let mut content_ui = ui.new_child(egui::UiBuilder::new().max_rect(content));
+        egui::ScrollArea::vertical().show(&mut content_ui, |ui| {
+            ui.vertical_centered(|ui| {
+                shell::title(ui, self.i18n.t("calibrate.title"), 34.0);
+                shell::hint(ui, self.i18n.t("calibrate.overview_hint"));
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(format!("{done_count} / {}", vowel::VOWELS.len()))
+                        .size(20.0)
+                        .strong(),
+                );
+                ui.add_space(14.0);
 
-            for row in 0..2 {
-                ui.allocate_ui_with_layout(
-                    egui::vec2(3.0 * 104.0, 104.0),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        for col in 0..3 {
-                            let i = row * 3 + col;
-                            let is_done = recorded.get(i).copied().unwrap_or(false);
-                            let letter = vowel::VOWELS[i].label();
-                            let n = takes.get(i).copied().unwrap_or(0);
-                            let text = if is_done && n > 1 {
-                                format!("{letter}\n✓×{n}")
-                            } else if is_done {
-                                format!("{letter}\n✓")
-                            } else {
-                                letter.to_string()
-                            };
-                            let fill = if is_done {
-                                done
-                            } else {
-                                self.theme.pad_play_bg
-                            };
-                            let txt_color = if is_done {
-                                Color32::WHITE
-                            } else {
-                                self.theme.text_primary
-                            };
-                            let btn = egui::Button::new(
-                                egui::RichText::new(text)
-                                    .color(txt_color)
-                                    .size(34.0)
-                                    .strong(),
+                let key = 124.0;
+                let gap = 20.0;
+                for row in 0..2 {
+                    let (row_rect, _) = ui
+                        .allocate_exact_size(Vec2::new(3.0 * key + 2.0 * gap, key), Sense::hover());
+                    for col in 0..3 {
+                        let i = row * 3 + col;
+                        let is_done = recorded.get(i).copied().unwrap_or(false);
+                        let r = Rect::from_min_size(
+                            row_rect.min + Vec2::new(col as f32 * (key + gap), 0.0),
+                            Vec2::splat(key),
+                        );
+                        let letter = vowel::VOWELS[i].label();
+                        let face = if is_done {
+                            palette::MINT
+                        } else {
+                            palette::PAPER
+                        };
+                        if ui
+                            .put(
+                                r,
+                                KeyButton::new(letter).face(face).size(r.size()).font(54.0),
                             )
-                            .fill(fill)
-                            .min_size(egui::vec2(96.0, 96.0));
-                            if ui.add(btn).clicked() {
-                                open = Some(i);
+                            .clicked()
+                        {
+                            open = Some(i);
+                        }
+                        if is_done {
+                            shell::badge(
+                                ui.painter(),
+                                r.right_top() + Vec2::new(-10.0, 10.0),
+                                14.0,
+                                palette::OK_GREEN,
+                                Icon::Check,
+                            );
+                            let n = takes.get(i).copied().unwrap_or(0);
+                            if n > 1 {
+                                ui.painter().text(
+                                    r.left_top() + Vec2::new(14.0, 16.0),
+                                    Align2::LEFT_CENTER,
+                                    format!("×{n}"),
+                                    egui::FontId::proportional(15.0),
+                                    palette::CHARCOAL,
+                                );
                             }
                         }
-                    },
-                );
-                ui.add_space(10.0);
-            }
+                    }
+                    ui.add_space(gap);
+                }
 
-            ui.add_space(18.0);
-            ui.allocate_ui_with_layout(
-                egui::vec2(320.0, 44.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    let row_w = 180.0 + 12.0 + 240.0;
+                    ui.add_space(((ui.available_width() - row_w) / 2.0).max(0.0));
                     if ui
-                        .add_sized(
-                            [150.0, 44.0],
-                            egui::Button::new(self.i18n.t("calibrate.cancel")),
+                        .add(
+                            KeyButton::new(self.i18n.t("calibrate.cancel"))
+                                .size(Vec2::new(180.0, 60.0)),
                         )
                         .clicked()
                     {
                         cancel = true;
                     }
-                    let save_btn = egui::Button::new(
-                        egui::RichText::new(self.i18n.t("calibrate.save")).color(Color32::WHITE),
-                    )
-                    .fill(ORANGE);
                     if ui
-                        .add_enabled(
-                            all_recorded,
-                            egui::Button::min_size(save_btn, [150.0, 44.0].into()),
-                        )
+                        .add_enabled_ui(all_recorded, |ui| {
+                            ui.add(
+                                KeyButton::new(self.i18n.t("calibrate.save"))
+                                    .with_icon(Icon::Check)
+                                    .face(palette::ORANGE)
+                                    .size(Vec2::new(240.0, 60.0))
+                                    .font(21.0),
+                            )
+                        })
+                        .inner
                         .clicked()
                     {
                         save = true;
                     }
-                },
-            );
+                });
+            });
         });
 
         if let Some(i) = open {
@@ -241,152 +252,149 @@ impl App {
             self.finish_calibration();
         } else if cancel {
             self.calib = None;
-            self.screen = AppScreen::Sessions;
+            self.screen = AppScreen::Hub;
         }
     }
 
-    /// Record one vowel by **holding** the record button (or Space). No
-    /// auto-advance: capture runs only while held; releasing commits the take.
+    /// Record one vowel by **holding** the big key (or Space). No auto-advance:
+    /// capture runs only while held; releasing commits the take. After a good
+    /// take, "Next sound" jumps to the next vowel still missing.
     pub(super) fn draw_calibrate_record(&mut self, ui: &mut Ui, i: usize) {
         let full = ui.max_rect();
-        ui.painter().rect_filled(full, 0.0, self.theme.panel_bg);
+        shell::background(ui.painter(), full);
 
-        let (was_recording, count, level, voiced, already, takes_done) = self
+        let (was_recording, count, level, voiced, already, takes_done, next_missing) = self
             .calib
             .as_ref()
             .map(|s| {
+                let rec = |k: usize| {
+                    s.captured
+                        .get(k)
+                        .map(|f| f.len() >= vowel::MIN_CAPTURE_SAMPLES)
+                        .unwrap_or(false)
+                };
+                let next = (1..vowel::VOWELS.len())
+                    .map(|d| (i + d) % vowel::VOWELS.len())
+                    .find(|&k| !rec(k));
                 (
                     s.recording,
                     s.current.count(),
                     s.live_level,
                     s.live_voiced,
-                    s.captured
-                        .get(i)
-                        .map(|f| f.len() >= vowel::MIN_CAPTURE_SAMPLES)
-                        .unwrap_or(false),
+                    rec(i),
                     s.takes.get(i).copied().unwrap_or(0),
+                    next,
                 )
             })
-            .unwrap_or((false, 0, 0.0, false, false, 0));
+            .unwrap_or((false, 0, 0.0, false, false, 0, None));
 
         let target = vowel::VOWELS[i];
         let progress = (count as f32 / CALIB_TARGET as f32).clamp(0.0, 1.0);
-        let recording_red = Color32::from_rgb(0xD6, 0x3A, 0x2E);
 
-        // Holding either the button or Space records.
+        // Holding either the big key or Space records.
         let mut holding = ui.input(|inp| inp.key_down(Key::Space));
-        let mut back = false;
-        let mut cancel = false;
+        let (mut back, _) = self.top_bar(ui, full, true, false);
         let mut reset = false;
+        let mut next: Option<usize> = None;
 
         ui.vertical_centered(|ui| {
-            ui.add_space((full.height() * 0.08).min(48.0));
-            ui.label(
-                egui::RichText::new(self.i18n.t("calibrate.say"))
-                    .color(self.theme.text_secondary)
-                    .size(16.0),
+            ui.add_space(24.0);
+            shell::hint(ui, self.i18n.t("calibrate.say"));
+            // The vowel, big, on a butter disc.
+            let (disc, _) = ui.allocate_exact_size(Vec2::splat(170.0), Sense::hover());
+            ui.painter()
+                .circle_filled(disc.center(), 82.0, palette::BUTTER);
+            ui.painter().text(
+                disc.center() + Vec2::new(0.0, -6.0),
+                Align2::CENTER_CENTER,
+                target.label(),
+                egui::FontId::proportional(110.0),
+                palette::CHARCOAL,
             );
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new(target.label())
-                    .color(ORANGE)
-                    .size(96.0)
-                    .strong(),
-            );
-            ui.add_space(14.0);
+            ui.add_space(16.0);
 
             let rec_label = if was_recording {
                 self.i18n.t("calibrate.recording")
             } else {
                 self.i18n.t("calibrate.record")
             };
-            let rec_btn = egui::Button::new(
-                egui::RichText::new(rec_label)
-                    .color(Color32::WHITE)
-                    .size(18.0),
-            )
-            .fill(if was_recording { recording_red } else { ORANGE })
-            .min_size(egui::vec2(240.0, 56.0));
-            let resp = ui.add(rec_btn);
+            let resp = ui.add(
+                KeyButton::new(rec_label)
+                    .with_icon(Icon::Mic)
+                    .face(if was_recording {
+                        palette::DANGER
+                    } else {
+                        palette::ORANGE
+                    })
+                    .size(Vec2::new(340.0, 96.0))
+                    .font(24.0),
+            );
             if resp.is_pointer_button_down_on() {
                 holding = true;
             }
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new(self.i18n.t("calibrate.record_hint"))
-                    .color(self.theme.text_secondary)
-                    .size(13.0),
-            );
+            shell::hint(ui, self.i18n.t("calibrate.record_hint"));
 
-            ui.add_space(12.0);
+            ui.add_space(8.0);
             if was_recording {
-                ui.add_sized([300.0, 16.0], egui::ProgressBar::new(progress).fill(ORANGE));
-                ui.add_space(6.0);
-                crate::ui::level_meter(ui, level, 300.0);
+                ui.add_sized(
+                    [340.0, 18.0],
+                    egui::ProgressBar::new(progress).fill(palette::ORANGE),
+                );
+                crate::ui::level_meter(ui, level, 340.0, &self.i18n);
                 if !voiced {
-                    ui.label(
-                        egui::RichText::new("(keep the sound going…)")
-                            .color(self.theme.text_secondary)
-                            .size(12.0),
-                    );
+                    shell::hint(ui, self.i18n.t("calibrate.keep_going"));
                 }
             } else if already {
                 ui.label(
                     egui::RichText::new(format!(
-                        "{} ✓×{}",
+                        "✔ {} ×{}",
                         self.i18n.t("calibrate.recorded"),
                         takes_done
                     ))
-                    .color(Color32::from_rgb(0x3C, 0xB0, 0x4B))
-                    .size(15.0),
+                    .color(palette::OK_GREEN)
+                    .size(18.0),
                 );
-                ui.add_space(4.0);
-                ui.label(
-                    egui::RichText::new(self.i18n.t("calibrate.more_takes"))
-                        .color(self.theme.text_secondary)
-                        .size(13.0),
-                );
-                ui.add_space(4.0);
-                if ui
-                    .add_sized(
-                        [160.0, 28.0],
-                        egui::Button::new(self.i18n.t("calibrate.reset")),
-                    )
-                    .clicked()
-                {
-                    reset = true;
-                }
+                shell::hint(ui, self.i18n.t("calibrate.more_takes"));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    let row_w = 200.0 + 12.0 + 240.0;
+                    ui.add_space(((ui.available_width() - row_w) / 2.0).max(0.0));
+                    if ui
+                        .add(
+                            KeyButton::new(self.i18n.t("calibrate.reset"))
+                                .with_icon(Icon::Refresh)
+                                .size(Vec2::new(200.0, 52.0))
+                                .font(16.0),
+                        )
+                        .clicked()
+                    {
+                        reset = true;
+                    }
+                    let (label, face) = match next_missing {
+                        Some(_) => (self.i18n.t("calibrate.next"), palette::MINT),
+                        None => (self.i18n.t("calibrate.all_done"), palette::MINT),
+                    };
+                    if ui
+                        .add(
+                            KeyButton::new(label)
+                                .with_icon(Icon::Play)
+                                .face(face)
+                                .size(Vec2::new(240.0, 52.0))
+                                .font(17.0),
+                        )
+                        .clicked()
+                    {
+                        match next_missing {
+                            Some(k) => next = Some(k),
+                            None => back = true,
+                        }
+                    }
+                });
             }
-
-            ui.add_space(20.0);
-            ui.allocate_ui_with_layout(
-                egui::vec2(320.0, 44.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    if ui
-                        .add_sized(
-                            [150.0, 44.0],
-                            egui::Button::new(self.i18n.t("calibrate.back")),
-                        )
-                        .clicked()
-                    {
-                        back = true;
-                    }
-                    if ui
-                        .add_sized(
-                            [150.0, 44.0],
-                            egui::Button::new(self.i18n.t("calibrate.cancel")),
-                        )
-                        .clicked()
-                    {
-                        cancel = true;
-                    }
-                },
-            );
         });
 
-        // A click on Back/Cancel shouldn't also count as a hold this frame.
-        if back || cancel {
+        // A click on Back or Next shouldn't also count as a hold this frame.
+        if back || next.is_some() {
             holding = false;
         }
 
@@ -419,15 +427,17 @@ impl App {
             s.captured_rms[i].clear();
             s.takes[i] = 0;
         }
-        if back {
+        if let Some(k) = next {
             if let Some(s) = self.calib.as_mut() {
-                s.selected = None;
+                s.selected = Some(k);
                 s.recording = false;
                 s.current.clear();
             }
-        } else if cancel {
-            self.calib = None;
-            self.screen = AppScreen::Sessions;
+            self.accumulated_samples.clear();
+        } else if back && let Some(s) = self.calib.as_mut() {
+            s.selected = None;
+            s.recording = false;
+            s.current.clear();
         }
     }
 }

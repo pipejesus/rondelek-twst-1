@@ -1,6 +1,7 @@
 mod app;
 mod camera;
 mod i18n;
+mod pixelart;
 mod ui;
 
 use app::App;

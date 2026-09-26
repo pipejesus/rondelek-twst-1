@@ -11,8 +11,8 @@ Under the OS **data** directory (`dirs::data_dir()`), e.g. on macOS
 ```
 profiles/
   <slug>-<short-uid>/            one child
-    profile.json                 { uid, name, avatar, created }
-    avatar.png                   optional, square, 256px
+    profile.json                 { uid, name, avatar, character?, created }
+    avatar.png                   optional photo, square, 256px
     calibration.json             optional, per-child vowel calibration
     sessions/
       2026-07-01_22-11-06/       one practice run (timestamped folder)
@@ -30,6 +30,13 @@ profiles/
   (notes, search).
 - Avatars are always stored square: any uploaded or captured image is centre-cropped
   and resized to 256px (`profile::square_avatar`).
+- Instead of a photo, a child can use a built-in **character**: `character` holds
+  its name (e.g. `"fox"`, see `ui::characters`). A photo and a character replace
+  each other. The field is optional and omitted when unset, so older manifests
+  and older app versions are unaffected.
+- **Deleting** a child (settings page) calls `Profile::move_to_trash`. The whole
+  folder moves to `profiles/.trash/<folder>-<unix secs>/`, which `list_profiles`
+  ignores. Nothing is erased, so a mistake can be undone by moving it back.
 
 ```mermaid
 flowchart TD
@@ -53,7 +60,8 @@ calibrated" — the child is asked to recalibrate. See
 ### Manifests
 
 - **`profile.json`** (`profile::ProfileManifest`): `uid`, `name` (sanitised
-  display name), `avatar` (filename or none), `created`.
+  display name), `avatar` (photo filename or none), `character` (optional
+  built-in avatar name), `created`.
 - **`session.json`** (`session::SessionManifest`): `uid`, `name`, `created`,
   `modified`, and a `pads` vector of `PadEntry { label, file, has_sample }`, always
   normalised to exactly `NUM_SAMPLES` entries.
@@ -98,5 +106,5 @@ with `#[serde(alias = "old_name")]`.
 | Embedded in the binary | On disk (user-owned) |
 |------------------------|----------------------|
 | Fonts, translations, picker flags | Profiles, sessions, recordings (WAV) |
-| Base skin, game shaders, 3D models (GLB) | User settings (JSON), user skins |
+| Base skin, game shaders, 3D models (GLB), character avatars | User settings (JSON), user skins |
 | Pad identities, theme defaults, layout constants (Rust source) | Per-child calibration |

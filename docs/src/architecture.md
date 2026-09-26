@@ -26,12 +26,12 @@ audio callback threads owned by `cpal`.
 2. Pick a repaint policy (below).
 3. Handle global keys (F12 settings, Ctrl+Shift+S screenshot).
 4. Dispatch to the current screen's draw function.
-5. If the F12 `ConfigPanel` is open, draw it and apply its `ConfigOutcome`.
+
 
 **Repaint policy** (see `docs/PERF.md` for why):
 
-- **Animated screens** (`Session`, `Calibrate`, the config panel, the camera, or the
-  screenshot harness): about 30 fps (`request_repaint_after(33 ms)`).
+- **Animated screens** (`Session`, `Calibrate`, `Settings` for its live level
+  meter, the camera, or the screenshot harness): about 30 fps (`request_repaint_after(33 ms)`).
 - **Static screens:** a 100 ms heartbeat. Input events still wake egui immediately.
 - **While a game child is running:** no repaint is requested at all. On Wayland, an
   occluded window with a pending repaint busy-spins a whole core. The focus event
@@ -42,15 +42,15 @@ flowchart TD
     frame[eframe calls App::ui] --> reap[reap game child]
     reap --> keys[global hotkeys]
     keys --> screen{current screen}
-    screen -->|Profiles| p[draw_profiles]
+    screen -->|Home| p[draw_home]
     screen -->|ProfileForm| f[draw_profile_form]
-    screen -->|Sessions| s[draw_sessions]
+    screen -->|Hub| s[draw_hub]
+    screen -->|Settings| st[draw_settings]
     screen -->|Calibrate| c[draw_calibrate + pump_calibration]
     screen -->|Games| gm[draw_games]
     screen -->|Session| g[draw_session]
     g --> audio[maintain_audio + drain_capture]
     audio --> render[draw skinned faceplate + visualizer + pads]
-    screen --> cfg[ConfigPanel::show if visible]
 ```
 
 ## Screen state machine
@@ -60,25 +60,34 @@ and sessions are stored as folders on disk (see [Data model](data-model.md)).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Profiles
-    Profiles --> ProfileForm: New profile
-    Profiles --> Sessions: pick a profile
-    ProfileForm --> Profiles: Cancel (create)
-    ProfileForm --> Sessions: Create / Save / Cancel (edit)
-    Sessions --> ProfileForm: Edit profile
-    Sessions --> Calibrate: Calibrate voice
-    Sessions --> Games: Games
-    Sessions --> Session: open or start a session
-    Sessions --> Profiles: Back
-    Calibrate --> Sessions: Save / Cancel
-    Games --> Sessions: Back
-    Session --> Profiles: Back (header key)
+    [*] --> Home
+    Home --> ProfileForm: + New child
+    Home --> Hub: pick a child
+    ProfileForm --> Home: Cancel (create)
+    ProfileForm --> Hub: Create / Save / Cancel (edit)
+    Hub --> Session: Sounds (continue) / Start with empty pads
+    Hub --> Games: Games
+    Hub --> Calibrate: Voice check
+    Hub --> ProfileForm: edit key
+    Hub --> Home: Back
+    Calibrate --> Hub: Save / Cancel
+    Games --> Calibrate: voice-check nudge
+    Games --> Hub: Back
+    Session --> Hub: Back (header key)
+    Home --> Settings: gear / flag / F12
+    Hub --> Settings: gear / F12
+    Settings --> Home: Back (returns to caller)
 ```
 
-- The **profile form is shared** between "new" and "edit" via `FormMode`. The
-  avatar choice is an `AvatarChoice` (`Keep` / `New(path)` / `Remove`).
-- **Settings** is not a screen. It's the F12 `ConfigPanel` window, drawn over any
-  screen. Its "Recalibrate" action enters `Calibrate`.
+- The profile form is shared between "new" and "edit" via `FormMode`. The
+  avatar choice is an `AvatarChoice` (`Keep` / `New(path)` / `Character(name)` /
+  `Remove`).
+- **Settings** is a screen (`AppScreen::Settings`, the "For grown-ups" page).
+  `open_settings` remembers the screen it came from in `settings_return`, and can
+  scroll straight to a section (the Hub's gear opens the Child card). `F12` toggles
+  it from anywhere.
+- The Hub has no session list: **Sounds** continues the latest session (or starts
+  the first); "Start with empty pads" creates a new one.
 - **Games** spawns `rondelek-game <id> --profile <dir>` from the folder the app's
   own exe is in (`spawn_game`). The app drops its `Capture` first so the game can
   open the microphone. Under `cargo run` (detected by the `CARGO` and
@@ -134,11 +143,13 @@ core/src/
   util/          lerp, UID + timestamp helpers
 app/src/
   main.rs        entry point, window options, --x11, RONDELEK_SIZE
-  app.rs         App struct, screen state machine, per-frame loop, all shell screens
+  app/           App struct + state machine (mod.rs), one file per screen
   camera/        desktop webcam capture (nokhwa)
   i18n/          runtime translations, language list, flags
-  ui/            config panel, skin, layout, pad, renderer, visualizers, level meter, widgets
-  bin/           genskin (base skin), genbanner (README banner), via pixelart.rs
+  ui/            shell kit, settings page, characters, skin, layout, pad, renderer,
+                 visualizers, level meter, widgets
+  bin/           genskin (base skin), genbanner (README banner), genavatars
+                 (character placeholders), via pixelart.rs
 game/src/
   lib.rs         game run loop + text-free control selection screen
   runner.rs      Vowel Runner

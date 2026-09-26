@@ -11,6 +11,7 @@ builds.
 | `eframe` | Application shell + windowing around `egui`. |
 | `egui` | Immediate-mode GUI toolkit — all widgets and the painter. |
 | `winit` | Low-level windowing under `eframe`; used directly only to force XWayland via `--x11` on Linux (`main.rs`). |
+| `egui_kittest` *(dev only)* | Headless UI tests: renders the settings page, clicks controls by AccessKit label (`settings_page::tests`). Never linked into the app. |
 
 ## Audio
 

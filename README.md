@@ -196,7 +196,7 @@ The repo's [`skins/index.json`](skins/index.json) catalogs skins available here.
 | *(REC mode)* hold a pad | record while held; release or `Esc` to stop |
 | *(play mode)* tap a pad | play its sample |
 | button left of REC | cycle the visualizer (spectrum → vowel meter → off) |
-| `F12` | Settings (audio, detection, visualizer, skin & language, calibration) |
+| `F12` | open / close the settings page ("For grown-ups") |
 | `Ctrl+Shift+S` | save a screenshot |
 
 ---
@@ -226,9 +226,9 @@ Useful for testing, demos, and screenshots — they jump straight to a screen an
 |----------|--------|
 | `RONDELEK_LANG=de` | start in a specific language |
 | `RONDELEK_SIZE=640x760` | set the initial window size |
-| `RONDELEK_PROFILE=<dir>` | open a profile's Sessions screen |
+| `RONDELEK_PROFILE=<dir>` | open that child's hub |
 | `RONDELEK_SESSION=<dir>` | jump straight into a session (the sampler) |
-| `RONDELEK_SCREEN=newprofile` \| `editprofile` \| `calibrate` \| `games` | open that screen (all but `newprofile` need `RONDELEK_PROFILE`) |
+| `RONDELEK_SCREEN=newprofile` \| `editprofile` \| `calibrate` \| `games` \| `settings` | open that screen (`editprofile`, `calibrate`, `games` need `RONDELEK_PROFILE`) |
 | `RONDELEK_CALIB_VOWEL=<n>` | with `calibrate`: open vowel *n*'s record screen |
 | `RONDELEK_VIZ=<n>` | select visualizer *n* (0 spectrum, 1 vowels, 2 off) |
 | `RONDELEK_SHOT=<file.png>` | render a few frames, save a screenshot, and exit |
@@ -249,9 +249,11 @@ RONDELEK_SHOT=out.png cargo run --release
 - **Profiles → sessions**, stored as plain folders under your OS data directory
   (`…/rondelek/profiles/<slug>-<id>/`), each with a small JSON manifest and, for
   a profile, an optional square `avatar.png`.
-- **Screens:** *Profiles* → *Sessions* (the child's hub) → the *Sampler*, plus the
-  *Profile form* (name + photo), *Calibrate* (record the six vowels a e i o u y)
-  and *Games*.
+- **Screens:** *Who's playing?* (a tile per child) → the child's *hub* (Sounds,
+  Games, Voice check) → the *Sampler*. Also a *profile form* (name + a character,
+  photo or uploaded picture), the *voice check* (record the six vowels
+  a e i o u y) and one *settings page* for grown-ups. There are no pop-up
+  windows.
 - **Vowel detection** matches the child's voice against their own calibrated
   MFCC templates. The vowel visualizer and the games share it.
 - **Audio is mono end-to-end**, captured at the device rate and resampled on

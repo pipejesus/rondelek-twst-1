@@ -19,7 +19,8 @@ Tracked items intentionally left for later batches.
   already in place to support it).
 - **Notes attached to profiles/sessions** via their UIDs (uids already stored in
   `profile.json` / `session.json`).
-- Profile deletion/archiving from the UI (editing is done).
+- Real artwork for the character avatars (`assets/avatars/`, placeholders now).
+- UI tests beyond the settings page (Home/Hub navigation) with `egui_kittest`.
 
 ## Nice-to-have
 - Per-pad labels (e.g. "ma", "pa") shown on the pads instead of the key letter.

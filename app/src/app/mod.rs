@@ -3,9 +3,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::i18n::{self, EUROPEAN_LANGS, I18n};
+use crate::ui::settings_page::{Section, SettingsPage};
+use crate::ui::shell::{self, Icon, KeyButton, palette};
 use crate::ui::{
-    self, AudioFrame, ConfigPanel, OffVisualizer, Pad, PadMode, Renderer, Skin, SpectrumVisualizer,
-    Visualizer, VowelVisualizer, compute_layout, draw_kid_face, gloss_overlay,
+    self, AudioFrame, OffVisualizer, Pad, PadMode, Renderer, Skin, SpectrumVisualizer, Visualizer,
+    VowelVisualizer, compute_layout, draw_kid_face,
 };
 use rondelek_core::audio::vowel::{self, CalibrationCapture};
 use rondelek_core::audio::{Capture, Playback, Sample, device};
@@ -19,32 +21,46 @@ use rondelek_core::util::now_secs;
 
 mod calibrate;
 mod games;
+mod home;
+mod hub;
 mod profile_form;
-mod profiles;
 mod sampler;
-mod sessions;
+mod settings;
 
 /// Index of the REC control pad within `self.pads` (after the sample pads).
 const REC_PAD_IDX: usize = NUM_SAMPLES;
 
-/// The signature orange, used for primary actions.
-const ORANGE: Color32 = Color32::from_rgb(0xFF, 0x6A, 0x1A);
-
 /// Top-level screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AppScreen {
-    /// Pick or create a child profile (+ language picker).
-    Profiles,
-    /// Create or edit a child profile (name + avatar).
+    /// "Who's playing?": pick or add a child.
+    Home,
+    /// Create or edit a child (name + picture).
     ProfileForm,
-    /// A profile's sessions: resume a past one or start fresh.
-    Sessions,
-    /// Per-child voice calibration for the vowel detector.
+    /// The child's hub: sampler, games, voice check.
+    Hub,
+    /// Per-child voice calibration for the vowel detector ("voice check").
     Calibrate,
     /// The sampler.
     Session,
     /// Voice mini-games menu (each game runs as its own child process).
     Games,
+    /// The grown-ups page: every setting on one page.
+    Settings,
+}
+
+/// A loaded picture (texture + pixel size, for centre-cropping).
+type AvatarTex = (egui::TextureId, [usize; 2]);
+
+/// Enumerated audio devices, refreshed about once a second while the settings
+/// page is open (enumeration is too slow to do every frame).
+#[derive(Default)]
+struct DeviceLists {
+    outputs: Vec<String>,
+    inputs: Vec<String>,
+    output_default: Option<String>,
+    input_default: Option<String>,
+    age: f32,
 }
 
 /// Voiced MFCC frames that count a vowel as "well recorded" (drives the progress
@@ -92,6 +108,8 @@ enum AvatarChoice {
     Keep,
     /// A freshly picked or captured image to import on submit.
     New(PathBuf),
+    /// A built-in character avatar (by name, see `ui::characters`).
+    Character(String),
     /// Edit: clear the avatar back to the default face on submit.
     Remove,
 }
@@ -103,17 +121,22 @@ pub struct App {
     pads: Vec<Pad>,
     theme: Theme,
     skin: Skin,
-    /// Installed skin folder names, refreshed when the config panel opens.
+    /// Installed skin folder names, refreshed when the settings page opens.
     available_skins: Vec<String>,
     visualizers: Vec<Box<dyn Visualizer>>,
     active_visualizer: usize,
-    config_panel: ConfigPanel,
+    settings_page: SettingsPage,
+    /// Where the settings page's back button returns to.
+    settings_return: AppScreen,
+    devices: DeviceLists,
     settings: Settings,
     settings_path: PathBuf,
     i18n: I18n,
 
     screen: AppScreen,
     profiles: Vec<Profile>,
+    /// Which profiles have a valid calibration (by folder), for the badges.
+    calibrated: HashMap<PathBuf, bool>,
     profile_search: String,
     current_profile: Option<Profile>,
     profile_sessions: Vec<SessionInfo>,
@@ -135,13 +158,14 @@ pub struct App {
     game_build: Option<(std::process::Child, String)>,
     /// Last game build/launch problem, shown on the Games screen.
     game_error: Option<String>,
-    /// The current profile's loaded calibration (cached; drives the config
-    /// panel's Calibration tab without re-reading disk each frame).
+    /// The current profile's loaded calibration (cached; drives the settings
+    /// page and the hub badge without re-reading disk each frame).
     current_calibration: Option<vowel::VowelCalibration>,
 
     // Texture caches.
     tex_cache: HashMap<PathBuf, egui::TextureHandle>,
     flag_cache: HashMap<String, egui::TextureHandle>,
+    char_cache: HashMap<String, egui::TextureHandle>,
 
     record_mode: bool,
     recording_active: bool,
@@ -194,6 +218,7 @@ pub(crate) fn color_image_from_bytes(bytes: &[u8]) -> Option<egui::ColorImage> {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         setup_fonts(&cc.egui_ctx);
+        shell::apply_style(&cc.egui_ctx);
 
         let (mut settings, settings_path) = Settings::load();
         if let Ok(lang) = std::env::var("RONDELEK_LANG") {
@@ -239,12 +264,15 @@ impl App {
             available_skins,
             visualizers,
             active_visualizer,
-            config_panel: ConfigPanel::new(),
+            settings_page: SettingsPage::default(),
+            settings_return: AppScreen::Home,
+            devices: DeviceLists::default(),
             settings,
             settings_path,
             i18n,
-            screen: AppScreen::Profiles,
+            screen: AppScreen::Home,
             profiles: Vec::new(),
+            calibrated: HashMap::new(),
             profile_search: String::new(),
             current_profile: None,
             profile_sessions: Vec::new(),
@@ -261,6 +289,7 @@ impl App {
             current_calibration: None,
             tex_cache: HashMap::new(),
             flag_cache: HashMap::new(),
+            char_cache: HashMap::new(),
             record_mode: false,
             recording_active: false,
             recording_sample_idx: 0,
@@ -304,6 +333,9 @@ impl App {
             {
                 s.selected = Some(i.min(vowel::VOWELS.len() - 1));
             }
+        }
+        if std::env::var("RONDELEK_SCREEN").as_deref() == Ok("settings") {
+            app.open_settings(None);
         }
         if let Ok(path) = std::env::var("RONDELEK_SESSION") {
             app.open_session_dir(PathBuf::from(path));
@@ -478,9 +510,22 @@ impl App {
         if !self.samples[sample_idx].has_data {
             return;
         }
-        if let Some(ref mut pb) = self.playback {
-            let rate = self.samples[sample_idx].sample_rate();
-            pb.play(self.samples[sample_idx].buf.clone(), rate);
+        let rate = self.samples[sample_idx].sample_rate();
+        let buf = self.samples[sample_idx].buf.clone();
+        self.play_buffer(buf, rate);
+    }
+
+    /// Play `buf` at the user's volume (`Settings::volume`). The recording on
+    /// disk is never changed; only what goes to the speaker is scaled.
+    fn play_buffer(&mut self, mut buf: Vec<f32>, rate: u32) {
+        let volume = self.settings.volume.clamp(0.0, 1.0);
+        if volume < 1.0 {
+            for s in &mut buf {
+                *s *= volume;
+            }
+        }
+        if let Some(pb) = self.playback.as_mut() {
+            pb.play(buf, rate);
         }
     }
 
@@ -576,26 +621,108 @@ impl App {
 
     // ---- navigation -----------------------------------------------------
 
-    fn refresh_profiles(&mut self) {
-        self.profiles = profile::list_profiles();
+    /// A child's picture as a texture: their photo, else their character,
+    /// else `None` (callers draw the default face).
+    fn avatar_texture(&mut self, ctx: &egui::Context, profile: &Profile) -> Option<AvatarTex> {
+        if let Some(path) = profile.avatar_path() {
+            let id = self.texture_from_path(ctx, &path)?;
+            let size = self.tex_cache.get(&path).map_or([1, 1], |t| t.size());
+            return Some((id, size));
+        }
+        self.character_texture(ctx, profile.character()?)
     }
 
-    fn go_to_profiles(&mut self) {
+    fn character_texture(&mut self, ctx: &egui::Context, name: &str) -> Option<AvatarTex> {
+        if let Some(t) = self.char_cache.get(name) {
+            return Some((t.id(), t.size()));
+        }
+        let ci = color_image_from_bytes(ui::characters::png(name)?)?;
+        let t = ctx.load_texture(format!("char_{name}"), ci, egui::TextureOptions::LINEAR);
+        let out = (t.id(), t.size());
+        self.char_cache.insert(name.to_string(), t);
+        Some(out)
+    }
+
+    fn refresh_profiles(&mut self) {
+        self.profiles = profile::list_profiles();
+        self.calibrated = self
+            .profiles
+            .iter()
+            .map(|p| (p.dir.clone(), p.load_calibration().is_some()))
+            .collect();
+    }
+
+    /// Leave the sampler (saving) without leaving the child.
+    fn close_session(&mut self) {
         self.stop_recording();
         if let Some(session) = self.session.as_ref() {
             let _ = session.save_manifest();
         }
         self.session = None;
+    }
+
+    fn go_home(&mut self) {
+        self.close_session();
         self.current_profile = None;
         self.refresh_profiles();
-        self.screen = AppScreen::Profiles;
+        self.screen = AppScreen::Home;
+    }
+
+    fn go_to_hub(&mut self) {
+        self.close_session();
+        if let Some(p) = self.current_profile.as_ref() {
+            self.profile_sessions = p.list_sessions();
+        }
+        self.screen = AppScreen::Hub;
     }
 
     fn select_profile(&mut self, profile: Profile) {
         self.profile_sessions = profile.list_sessions();
         self.current_profile = Some(profile);
         self.apply_profile_calibration();
-        self.screen = AppScreen::Sessions;
+        self.screen = AppScreen::Hub;
+    }
+
+    /// Open the grown-ups page (optionally scrolled to a section), remembering
+    /// where to come back to.
+    fn open_settings(&mut self, section: Option<Section>) {
+        if self.screen != AppScreen::Settings {
+            self.settings_return = self.screen;
+        }
+        // Rescan so freshly dropped skin zips show up.
+        self.available_skins = ui::skin::discover();
+        self.devices.age = f32::MAX;
+        self.settings_page.scroll_to = section;
+        self.screen = AppScreen::Settings;
+    }
+
+    /// Draw the shared top bar: an optional back key (left) and settings key
+    /// (right). Returns (back clicked, settings clicked).
+    fn top_bar(&self, ui: &mut Ui, full: Rect, back: bool, gear: bool) -> (bool, bool) {
+        let size = 56.0;
+        let y = full.top() + 18.0;
+        let mut out = (false, false);
+        if back {
+            let r = Rect::from_min_size(Pos2::new(full.left() + 20.0, y), Vec2::splat(size));
+            out.0 = ui
+                .put(
+                    r,
+                    KeyButton::icon(Icon::Back, self.i18n.t("common.back")).size(Vec2::splat(size)),
+                )
+                .clicked();
+        }
+        if gear {
+            let r =
+                Rect::from_min_size(Pos2::new(full.right() - 20.0 - size, y), Vec2::splat(size));
+            out.1 = ui
+                .put(
+                    r,
+                    KeyButton::icon(Icon::Gear, self.i18n.t("settings.title"))
+                        .size(Vec2::splat(size)),
+                )
+                .clicked();
+        }
+        out
     }
 
     /// Push the current profile's calibration to the visualizers (or `None` when
@@ -696,21 +823,6 @@ fn trim_rolling(buf: &mut Vec<f32>, rate: u32) {
     }
 }
 
-/// UV rect that samples the centred square of a `size` texture — the equivalent
-/// of CSS `object-fit: cover` into a square target. Drawing a non-square image
-/// into a square rect with this UV centre-crops instead of stretching, matching
-/// what `Profile::set_avatar` stores. Square textures yield the full [0,1] UV.
-fn cover_uv(size: [usize; 2]) -> Rect {
-    let (w, h) = (size[0] as f32, size[1] as f32);
-    if w <= 0.0 || h <= 0.0 {
-        return uv_full();
-    }
-    let side = w.min(h);
-    let ux = (w - side) / 2.0 / w;
-    let uy = (h - side) / 2.0 / h;
-    Rect::from_min_max(Pos2::new(ux, uy), Pos2::new(1.0 - ux, 1.0 - uy))
-}
-
 /// Camera crop guide: a faint full-square outline plus four rounded corner
 /// brackets, marking the centred region that becomes the avatar (matching the
 /// centre-crop applied on save).
@@ -779,9 +891,10 @@ impl eframe::App for App {
         // game closes; add a timer-based reap only if a compositor is found
         // that doesn't (no repaint while hidden is the whole point — see PERF.md).
         if self.game_child.is_none() {
-            let animating = matches!(self.screen, AppScreen::Session | AppScreen::Calibrate)
-                || self.config_panel.visible
-                || self.camera.is_some()
+            let animating = matches!(
+                self.screen,
+                AppScreen::Session | AppScreen::Calibrate | AppScreen::Settings
+            ) || self.camera.is_some()
                 || self.auto_shot.is_some();
             let delay = if animating { 33 } else { 100 };
             ui.ctx()
@@ -789,10 +902,10 @@ impl eframe::App for App {
         }
 
         if ui.input(|i| i.key_pressed(Key::F12)) {
-            self.config_panel.toggle();
-            if self.config_panel.visible {
-                // Rescan on open so freshly dropped skin zips show up.
-                self.available_skins = ui::skin::discover();
+            if self.screen == AppScreen::Settings {
+                self.screen = self.settings_return;
+            } else {
+                self.open_settings(None);
             }
         }
 
@@ -807,68 +920,13 @@ impl eframe::App for App {
         }
 
         match self.screen {
-            AppScreen::Profiles => self.draw_profiles(ui),
+            AppScreen::Home => self.draw_home(ui),
             AppScreen::ProfileForm => self.draw_profile_form(ui),
-            AppScreen::Sessions => self.draw_sessions(ui),
+            AppScreen::Hub => self.draw_hub(ui),
             AppScreen::Calibrate => self.draw_calibrate(ui),
             AppScreen::Session => self.draw_session(ui),
             AppScreen::Games => self.draw_games(ui),
-        }
-
-        if self.config_panel.visible {
-            // Keep the level meter live even on screens that don't drain the mic.
-            if !matches!(self.screen, AppScreen::Session | AppScreen::Calibrate) {
-                let mic = self
-                    .capture
-                    .as_mut()
-                    .map(Capture::drain)
-                    .unwrap_or_default();
-                if !mic.is_empty() {
-                    self.input_peak = mic.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
-                }
-            }
-            let cal_info = crate::ui::CalInfo {
-                calibrated: self.current_calibration.is_some(),
-                created: self.current_calibration.as_ref().map_or(0, |c| c.created),
-                mic: self
-                    .current_calibration
-                    .as_ref()
-                    .and_then(|c| c.input_device.clone()),
-                current_device: self
-                    .capture
-                    .as_ref()
-                    .map(|c| c.current_device().to_string()),
-            };
-            let outcome = self.config_panel.show(
-                ui.ctx(),
-                &mut self.settings,
-                &self.available_skins,
-                &self.i18n,
-                self.input_peak,
-                &cal_info,
-            );
-            if outcome.changed {
-                self.save_settings();
-            }
-            if let Some(code) = outcome.chosen_language {
-                self.set_language(&code);
-                self.save_settings();
-            }
-            if let Some(choice) = outcome.chosen_skin {
-                self.settings.skin = choice;
-                let dir = self
-                    .settings
-                    .skin
-                    .as_ref()
-                    .map(|name| ui::skin::skins_dir().join(name));
-                self.skin = Skin::load(ui.ctx(), dir.as_deref());
-                self.theme = self.skin.theme.clone();
-                self.save_settings();
-            }
-            if outcome.recalibrate {
-                self.config_panel.visible = false;
-                self.begin_calibration();
-            }
+            AppScreen::Settings => self.draw_settings(ui),
         }
 
         self.save_pending_screenshot(ui.ctx());
@@ -885,41 +943,5 @@ impl eframe::App for App {
         if let Some(ref mut pb) = self.playback {
             pb.stop();
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cover_uv_square_is_full() {
-        let uv = cover_uv([256, 256]);
-        assert_eq!(uv.min, Pos2::new(0.0, 0.0));
-        assert_eq!(uv.max, Pos2::new(1.0, 1.0));
-    }
-
-    #[test]
-    fn cover_uv_landscape_crops_horizontally() {
-        // 600x200: keep the centred 200-wide square → u in [1/3, 2/3], full v.
-        let uv = cover_uv([600, 200]);
-        assert!((uv.min.x - 1.0 / 3.0).abs() < 1e-6);
-        assert!((uv.max.x - 2.0 / 3.0).abs() < 1e-6);
-        assert_eq!(uv.min.y, 0.0);
-        assert_eq!(uv.max.y, 1.0);
-    }
-
-    #[test]
-    fn cover_uv_portrait_crops_vertically() {
-        let uv = cover_uv([200, 600]);
-        assert_eq!(uv.min.x, 0.0);
-        assert_eq!(uv.max.x, 1.0);
-        assert!((uv.min.y - 1.0 / 3.0).abs() < 1e-6);
-        assert!((uv.max.y - 2.0 / 3.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn cover_uv_degenerate_is_full() {
-        assert_eq!(cover_uv([0, 0]), uv_full());
     }
 }

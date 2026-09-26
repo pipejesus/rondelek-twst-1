@@ -87,11 +87,7 @@ impl App {
         }
 
         // Header: skinned "back to profiles" key (left).
-        let back_resp = ui.interact(
-            layout.back,
-            egui::Id::new("back_to_profiles"),
-            Sense::click(),
-        );
+        let back_resp = ui.interact(layout.back, egui::Id::new("back_to_hub"), Sense::click());
         draw_cap_button(
             &self.skin,
             &painter,
@@ -100,7 +96,7 @@ impl App {
             &back_resp,
         );
         if back_resp.clicked() {
-            self.go_to_profiles();
+            self.go_to_hub();
             return;
         }
 

@@ -15,6 +15,7 @@ cargo test                   # run tests (all crates)
 cargo clippy --all-targets -- -D warnings  # lint
 cargo fmt --all --check      # format check
 cargo run --bin genskin      # regenerate the built-in base skin (skins/base/)
+cargo run --bin genavatars   # regenerate placeholder character avatars (assets/avatars/)
 ```
 
 `cargo run` only rebuilds the app, but the app launches games by running
@@ -120,14 +121,26 @@ core/src/                 rondelek-core: shared, GUI-toolkit-free
   util/mod.rs             lerp, UID + UTC timestamp helpers
 app/src/                  rondelek: the egui sampler app
   main.rs                 entry point, window options, --x11, RONDELEK_SIZE
-  app.rs                  App struct, AppScreen state machine, all shell screens
+  app/
+    mod.rs                App struct, AppScreen state machine, per-frame loop, audio
+    home.rs               "Who's playing?" (child tiles + new child)
+    hub.rs                the child's hub (sounds / games / voice check) + sessions
+    profile_form.rs       create/edit a child: name, character/photo/upload
+    calibrate.rs          voice check (vowel calibration)
+    games.rs              games menu + launching the game process
+    settings.rs           glue for the grown-ups settings page
+    sampler.rs            the skinned sampler
   i18n/mod.rs             runtime translations, language list, flags
   camera/mod.rs           desktop webcam capture (nokhwa) for avatars
-  pixelart.rs             procedural pixel-art engine for the bin/ generators only
+  pixelart.rs             procedural pixel-art engine (bin/ generators; the app
+                          uses only its 5×7 font for the wordmark)
   bin/genskin.rs          generates skins/base/ (the embedded base skin)
   bin/genbanner.rs        generates docs/images/banner.png
+  bin/genavatars.rs       generates placeholder character avatars
   ui/
-    config_panel.rs       the F12 Settings window (tabs: audio, detection, …)
+    shell.rs              the shell look: palette, egui style, keycap buttons, icons
+    settings_page.rs      the one-page "For grown-ups" settings (+ kittest UI tests)
+    characters.rs         embedded character avatars (assets/avatars/*.png)
     skin.rs               skin loading (skin.png spritesheet + skin.json colours)
     layout.rs             fluid faceplate layout from the live window rect
     pad.rs                sampler pad: state machine, input, drawing (skin caps)
@@ -135,7 +148,7 @@ app/src/                  rondelek: the egui sampler app
     visualizer.rs         Visualizer trait + FFT dot-matrix spectrum
     vowel_visualizer.rs   big detected vowel + per-vowel match meters
     level_meter.rs        input-level bar (calibration, settings)
-    widgets.rs            kid-face placeholder avatar, gloss overlay
+    widgets.rs            kid-face placeholder avatar
 game/src/                 rondelek-game: raylib voice games (child process)
   lib.rs                  run loop, text-free pre-game control selection
   runner.rs               "Vowel Runner" 2.5D game
@@ -145,6 +158,7 @@ assets/
   fonts/                  bundled Space Grotesk (OFL) + licence
   i18n/                   <lang>.json translation files (en is source of truth)
   flags/                  <lang>.png picker flags (public domain, flagcdn)
+  avatars/                <name>.png character avatars (placeholders, replaceable)
   models/                 flat-draw scenery: <name>.glb (+ .meshes.json metadata)
   shaders/                GLSL for the voice games (toon, fog)
 skins/base/               generated base skin (skin.png + skin.json), embedded
@@ -154,14 +168,20 @@ skins/base/               generated base skin (skin.png + skin.json), embedded
 
 - **Profiles → sessions, in a managed library.** One install serves many children.
   The library lives under the OS data dir: `…/rondelek/profiles/<slug>-<uid>/` with a
-  `profile.json` (uid, name, avatar), an optional square `avatar.png`, an optional
+  `profile.json` (uid, name, avatar photo or character), an optional square
+  `avatar.png`, an optional
   `calibration.json`, and `sessions/<YYYY-MM-DD_HH-MM-SS>/`. Each `session.json`
   carries its own uid. Folder names never use the raw name; see `profile::slug` /
   `sanitize_name`.
-- **Screens** (`app.rs`, `AppScreen`): `Profiles` (search + language + cards) →
-  `Sessions` (the child's hub: edit, calibrate, games, resume/new session), plus
-  `ProfileForm` (create/edit, upload or webcam avatar), `Calibrate`, `Games`, and
-  `Session` (the skinned sampler). Settings is the F12 `ConfigPanel` window.
+- **Screens** (`app/`, `AppScreen`): `Home` ("Who's playing?") → `Hub` (Sounds /
+  Games / Voice check) → `Session` (the skinned sampler), plus `ProfileForm`,
+  `Calibrate`, `Games` and `Settings` (the one-page "For grown-ups" settings,
+  opened by the gear keys or F12). Kids never browse session lists: Sounds
+  continues the latest session.
+- **Two looks.** The sampler is drawn from the skin. Every other screen uses the
+  shell kit (`ui/shell.rs`: pastel palette, keycap buttons, vector icons). Use
+  `KeyButton` and friends for new shell UI, not stock egui buttons, and give
+  every clickable an AccessKit label (tests click by label).
 - **Vowel detection** (`core::audio::vowel`): MFCC template matching against the
   child's own six calibrated vowels (a e i o u y). Calibration is required; there
   is no uncalibrated fallback. The sampler's vowel visualizer and the games share
@@ -185,10 +205,10 @@ skins/base/               generated base skin (skin.png + skin.json), embedded
 - Pads: keys `1-4 / Q-R / A-F`; `Space` toggles REC. In REC mode hold a pad to record,
   release (or `Esc`) to stop. In play mode, tap to play.
 - The square button just left of REC cycles the visualizer (spectrum → vowels → off).
-- `F12` Settings · `Ctrl+Shift+S` screenshot.
+- `F12` opens/closes the settings page · `Ctrl+Shift+S` screenshot.
 - Env (testing/kiosk/screenshots): `RONDELEK_LANG=<code>`, `RONDELEK_PROFILE=<dir>`
-  (jump to a profile's Sessions), `RONDELEK_SESSION=<dir>` (jump into a session),
-  `RONDELEK_SCREEN=newprofile|editprofile|calibrate|games`,
+  (jump to a child's hub), `RONDELEK_SESSION=<dir>` (jump into a session),
+  `RONDELEK_SCREEN=newprofile|editprofile|calibrate|games|settings`,
   `RONDELEK_CALIB_VOWEL=<n>` (with `calibrate`: open vowel n), `RONDELEK_SIZE=WxH`,
   `RONDELEK_VIZ=<n>` (visualizer index), `RONDELEK_SHOT=<png>` (capture a few frames
   in and exit). Game: `RONDELEK_GAME_SCREEN=select`, `RONDELEK_GAME_FRAMES=<n>`,
