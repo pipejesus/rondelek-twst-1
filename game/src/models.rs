@@ -413,7 +413,7 @@ mod tests {
     /// A minimal GLB: header + JSON chunk (no binary chunk needed to name).
     fn glb(json: &str) -> Vec<u8> {
         let mut body = json.as_bytes().to_vec();
-        while body.len() % 4 != 0 {
+        while !body.len().is_multiple_of(4) {
             body.push(b' ');
         }
         let mut out = b"glTF".to_vec();
