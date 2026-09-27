@@ -49,6 +49,16 @@ Tracked items intentionally left for later batches.
 - The pre-game control screen and profile picker still use the pastel
   cream→peach look, while the game world is now a bright sunny day. Consider
   bringing them closer.
+- **3D carved vowel letters on the signs — postponed, code parked on branch
+  `feat/3d-vowel-letters` (pushed, not merged).** It already splits one GLB
+  into per-letter props by mesh name (`FlatModel::load_parts`, one draw call
+  each, one shared texture) and draws the signs in 3D: a tablet with the letter
+  on its face. Blocked on art: the first `letters.glb` stacked all six letters
+  in one spot, and the exporter culls faces between overlapping layers, so
+  only the front "A" was whole. Greg will draw new letters (side by side in
+  one file is fine) **and a wooden plate** for them to sit on (instead of the
+  placeholder slab). Also decide upper vs lower case to match the vowel meter
+  and pre-game screen.
 - Obstacles are still procedural pastel blocks; replace with flat-draw art as
   it arrives in `greg/`.
 - `cloud9_rain.glb` is unused (kept for a possible rain variant).
