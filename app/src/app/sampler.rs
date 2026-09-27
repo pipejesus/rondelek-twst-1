@@ -19,11 +19,12 @@ impl App {
         let layout = compute_layout(full_bounds);
         let ctx = ui.ctx().clone();
 
-        // Avatar texture for the header (current profile).
-        let avatar_path = self.current_profile.as_ref().and_then(|p| p.avatar_path());
-        let avatar_id = avatar_path
-            .as_ref()
-            .and_then(|p| self.texture_from_path(&ctx, p));
+        // The header picture: the child's photo or their character (pixel pal
+        // or classic) — the same picture as on their card.
+        let avatar = self
+            .current_profile
+            .clone()
+            .and_then(|p| self.avatar_texture(&ctx, &p));
 
         let painter = ui.painter().clone();
         self.skin.cover(&painter, atlas::BG, full_bounds);
@@ -115,8 +116,8 @@ impl App {
 
         // Header: profile avatar under the skin's frame, flush to the top edge.
         let hole = layout.avatar.shrink(layout.avatar.width() * 0.10);
-        if let Some(id) = avatar_id {
-            painter.image(id, hole, uv_full(), Color32::WHITE);
+        if let Some((id, size)) = avatar {
+            painter.image(id, hole, crate::ui::shell::cover_uv(size), Color32::WHITE);
         } else {
             painter.rect_filled(
                 hole,

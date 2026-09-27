@@ -6,7 +6,7 @@ practice into a game. One installation serves many children through a library of
 **profiles**, each holding **sessions** of recordings on disk.
 
 <p align="center">
-  <img src="images/sampler.png" alt="The sampler faceplate: amber dot-matrix display over a 4x3 grid of keycap pads" width="380">
+  <img src="images/sampler.png" alt="The sampler in its Arcade skin: a neon dot-matrix screen over a 4x3 grid of rainbow pixel keys" width="380">
 </p>
 
 This handbook is for people **working on** Rondelek — how the pieces fit together,

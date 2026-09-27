@@ -13,13 +13,28 @@ Drop the `.zip` (or the unzipped folder) into:
 - Windows: `%APPDATA%\rondelek\skins\`
 - macOS: `~/Library/Application Support/rondelek/skins/`
 
-then pick it in the app: **F12 → Appearance → Skin**. Zips are extracted
-automatically on the next scan.
+then pick it in the app: **For grown-ups (F12) → Look & language → Sampler
+skin**. Zips are extracted automatically on the next scan.
+
+## Built-in skins
+
+Two skins ship inside the app and are always offered, before any installed
+ones:
+
+- **Arcade** (`skins/arcade/`, `cargo run --bin genarcadeskin`): the default.
+  The sampler as the app's arcade machine: a navy cabinet with the stripe trim,
+  a cyan screen well, rainbow pixel keycaps, neon visualizer bars.
+- **Classic** (`skins/base/`, `cargo run --bin genskin`): the original flat,
+  matte plastic look. It is also the **fallback**: a skin that leaves out
+  `skin.png` or `skin.json` gets Classic's.
+
+An installed skin whose folder is named like a built-in (`arcade`, `base`)
+replaces it.
 
 ## Files in a skin
 
 A skin is just **two files**, both optional — anything missing falls back to
-the built-in Base skin:
+the built-in Classic skin:
 
 | File | Size | What it is |
 |---|---|---|
@@ -28,7 +43,8 @@ the built-in Base skin:
 
 Everything the app draws from images lives in `skin.png` at a **fixed set of
 rectangles**, so you design the whole faceplate as one layered file and the
-app slices each element back out. Open `skins/base/skin.png` as your template.
+app slices each element back out. Open `skins/base/skin.png` or
+`skins/arcade/skin.png` as your template.
 
 ### Spritesheet map (1536 × 1280)
 

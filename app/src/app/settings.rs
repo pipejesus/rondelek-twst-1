@@ -99,12 +99,7 @@ impl App {
         }
         if let Some(choice) = outcome.chosen_skin {
             self.settings.skin = choice;
-            let dir = self
-                .settings
-                .skin
-                .as_ref()
-                .map(|name| ui::skin::skins_dir().join(name));
-            self.skin = Skin::load(&ctx, dir.as_deref());
+            self.skin = Skin::load(&ctx, self.settings.skin.as_deref());
             self.theme = self.skin.theme.clone();
             self.save_settings();
         }

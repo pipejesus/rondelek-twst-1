@@ -73,7 +73,8 @@ to `serde` defaults so older manifests keep loading.
 
 Under the OS **config** directory (`dirs::config_dir()`), e.g.
 `~/Library/Application Support/rondelek/settings.json` — a single
-`config::Settings` document: volume, the active `skin`, the visualizer knobs
+`config::Settings` document: volume, the active `skin` (`null` = the default,
+Arcade; `"base"` = Classic; else an installed skin's folder name), the visualizer knobs
 (`visualizer_smoothing` / `_decay` / `_num_bars` / `_floor_db`), the
 vowel-detection knobs (`vowel_voicing_threshold` / `_smoothing` /
 `_show_threshold` / `_margin_threshold` / `vowel_steady`), the

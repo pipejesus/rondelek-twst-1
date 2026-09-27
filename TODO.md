@@ -67,9 +67,10 @@ Tracked items intentionally left for later batches.
 - **Arcade revamp — shell done (2026-09-27).** Next, in Greg's order:
   1. ~~Friendly animal avatars~~: done as the **pixel pals** (`genpixelpals`),
      alongside the classic set.
-  2. **Sampler skins**: expose the (existing, hidden) skin choice in the
-     grown-ups settings, keep the current base skin as the fallback, and make
-     a new showpiece skin ("cartoon studio quality, for free").
+  2. ~~Sampler skins~~: done — built-in **Arcade** skin (the default) next to
+     **Classic** (the fallback), both offered in the grown-ups settings.
+- A **cartoon-toy** sampler skin as a third option (Greg picked arcade first).
+- The skins' in-app online browser (reads `skins/index.json` from GitHub).
 - The shell's vector icons (`shell::Icon`) could become pixel bitmaps too.
 
 ## Nice-to-have

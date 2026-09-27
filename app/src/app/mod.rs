@@ -208,11 +208,7 @@ impl App {
         // Discover first: it extracts any freshly dropped skin zips, which the
         // selected skin may be about to load from.
         let available_skins = ui::skin::discover();
-        let skin_dir = settings
-            .skin
-            .as_ref()
-            .map(|name| ui::skin::skins_dir().join(name));
-        let skin = Skin::load(&cc.egui_ctx, skin_dir.as_deref());
+        let skin = Skin::load(&cc.egui_ctx, settings.skin.as_deref());
         let theme = skin.theme.clone();
 
         let capture_rate = 44100;

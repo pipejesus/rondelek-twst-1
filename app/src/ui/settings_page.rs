@@ -619,11 +619,25 @@ fn look_card(
             .strong(),
     );
     ui.horizontal_wrapped(|ui| {
-        let base = i18n.t("settings.look.skin_base");
-        let mut options: Vec<(Option<&str>, &str)> = vec![(None, base)];
-        options.extend(skins.iter().map(|s| (Some(s.as_str()), s.as_str())));
+        // The built-ins first: Arcade (the default, `None`) and Classic; then
+        // any installed skins, except one that shadows a built-in's name
+        // (it takes that built-in's place instead).
+        let mut options: Vec<(Option<&str>, &str)> = vec![
+            (None, i18n.t("settings.look.skin_arcade")),
+            (Some("base"), i18n.t("settings.look.skin_base")),
+        ];
+        options.extend(
+            skins
+                .iter()
+                .filter(|s| !crate::ui::skin::is_builtin(s))
+                .map(|s| (Some(s.as_str()), s.as_str())),
+        );
+        let chosen = match settings.skin.as_deref() {
+            Some(crate::ui::skin::DEFAULT_SKIN) => None,
+            other => other,
+        };
         for (value, label) in options {
-            let on = settings.skin.as_deref() == value;
+            let on = chosen == value;
             if KeyButton::new(label)
                 .face(if on { CHOSEN } else { SURFACE })
                 .selected(on)

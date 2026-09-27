@@ -2,10 +2,18 @@
   "format": 1,
   "skins": [
     {
-      "id": "base",
-      "name": "Base",
+      "id": "arcade",
+      "name": "Arcade",
       "author": "Rondelek",
-      "description": "Flat matte plastic in the EP-133 spirit: neutral light keys with printed labels, one orange accent for REC. Built into the app.",
+      "description": "The sampler as the app's arcade machine: a navy cabinet with 80s stripe trim, a cyan screen well, rainbow pixel keycaps with embossed letters, neon visualizer bars. Built into the app; the default.",
+      "dir": "skins/arcade",
+      "screenshot": "skins/arcade/screenshot.png"
+    },
+    {
+      "id": "base",
+      "name": "Classic",
+      "author": "Rondelek",
+      "description": "Flat matte plastic in the EP-133 spirit: neutral light keys with printed labels, one orange accent for REC. Built into the app; the fallback for any file another skin leaves out.",
       "dir": "skins/base",
       "screenshot": "skins/base/screenshot.png"
     }
