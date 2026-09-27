@@ -65,8 +65,8 @@ Tracked items intentionally left for later batches.
 
 ## App look
 - **Arcade revamp — shell done (2026-09-27).** Next, in Greg's order:
-  1. **Friendly animal avatars**, redone vivid / arcade-friendly
-     (`cargo run --bin genavatars`, `assets/avatars/`).
+  1. ~~Friendly animal avatars~~: done as the **pixel pals** (`genpixelpals`),
+     alongside the classic set.
   2. **Sampler skins**: expose the (existing, hidden) skin choice in the
      grown-ups settings, keep the current base skin as the fallback, and make
      a new showpiece skin ("cartoon studio quality, for free").

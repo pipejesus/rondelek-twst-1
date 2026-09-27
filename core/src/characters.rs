@@ -11,6 +11,42 @@
 //! back to the drawn default face).
 
 pub const CHARACTERS: &[(&str, &[u8])] = &[
+    // The pixel pals (`cargo run --bin genpixelpals`): vivid 32×32 pixel art in
+    // the arcade look, listed first so they lead the picker.
+    (
+        "pixel-fox",
+        include_bytes!("../../assets/avatars/pixel-fox.png"),
+    ),
+    (
+        "pixel-cat",
+        include_bytes!("../../assets/avatars/pixel-cat.png"),
+    ),
+    (
+        "pixel-bear",
+        include_bytes!("../../assets/avatars/pixel-bear.png"),
+    ),
+    (
+        "pixel-frog",
+        include_bytes!("../../assets/avatars/pixel-frog.png"),
+    ),
+    (
+        "pixel-owl",
+        include_bytes!("../../assets/avatars/pixel-owl.png"),
+    ),
+    (
+        "pixel-bunny",
+        include_bytes!("../../assets/avatars/pixel-bunny.png"),
+    ),
+    (
+        "pixel-robot",
+        include_bytes!("../../assets/avatars/pixel-robot.png"),
+    ),
+    (
+        "pixel-dino",
+        include_bytes!("../../assets/avatars/pixel-dino.png"),
+    ),
+    // The classic set (`cargo run --bin genavatars`), kept: existing profiles
+    // use these names.
     ("fox", include_bytes!("../../assets/avatars/fox.png")),
     ("cat", include_bytes!("../../assets/avatars/cat.png")),
     ("bear", include_bytes!("../../assets/avatars/bear.png")),
@@ -20,6 +56,11 @@ pub const CHARACTERS: &[(&str, &[u8])] = &[
     ("robot", include_bytes!("../../assets/avatars/robot.png")),
     ("dino", include_bytes!("../../assets/avatars/dino.png")),
 ];
+
+/// Whether `name` is pixel art (best shown with nearest-neighbour scaling).
+pub fn is_pixel(name: &str) -> bool {
+    name.starts_with("pixel-")
+}
 
 /// The embedded PNG for character `name`, if it exists.
 pub fn png(name: &str) -> Option<&'static [u8]> {

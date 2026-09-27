@@ -88,8 +88,13 @@ check), `games.rs`, `settings.rs` (glue for the settings page) and `sampler.rs`.
 ### Character avatars
 
 `rondelek_core::characters` (`core/src/characters.rs`, shared with the games'
-profile picker) embeds `assets/avatars/<name>.png`, generated placeholders from
-`cargo run --bin genavatars`. Profiles store the character's *name*
+profile picker) embeds `assets/avatars/<name>.png`. There are two sets, both
+offered in the picture picker: the **pixel pals** (`pixel-fox`, `pixel-cat`, …;
+vivid 32×32 pixel art in the arcade look, from `cargo run --bin genpixelpals`,
+listed first) and the **classic** smooth set (`fox`, `cat`, …, from
+`cargo run --bin genavatars`). The app scales pixel pals with mipmaps and
+nearest-neighbour magnification (`characters::is_pixel`), so their pixels stay
+square. Profiles store the character's *name*
 (`ProfileManifest::character`), so replacing a PNG updates every profile using it.
 See `assets/avatars/README.md`.
 

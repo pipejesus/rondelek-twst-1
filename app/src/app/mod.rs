@@ -616,7 +616,18 @@ impl App {
             return Some((t.id(), t.size()));
         }
         let ci = color_image_from_bytes(ui::characters::png(name)?)?;
-        let t = ctx.load_texture(format!("char_{name}"), ci, egui::TextureOptions::LINEAR);
+        // Pixel art: sharp when enlarged, mipmapped when shrunk (a card shows
+        // the 256-px sprite at ~150 px), so the pixels stay square and even.
+        let options = if ui::characters::is_pixel(name) {
+            egui::TextureOptions {
+                magnification: egui::TextureFilter::Nearest,
+                mipmap_mode: Some(egui::TextureFilter::Linear),
+                ..egui::TextureOptions::LINEAR
+            }
+        } else {
+            egui::TextureOptions::LINEAR
+        };
+        let t = ctx.load_texture(format!("char_{name}"), ci, options);
         let out = (t.id(), t.size());
         self.char_cache.insert(name.to_string(), t);
         Some(out)

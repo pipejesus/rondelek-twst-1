@@ -15,7 +15,8 @@ cargo test                   # run tests (all crates)
 cargo clippy --all-targets -- -D warnings  # lint
 cargo fmt --all --check      # format check
 cargo run --bin genskin      # regenerate the built-in base skin (skins/base/)
-cargo run --bin genavatars   # regenerate placeholder character avatars (assets/avatars/)
+cargo run --bin genavatars   # regenerate the classic character avatars (assets/avatars/)
+cargo run --bin genpixelpals # regenerate the pixel-art "pixel pals" (assets/avatars/pixel-*.png)
 cargo run --bin genicon      # regenerate the app icon (assets/icon/rondelek.png)
 cargo run --bin genarcade    # regenerate the README's arcade frames + marquee (docs/images/arcade/)
 docs/images/arcade/record-runner.sh  # re-record the README's gameplay GIF (Linux: Xvfb, xdotool, ffmpeg)
@@ -173,7 +174,8 @@ app/src/                  rondelek: the egui sampler app
                           uses only its 5×7 font for the wordmark)
   bin/genskin.rs          generates skins/base/ (the embedded base skin)
   bin/genbanner.rs        generates docs/images/banner.png
-  bin/genavatars.rs       generates placeholder character avatars
+  bin/genavatars.rs       generates the classic (smooth) character avatars
+  bin/genpixelpals.rs     generates the vivid 32×32 pixel-art avatars (pixel-*)
   bin/genicon.rs          generates assets/icon/rondelek.png (window + AppImage icon)
   bin/genarcade.rs        generates docs/images/arcade/ (README marquee + framed shots)
   ui/
