@@ -182,27 +182,6 @@ pub struct App {
     auto_shot: Option<(PathBuf, u64)>,
 }
 
-/// Install the bundled Space Grotesk (OFL) font as the default proportional and
-/// monospace family. egui's default fonts remain as fallback so Cyrillic/Greek
-/// (Ukrainian, Russian, …) still render.
-fn setup_fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        "space_grotesk".to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-            "../../../assets/fonts/SpaceGrotesk.ttf"
-        ))),
-    );
-    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-        fonts
-            .families
-            .entry(family)
-            .or_default()
-            .insert(0, "space_grotesk".to_owned());
-    }
-    ctx.set_fonts(fonts);
-}
-
 fn color_image_from_path(path: &Path) -> Option<egui::ColorImage> {
     let img = image::open(path).ok()?.to_rgba8();
     let size = [img.width() as usize, img.height() as usize];
@@ -217,7 +196,7 @@ pub(crate) fn color_image_from_bytes(bytes: &[u8]) -> Option<egui::ColorImage> {
 
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        setup_fonts(&cc.egui_ctx);
+        shell::install_fonts(&cc.egui_ctx);
         shell::apply_style(&cc.egui_ctx);
 
         let (mut settings, settings_path) = Settings::load();

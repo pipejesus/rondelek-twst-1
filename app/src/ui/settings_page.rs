@@ -172,12 +172,11 @@ fn section(
     which: Section,
     body: impl FnOnce(&mut Ui),
 ) {
-    let resp = shell::card_frame()
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.with_layout(egui::Layout::top_down(Align::Min), body);
-        })
-        .response;
+    let resp = shell::card(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.with_layout(egui::Layout::top_down(Align::Min), body);
+    })
+    .response;
     if *scroll_to == Some(which) {
         resp.scroll_to_me(Some(Align::TOP));
         *scroll_to = None;
@@ -189,17 +188,21 @@ fn section(
 fn card_header(ui: &mut Ui, icon: Icon, title: &str, scope: &str) {
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(30.0), egui::Sense::hover());
-        shell::draw_icon(ui.painter(), icon, rect, CHARCOAL);
-        ui.label(RichText::new(title).size(22.0).strong());
+        shell::draw_icon(ui.painter(), icon, rect, BUTTER);
+        ui.label(
+            RichText::new(title)
+                .font(shell::pixel_font(27.0))
+                .color(BUTTER),
+        );
         ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-            ui.label(RichText::new(scope).size(13.0).color(STONE));
+            ui.label(RichText::new(scope).size(13.0).color(TEXT_DIM));
         });
     });
     ui.add_space(4.0);
 }
 
 fn explain(ui: &mut Ui, text: &str) {
-    ui.label(RichText::new(text).size(14.0).color(STONE));
+    ui.label(RichText::new(text).size(14.0).color(TEXT_DIM));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -249,7 +252,7 @@ fn child_card(
                     i18n.t("settings.child.calibrated"),
                     human_time(when)
                 ))
-                .color(OK_GREEN),
+                .color(OK),
             );
             if let (Some(cal_mic), Some(cur)) = (child.calibration_mic, current_input)
                 && cal_mic != cur
@@ -370,7 +373,7 @@ fn sound_card(
             .changed();
         if KeyButton::new(i18n.t("settings.sound.test"))
             .with_icon(Icon::Play)
-            .face(MINT)
+            .face(OK)
             .size(Vec2::new(200.0, 44.0))
             .font(15.0)
             .show(ui)
@@ -571,7 +574,7 @@ fn look_card(
             resp.widget_info(|| {
                 egui::WidgetInfo::labeled(egui::WidgetType::Button, true, lang.endonym)
             });
-            let face = if on { BUTTER } else { PAPER };
+            let face = if on { CHOSEN } else { SURFACE };
             let pressed = resp.is_pointer_button_down_on();
             let face_rect = shell::draw_keycap(ui.painter(), rect, face, resp.hovered(), pressed);
             if on {
@@ -601,7 +604,7 @@ fn look_card(
                 egui::Align2::LEFT_CENTER,
                 lang.endonym,
                 egui::FontId::proportional(15.0),
-                CHARCOAL,
+                shell::ink_on(face),
             );
             if resp.clicked() && !on {
                 out.chosen_language = Some(lang.code.to_string());
@@ -622,7 +625,7 @@ fn look_card(
         for (value, label) in options {
             let on = settings.skin.as_deref() == value;
             if KeyButton::new(label)
-                .face(if on { BUTTER } else { PAPER })
+                .face(if on { CHOSEN } else { SURFACE })
                 .selected(on)
                 .size(Vec2::new(180.0, 46.0))
                 .font(15.0)
@@ -781,10 +784,19 @@ mod tests {
             .with_size(Vec2::new(900.0, 4000.0))
             .build_ui_state(
                 move |ui, s: &mut State| {
+                    // The page uses the app's fonts (the pixel family); they
+                    // take effect a frame after installing, so the first
+                    // frame only sets them up.
+                    if !shell::fonts_installed(ui.ctx()) {
+                        shell::install_fonts(ui.ctx());
+                        shell::apply_style(ui.ctx());
+                        ui.ctx().request_repaint();
+                        return;
+                    }
                     let child = s.with_child.then_some(ChildInfo {
                         name: "Maya",
                         avatar: None,
-                        tile: SKY,
+                        tile: BLUE,
                         calibrated_at: None,
                         calibration_mic: None,
                     });

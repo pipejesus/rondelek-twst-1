@@ -154,6 +154,8 @@ core/src/                 rondelek-core: shared, GUI-toolkit-free
   session/mod.rs          Session folder model + session.json manifest (incl. uid)
   games.rs                registry of voice games (id + i18n name key)
   util/mod.rs             lerp, UID + UTC timestamp helpers
+  arcade.rs               the arcade look's shared data: palette, child colours,
+                          pixel icon + vowel bitmaps (app shell and games)
 app/src/                  rondelek: the egui sampler app
   main.rs                 entry point, window options, --x11, RONDELEK_SIZE
   app/
@@ -175,7 +177,8 @@ app/src/                  rondelek: the egui sampler app
   bin/genicon.rs          generates assets/icon/rondelek.png (window + AppImage icon)
   bin/genarcade.rs        generates docs/images/arcade/ (README marquee + framed shots)
   ui/
-    shell.rs              the shell look: palette, egui style, keycap buttons, icons
+    shell.rs              the arcade shell kit: palette, fonts, egui style,
+                          starfield + stripes, keycaps, panels, pixel text/icons
     settings_page.rs      the one-page "For grown-ups" settings (+ kittest UI tests)
     characters.rs         re-exports rondelek_core::characters
     skin.rs               skin loading (skin.png spritesheet + skin.json colours)
@@ -227,9 +230,13 @@ packaging/appimage/       Linux AppImage: AppRun (app / --game), desktop entry,
   opened by the gear keys or F12). Kids never browse session lists: Sounds
   continues the latest session.
 - **Two looks.** The sampler is drawn from the skin. Every other screen uses the
-  shell kit (`ui/shell.rs`: pastel palette, keycap buttons, vector icons). Use
-  `KeyButton` and friends for new shell UI, not stock egui buttons, and give
-  every clickable an AccessKit label (tests click by label).
+  shell kit (`ui/shell.rs`), in the **arcade style** shared with the games'
+  entrance screens (palette + pixel bitmaps in `core::arcade`): navy night,
+  notched keycaps, pixel titles (Tiny5) for kid-facing words, Space Grotesk for
+  grown-up text, bold pixel vowels. **Vibrant, never pastel** (Greg's call), but
+  calm: bright accents on the deep navy. Use `KeyButton` and friends for new
+  shell UI, not stock egui buttons, and give every clickable an AccessKit label
+  (tests click by label).
 - **Vowel detection** (`core::audio::vowel`): MFCC template matching against the
   child's own six calibrated vowels (a e i o u y). Calibration is required; there
   is no uncalibrated fallback. The sampler's vowel visualizer and the games share

@@ -8,6 +8,7 @@ impl App {
     pub(super) fn draw_settings(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         shell::background(ui.painter(), full);
+        let full = shell::inside_stripes(full);
         let ctx = ui.ctx().clone();
         let dt = ui.input(|i| i.unstable_dt);
 
@@ -27,12 +28,14 @@ impl App {
         }
 
         let (back, _) = self.top_bar(ui, full, true, false);
-        ui.painter().text(
-            Pos2::new(full.center().x, full.top() + 46.0),
+        shell::pixel_text(
+            ui.painter(),
+            Pos2::new(full.center().x, full.top() + 50.0),
             Align2::CENTER_CENTER,
             self.i18n.t("settings.title"),
-            egui::FontId::proportional(30.0),
-            palette::CHARCOAL,
+            36.0,
+            palette::BUTTER,
+            Some(palette::INK),
         );
         if back {
             self.screen = self.settings_return;

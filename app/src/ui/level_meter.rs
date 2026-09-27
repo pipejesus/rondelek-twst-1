@@ -39,9 +39,9 @@ impl MicLevel {
 
     fn color(self) -> Color32 {
         match self {
-            MicLevel::TooQuiet => Color32::from_rgb(0x9A, 0x9A, 0x9A),
-            MicLevel::Ok => Color32::from_rgb(0x3C, 0xB0, 0x4B),
-            MicLevel::Clipping => Color32::from_rgb(0xD6, 0x3A, 0x2E),
+            MicLevel::TooQuiet => crate::ui::shell::palette::MIST,
+            MicLevel::Ok => crate::ui::shell::palette::GREEN,
+            MicLevel::Clipping => crate::ui::shell::palette::RED,
         }
     }
 }
@@ -52,8 +52,15 @@ pub fn level_meter(ui: &mut egui::Ui, peak: f32, width: f32, i18n: &crate::i18n:
     let state = classify_peak(peak);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 18.0), Sense::hover());
     let painter = ui.painter();
-    let radius = egui::CornerRadius::same(9);
-    painter.rect_filled(rect, radius, Color32::from_rgb(0xE8, 0xDD, 0xCF));
+    // An arcade well: ink outline, dark inside, the level in square pixels.
+    let radius = 0.0;
+    crate::ui::shell::notched(
+        painter,
+        rect.expand(3.0),
+        3.0,
+        crate::ui::shell::palette::INK,
+    );
+    painter.rect_filled(rect, radius, crate::ui::shell::palette::WELL);
     let fill_w = rect.width() * peak.clamp(0.0, 1.0);
     if fill_w > 0.5 {
         let fill = egui::Rect::from_min_size(rect.min, Vec2::new(fill_w, rect.height()));

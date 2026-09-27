@@ -16,29 +16,32 @@
 
 use raylib::prelude::*;
 
-// ---- palette (genarcade's, plus vivid tile colours) -------------------------
+// ---- palette: rondelek_core::arcade's, as raylib colours ----------------------
 
-pub const NIGHT: Color = Color::new(0x1D, 0x1A, 0x3A, 255);
-pub const NIGHT_HI: Color = Color::new(0x2E, 0x2A, 0x5C, 255);
-pub const NIGHT_LO: Color = Color::new(0x12, 0x10, 0x27, 255);
-pub const INK: Color = Color::new(0x0A, 0x09, 0x17, 255);
-pub const ORANGE: Color = Color::new(0xFF, 0x6A, 0x1A, 255);
-pub const BUTTER: Color = Color::new(0xFF, 0xD8, 0x4A, 255);
-pub const PINK: Color = Color::new(0xFF, 0x4F, 0xA3, 255);
-pub const CYAN: Color = Color::new(0x3F, 0xE0, 0xFF, 255);
-pub const CREAM: Color = Color::new(0xFF, 0xF3, 0xE8, 255);
-pub const GREEN: Color = Color::new(0x3F, 0xD6, 0x7A, 255);
+use rondelek_core::arcade as data;
 
-/// A child's card colour, vivid versions of the app's pastel tile colours in
-/// the same order (sky, lilac, butter, mint, rose), so a child keeps their
-/// colour family everywhere. A touch deeper than full neon, so a row of them
-/// stays pleasant to look at.
+const fn rgb(c: data::Rgb) -> Color {
+    Color::new(c[0], c[1], c[2], 255)
+}
+
+pub const NIGHT: Color = rgb(data::NIGHT);
+pub const NIGHT_HI: Color = rgb(data::NIGHT_HI);
+pub const NIGHT_LO: Color = rgb(data::NIGHT_LO);
+pub const INK: Color = rgb(data::INK);
+pub const ORANGE: Color = rgb(data::ORANGE);
+pub const BUTTER: Color = rgb(data::BUTTER);
+pub const PINK: Color = rgb(data::PINK);
+pub const CYAN: Color = rgb(data::CYAN);
+pub const CREAM: Color = rgb(data::CREAM);
+pub const GREEN: Color = rgb(data::GREEN);
+
+/// A child's card colour (see `rondelek_core::arcade::TILE_COLORS`).
 pub const TILE_COLORS: [Color; 5] = [
-    Color::new(0x3A, 0xA8, 0xF0, 255), // sky → bright blue
-    Color::new(0x9A, 0x6B, 0xF2, 255), // lilac → violet
-    Color::new(0xF7, 0xC8, 0x3A, 255), // butter → sunflower
-    Color::new(0x35, 0xC7, 0x7E, 255), // mint → green
-    Color::new(0xF2, 0x5C, 0x9A, 255), // rose → pink
+    rgb(data::TILE_COLORS[0]),
+    rgb(data::TILE_COLORS[1]),
+    rgb(data::TILE_COLORS[2]),
+    rgb(data::TILE_COLORS[3]),
+    rgb(data::TILE_COLORS[4]),
 ];
 
 /// Lighten (`amount` > 0) or darken (< 0) a colour toward white/black.
@@ -196,91 +199,14 @@ pub fn stripes(d: &mut impl RaylibDraw, w: f32, h: f32, p: f32) {
 
 // ---- pixel icons -----------------------------------------------------------------
 
-/// A pixel bitmap, one string per row, `#` = filled.
-pub type Bitmap = &'static [&'static str];
-
-pub const ICON_UP: Bitmap = &["...#...", "..###..", ".#####.", "#######"];
-pub const ICON_DOWN: Bitmap = &["#######", ".#####.", "..###..", "...#..."];
-pub const ICON_STAR: Bitmap = &[
-    "...#...", "..###..", "#######", ".#####.", "..###..", ".##.##.", ".#...#.",
-];
-pub const ICON_PLAY: Bitmap = &[
-    "#....", "##...", "###..", "####.", "###..", "##...", "#....",
-];
-pub const ICON_HEART: Bitmap = &[
-    ".##.##.", "#######", "#######", ".#####.", "..###..", "...#...",
-];
-pub const ICON_CHECK: Bitmap = &[
-    "......#", ".....##", "#...##.", "##.##..", ".###...", "..#....",
-];
-pub const ICON_MIC: Bitmap = &[
-    "..###..", ".#####.", ".#####.", ".#####.", "#.###.#", "#.....#", ".#####.", "...#...",
-    "..###..",
-];
-/// A bold "?" (two-pixel strokes), for the "who's playing?" title: Tiny5's own
-/// "?" is one pixel thin and falls apart under a drop shadow at this size.
-pub const ICON_QUESTION: Bitmap = &[
-    ".#####.", "##...##", ".....##", "....##.", "...##..", "...##..", ".......", "...##..",
-    "...##..",
-];
-pub const ICON_CURSOR: Bitmap = &["#####", ".###.", "..#.."];
-pub const ICON_TURTLE: Bitmap = &[
-    "....####......",
-    "..########....",
-    ".##########.##",
-    "##############",
-    ".#.#....#.#...",
-];
-pub const ICON_RABBIT: Bitmap = &[
-    "..#.#....",
-    "..#.#....",
-    "..#.#....",
-    ".####....",
-    ".#####...",
-    ".########",
-    "#########",
-    ".########",
-    "..#...#..",
-];
-
-/// The six vowels as bold lowercase pixel letters (two-pixel strokes). Tiny5's
-/// own lowercase is a five-pixel design that turns ambiguous when blown up
-/// ("a" reads as "d"), and these are the letters a child is learning, so they
-/// get unmistakable shapes of their own. Each comes with its baseline row, so
-/// "i" (dot above) and "y" (tail below) line up with the rest.
-pub fn vowel_glyph(label: &str) -> Option<(Bitmap, usize)> {
-    const A: Bitmap = &[
-        ".####..", ".....##", ".######", "##...##", "##...##", ".######",
-    ];
-    const E: Bitmap = &[
-        ".#####.", "##...##", "#######", "##.....", "##.....", ".######",
-    ];
-    const I: Bitmap = &[
-        ".##.", "....", "###.", ".##.", ".##.", ".##.", ".##.", "####",
-    ];
-    const O: Bitmap = &[
-        ".#####.", "##...##", "##...##", "##...##", "##...##", ".#####.",
-    ];
-    const U: Bitmap = &[
-        "##...##", "##...##", "##...##", "##...##", "##..###", ".###.##",
-    ];
-    const Y: Bitmap = &[
-        "##...##", "##...##", "##...##", "##...##", "##...##", ".######", ".....##", "##...##",
-        ".#####.",
-    ];
-    Some(match label {
-        "a" => (A, 6),
-        "e" => (E, 6),
-        "i" => (I, 8),
-        "o" => (O, 6),
-        "u" => (U, 6),
-        "y" => (Y, 6),
-        _ => return None,
-    })
-}
+// The icon and vowel bitmaps are shared data in `rondelek_core::arcade`.
+pub use data::{
+    Bitmap, ICON_CHECK, ICON_CURSOR, ICON_DOWN, ICON_MIC, ICON_PLAY, ICON_QUESTION, ICON_RABBIT,
+    ICON_STAR, ICON_TURTLE, ICON_UP, vowel_glyph,
+};
 
 /// Height of the vowels' x-height in bitmap rows (what "letter size" means).
-pub const VOWEL_ROWS: f32 = 6.0;
+pub const VOWEL_ROWS: f32 = data::VOWEL_ROWS as f32;
 
 /// Draw a vowel from [`vowel_glyph`] centred on `cx`, sitting on `baseline`.
 /// Unknown labels draw nothing.
@@ -295,10 +221,8 @@ pub fn vowel(d: &mut impl RaylibDraw, label: &str, cx: f32, baseline: f32, px: f
 
 /// Size of a bitmap in bitmap pixels.
 pub fn bitmap_size(b: Bitmap) -> (f32, f32) {
-    (
-        b.iter().map(|r| r.len()).max().unwrap_or(0) as f32,
-        b.len() as f32,
-    )
+    let (w, h) = data::bitmap_size(b);
+    (w as f32, h as f32)
 }
 
 /// Draw a bitmap centred at `(cx, cy)`, each bitmap pixel `px` real pixels.
@@ -427,41 +351,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bitmaps_are_rectangular() {
-        for b in [
-            ICON_UP,
-            ICON_DOWN,
-            ICON_STAR,
-            ICON_PLAY,
-            ICON_HEART,
-            ICON_CHECK,
-            ICON_MIC,
-            ICON_QUESTION,
-            ICON_CURSOR,
-            ICON_TURTLE,
-            ICON_RABBIT,
-        ] {
-            let w = b[0].len();
-            assert!(b.iter().all(|r| r.len() == w), "ragged bitmap {b:?}");
-            assert!(b.iter().all(|r| r.chars().all(|c| c == '#' || c == '.')));
-        }
-    }
-
-    #[test]
-    fn every_vowel_has_a_glyph_on_a_shared_baseline() {
-        for v in ["a", "e", "i", "o", "u", "y"] {
-            let (b, base) = vowel_glyph(v).unwrap_or_else(|| panic!("no glyph for {v}"));
-            let w = b[0].len();
-            assert!(b.iter().all(|r| r.len() == w), "ragged {v}");
-            // The x-height part (the VOWEL_ROWS rows above the baseline) is
-            // inked on its top and bottom row, so all six line up.
-            let top = base - VOWEL_ROWS as usize;
-            assert!(b[top].contains('#') && b[base - 1].contains('#'), "{v}");
-        }
-        assert!(vowel_glyph("x").is_none());
-    }
-
-    #[test]
     fn pixel_unit_is_whole_and_never_below_two() {
         assert_eq!(pixel_unit(1.0), 4.0);
         assert_eq!(pixel_unit(0.2), 2.0);
@@ -474,18 +363,6 @@ mod tests {
         for ch in "ŁŻółćЯринаÏ…?A~".chars() {
             assert!(set.contains(ch), "missing {ch}");
         }
-    }
-
-    #[test]
-    fn tile_colours_keep_the_apps_order() {
-        // Same families, same order as the app's ui::shell::TILE_COLORS
-        // [SKY, LILAC, BUTTER, MINT, ROSE]: blue, violet, yellow, green, pink.
-        let [blue, violet, yellow, green, pink] = TILE_COLORS;
-        assert!(blue.b > blue.r && blue.b > blue.g);
-        assert!(violet.b > violet.g && violet.r > violet.g);
-        assert!(yellow.r > yellow.b && yellow.g > yellow.b);
-        assert!(green.g > green.r && green.g > green.b);
-        assert!(pink.r > pink.g && pink.r > pink.b);
     }
 
     #[test]

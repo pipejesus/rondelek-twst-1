@@ -33,7 +33,8 @@ its shaders are tuned.
 
 The two screens before play, "who's playing?" (`profile_picker.rs`) and the
 control screen (`select_controls` in `lib.rs`), share the 8-bit "chrome" of the
-README's pictures, from `game/src/arcade.rs`:
+README's pictures (and, since, the app's shell), from `game/src/arcade.rs`, which
+draws with the shared data in `rondelek_core::arcade`:
 
 - **Palette**: `genarcade`'s (navy night, orange, butter, pink, cyan, cream)
   plus vivid card colours, `arcade::TILE_COLORS`. A child keeps their colour

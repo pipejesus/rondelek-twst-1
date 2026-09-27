@@ -121,6 +121,7 @@ impl App {
     pub(super) fn draw_calibrate_overview(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         shell::background(ui.painter(), full);
+        let full = shell::inside_stripes(full);
 
         let takes: Vec<u32> = self
             .calib
@@ -173,15 +174,12 @@ impl App {
                         );
                         let letter = vowel::VOWELS[i].label();
                         let face = if is_done {
-                            palette::MINT
+                            palette::OK
                         } else {
-                            palette::PAPER
+                            palette::SURFACE
                         };
                         if ui
-                            .put(
-                                r,
-                                KeyButton::new(letter).face(face).size(r.size()).font(54.0),
-                            )
+                            .put(r, KeyButton::vowel(letter).face(face).size(r.size()))
                             .clicked()
                         {
                             open = Some(i);
@@ -191,7 +189,7 @@ impl App {
                                 ui.painter(),
                                 r.right_top() + Vec2::new(-10.0, 10.0),
                                 14.0,
-                                palette::OK_GREEN,
+                                palette::OK,
                                 Icon::Check,
                             );
                             let n = takes.get(i).copied().unwrap_or(0);
@@ -201,7 +199,7 @@ impl App {
                                     Align2::LEFT_CENTER,
                                     format!("×{n}"),
                                     egui::FontId::proportional(15.0),
-                                    palette::CHARCOAL,
+                                    palette::INK,
                                 );
                             }
                         }
@@ -262,6 +260,7 @@ impl App {
     pub(super) fn draw_calibrate_record(&mut self, ui: &mut Ui, i: usize) {
         let full = ui.max_rect();
         shell::background(ui.painter(), full);
+        let full = shell::inside_stripes(full);
 
         let (was_recording, count, level, voiced, already, takes_done, next_missing) = self
             .calib
@@ -300,16 +299,17 @@ impl App {
         ui.vertical_centered(|ui| {
             ui.add_space(24.0);
             shell::hint(ui, self.i18n.t("calibrate.say"));
-            // The vowel, big, on a butter disc.
-            let (disc, _) = ui.allocate_exact_size(Vec2::splat(170.0), Sense::hover());
-            ui.painter()
-                .circle_filled(disc.center(), 82.0, palette::BUTTER);
-            ui.painter().text(
-                disc.center() + Vec2::new(0.0, -6.0),
-                Align2::CENTER_CENTER,
+            // The vowel, big, on a butter plate.
+            let (plate, _) = ui.allocate_exact_size(Vec2::splat(170.0), Sense::hover());
+            shell::panel(ui.painter(), plate, shell::PX, palette::BUTTER);
+            let px = 12.0;
+            shell::pixel_vowel(
+                ui.painter(),
                 target.label(),
-                egui::FontId::proportional(110.0),
-                palette::CHARCOAL,
+                plate.center().x,
+                plate.center().y + px * 3.0,
+                px,
+                palette::INK,
             );
             ui.add_space(16.0);
 
@@ -351,7 +351,7 @@ impl App {
                         self.i18n.t("calibrate.recorded"),
                         takes_done
                     ))
-                    .color(palette::OK_GREEN)
+                    .color(palette::OK)
                     .size(18.0),
                 );
                 shell::hint(ui, self.i18n.t("calibrate.more_takes"));
@@ -371,8 +371,8 @@ impl App {
                         reset = true;
                     }
                     let (label, face) = match next_missing {
-                        Some(_) => (self.i18n.t("calibrate.next"), palette::MINT),
-                        None => (self.i18n.t("calibrate.all_done"), palette::MINT),
+                        Some(_) => (self.i18n.t("calibrate.next"), palette::OK),
+                        None => (self.i18n.t("calibrate.all_done"), palette::OK),
                     };
                     if ui
                         .add(

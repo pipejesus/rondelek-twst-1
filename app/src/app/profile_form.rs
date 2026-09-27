@@ -190,6 +190,7 @@ impl App {
     pub(super) fn draw_profile_form(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         shell::background(ui.painter(), full);
+        let full = shell::inside_stripes(full);
         let ctx = ui.ctx().clone();
 
         let (back, _) = self.top_bar(ui, full, true, false);
@@ -233,8 +234,8 @@ impl App {
                 ui.add_space(12.0);
                 let width = (ui.available_width() - 40.0).min(720.0);
                 ui.allocate_ui(Vec2::new(width, 0.0), |ui| {
-                    shell::card_frame().show(ui, |ui| {
-                        ui.set_width(width - 44.0);
+                    shell::card(ui, |ui| {
+                        ui.set_width(width - 48.0);
                         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
                         // Picture + name.
                         ui.horizontal(|ui| {
@@ -379,16 +380,22 @@ fn character_key(
 ) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(92.0), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
-    if selected {
-        ui.painter().rect_stroke(
-            rect.expand(4.0),
-            egui::CornerRadius::same(22),
-            egui::Stroke::new(3.5, palette::ORANGE),
-            egui::StrokeKind::Outside,
-        );
+    if selected || resp.hovered() {
+        let c = if selected {
+            palette::CYAN
+        } else {
+            palette::MIST
+        };
+        shell::highlight(ui.painter(), rect, shell::PX, c);
     }
     let pressed = resp.is_pointer_button_down_on();
-    let face = shell::draw_keycap(ui.painter(), rect, palette::PAPER, resp.hovered(), pressed);
-    shell::paint_avatar(ui, face.shrink(6.0), tex, palette::PAPER, theme);
+    let face = shell::draw_keycap(
+        ui.painter(),
+        rect,
+        palette::SURFACE,
+        resp.hovered(),
+        pressed,
+    );
+    shell::paint_avatar(ui, face.shrink(4.0), tex, palette::SURFACE, theme);
     resp
 }

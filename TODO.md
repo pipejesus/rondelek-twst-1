@@ -64,8 +64,13 @@ Tracked items intentionally left for later batches.
   `float[16]` rlgl expects). We work around it with `transpose()`.
 
 ## App look
-- **8-bit pixel-art revamp of the app** (the style of the README's arcade
-  pictures) — planned by Greg, deliberately not started yet.
+- **Arcade revamp — shell done (2026-09-27).** Next, in Greg's order:
+  1. **Friendly animal avatars**, redone vivid / arcade-friendly
+     (`cargo run --bin genavatars`, `assets/avatars/`).
+  2. **Sampler skins**: expose the (existing, hidden) skin choice in the
+     grown-ups settings, keep the current base skin as the fallback, and make
+     a new showpiece skin ("cartoon studio quality, for free").
+- The shell's vector icons (`shell::Icon`) could become pixel bitmaps too.
 
 ## Nice-to-have
 - Per-pad labels (e.g. "ma", "pa") shown on the pads instead of the key letter.

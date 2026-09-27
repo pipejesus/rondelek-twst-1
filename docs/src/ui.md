@@ -48,21 +48,35 @@ widgets, almost entirely from the **skin** spritesheet:
 ## The shell (every screen except the sampler)
 
 Everything outside the sampler (Home, Hub, profile form, voice check, games menu,
-settings page) is drawn with the **shell kit** in `ui/shell.rs`: a cream→peach
-gradient, pastel tiles, charcoal ink, one orange accent. (The games have since
-moved on: their entrance screens use a vivid 8-bit arcade look and Vowel Runner's
-world a sunny-day palette, see [Voice games](games.md). The app is planned to
-follow; see `TODO.md`.)
+settings page) is drawn with the **shell kit** in `ui/shell.rs`, in the **arcade
+style** shared with the games' entrance screens and the README pictures: a navy
+night with a slowly twinkling starfield and 80s stripe bands, chunky notched
+keycaps with a hard ink outline and a bevel, pixel titles, and vivid colours that
+sit calmly on the deep navy.
+
+The palette and the pixel bitmaps (icons, and the six bold lowercase vowels) are
+data in **`rondelek_core::arcade`**, shared with the game's raylib kit
+(`game/src/arcade.rs`), so the app and the games can't drift apart. A child's
+card colour comes from there too (`tile_color(uid)`), identical everywhere.
+
+**Two fonts, by audience.** Kid-facing words (titles, big keys, names) use the
+**Tiny5** pixel font (`pixel_font`, the `pixel` family; sizes snap to multiples
+of 9 so it stays crisp). Grown-up body text (descriptions, hints, form labels)
+stays in Space Grotesk, which reads better in sentences. The vowels are never
+set in the pixel font's lowercase, which turns ambiguous at size; they are drawn
+from their own bitmaps (`pixel_vowel`, `KeyButton::vowel`).
 
 | Piece | Role |
 |-------|------|
-| `apply_style` | Forces egui's **light** theme and restyles its stock widgets (text fields, sliders, combo boxes) to match. Without it egui follows the OS and paints dark widgets. |
-| `background` | The cream→peach gradient behind every shell screen. |
-| `draw_keycap`, `KeyButton` | Chunky keycap buttons (face on a darker lip, sinks when pressed) with an optional vector icon. `KeyButton` implements `egui::Widget`. |
-| `segmented` | A row of keycaps acting as radio buttons (presets, visualizer choice). |
-| `paint_avatar`, `badge`, `tile_color` | Rounded avatar (photo, character or drawn face), status badges, and each child's stable pastel colour. |
+| `install_fonts`, `apply_style` | Space Grotesk + Tiny5 (`pixel` family); egui's **dark** theme restyled for its stock widgets (navy surfaces, cream text, square corners). |
+| `background`, `stripes`, `inside_stripes` | The night sky + stars (twinkling on the app's slow idle repaint, no extra frames), and the stripe bands, painted on a layer above the page so scrolling content slides under them. Screens lay out inside `inside_stripes`. |
+| `draw_keycap`, `KeyButton` | Arcade keycaps: hard shadow, ink outline, a bevelled face on a dark lip that sinks when pressed. Labels in the pixel font; `KeyButton::vowel` draws a pixel vowel. `KeyButton` implements `egui::Widget`. |
+| `segmented` | A row of keycaps acting as radio buttons; the chosen one is butter and framed. |
+| `notched`, `panel`, `highlight`, `card` | The 8-bit shapes: corner-cut rectangles, bevelled panels, the cyan "this one" frame (a line and an ink gap), and a card around ui content. |
+| `paint_avatar`, `badge`, `tile_color` | Avatar in an ink-framed well (photo, character or drawn face), square status badges, each child's colour. |
+| `pixel_text`, `pixel_icon`, `pixel_vowel` | Pixel text with an optional hard shadow; the shared bitmaps. |
 | `Icon`, `draw_icon` | Vector icons (back, gear, mic, pads, star, …), with no icon font needed. |
-| `card_frame`, `title`, `hint`, `pixel_wordmark` | Cards, headings and the 5×7 pixel "RONDELEK" wordmark (glyphs from `pixelart.rs`). |
+| `title`, `hint`, `pixel_wordmark` | Butter pixel headings over an ink shadow, dim secondary text, the 5×7 "RONDELEK" wordmark. |
 
 Every clickable shell widget reports an **AccessKit label**, which is what the
 settings page's UI tests use to find and click controls.
@@ -89,9 +103,11 @@ See `assets/avatars/README.md`.
   the sampler still drawn procedurally (visualizers, LEDs, text): `theme_light()`
   defaults, overridden by the skin's `skin.json`. The shell screens use the fixed
   `shell::palette` instead, so a sampler skin never makes the menus unreadable.
-- **Font**: Space Grotesk (OFL) is embedded in the binary and installed as the
-  default proportional + monospace family; `egui`'s default fonts remain as a
-  fallback so Cyrillic/Greek still render.
+- **Fonts**: Space Grotesk (OFL) is embedded and installed as the default
+  proportional + monospace family, with `egui`'s default fonts as fallback so
+  Cyrillic/Greek still render. Tiny5 (OFL, pixel) is the `pixel` family for the
+  shell's kid-facing words; it covers every shipped language itself.
+  (`shell::install_fonts`; the settings page's UI tests install them too.)
 
 ## Internationalization
 

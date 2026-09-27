@@ -1,5 +1,6 @@
-//! "Who's playing?": the start screen. Big avatar tiles, one per child, plus a
-//! "+" tile. Grown-up things (language, settings) sit in small corner keys.
+//! "Who's playing?": the start screen. Big arcade cards, one per child (their
+//! colour, their picture, their name on a dark plate), plus a "+" card.
+//! Grown-up things (language, settings) sit in small corner keys.
 
 use super::*;
 
@@ -10,6 +11,7 @@ impl App {
     pub(super) fn draw_home(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         shell::background(ui.painter(), full);
+        let full = shell::inside_stripes(full);
         let ctx = ui.ctx().clone();
 
         // Top bar: pixel wordmark (left), language + settings keys (right).
@@ -18,7 +20,7 @@ impl App {
             Pos2::new(full.left() + 28.0, full.top() + 46.0),
             "RONDELEK",
             4.0,
-            palette::CHARCOAL,
+            palette::BUTTER,
         );
         let (_, open_settings) = self.top_bar(ui, full, false, true);
         let lang_rect = Rect::from_min_size(
@@ -37,8 +39,7 @@ impl App {
             let face = lang_rect
                 .shrink2(Vec2::new(12.0, 14.0))
                 .translate(Vec2::new(0.0, -3.0));
-            ui.painter()
-                .rect_filled(face.expand(2.0), 6.0, palette::PAPER);
+            shell::notched(ui.painter(), face.expand(3.0), 3.0, palette::INK);
             ui.painter().image(id, face, uv_full(), Color32::WHITE);
         }
         if open_settings {
@@ -94,7 +95,7 @@ impl App {
                 let tile_w = 176.0f32;
                 let cols = (((avail + gap) / (tile_w + gap)).floor() as usize).max(1);
                 let grid_w = cols as f32 * tile_w + (cols - 1) as f32 * gap;
-                let tile = Vec2::new(tile_w, tile_w + 46.0);
+                let tile = Vec2::new(tile_w, tile_w + 56.0);
                 let count = visible.len() + 1; // + the "new child" tile
                 let rows = count.div_ceil(cols);
                 for row in 0..rows {
@@ -131,8 +132,9 @@ impl App {
         }
     }
 
-    /// One child: their picture on their colour, name underneath, and a small
-    /// voice-check badge for the grown-ups.
+    /// One child: an arcade card in their colour, their picture in an
+    /// ink-framed well, their name in pixel letters on a dark plate, and a
+    /// small voice-check badge for the grown-ups.
     fn child_tile(
         &self,
         ui: &mut Ui,
@@ -148,28 +150,31 @@ impl App {
         });
         let face_color = shell::tile_color(&profile.manifest.uid);
         let pressed = resp.is_pointer_button_down_on();
+        if resp.hovered() {
+            shell::highlight(ui.painter(), rect, shell::PX, palette::CYAN);
+        }
         let face = shell::draw_keycap(ui.painter(), rect, face_color, resp.hovered(), pressed);
-        let pic = Rect::from_min_size(
-            face.min + Vec2::new(14.0, 14.0),
-            Vec2::splat(face.width() - 28.0),
-        );
+        let (pic, plate) = card_layout(face);
         shell::paint_avatar(ui, pic, avatar, face_color, &self.theme);
-        ui.painter().text(
-            Pos2::new(face.center().x, (pic.bottom() + face.bottom()) / 2.0),
+        shell::notched(ui.painter(), plate, shell::PX, palette::WELL);
+        shell::pixel_text(
+            ui.painter(),
+            plate.center(),
             Align2::CENTER_CENTER,
-            truncate(profile.name(), 16),
-            egui::FontId::proportional(20.0),
-            palette::CHARCOAL,
+            &truncate(profile.name(), 14),
+            18.0,
+            palette::TEXT,
+            Some(palette::INK),
         );
         let calibrated = self.calibrated.get(&profile.dir).copied().unwrap_or(false);
         let (fill, icon) = if calibrated {
-            (palette::OK_GREEN, Icon::Check)
+            (palette::OK, Icon::Check)
         } else {
             (palette::BUTTER, Icon::Mic)
         };
         shell::badge(
             ui.painter(),
-            pic.right_top() + Vec2::new(-6.0, 6.0),
+            pic.right_top() + Vec2::new(-8.0, 8.0),
             15.0,
             fill,
             icon,
@@ -182,32 +187,47 @@ impl App {
         let resp = ui.interact(rect, ui.id().with("new_child_tile"), Sense::click());
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
         let pressed = resp.is_pointer_button_down_on();
-        let face = shell::draw_keycap(ui.painter(), rect, palette::PAPER, resp.hovered(), pressed);
-        let pic = Rect::from_min_size(
-            face.min + Vec2::new(14.0, 14.0),
-            Vec2::splat(face.width() - 28.0),
+        if resp.hovered() {
+            shell::highlight(ui.painter(), rect, shell::PX, palette::CYAN);
+        }
+        let face = shell::draw_keycap(
+            ui.painter(),
+            rect,
+            palette::SURFACE,
+            resp.hovered(),
+            pressed,
         );
-        ui.painter().rect_stroke(
-            pic,
-            egui::CornerRadius::same(28),
-            egui::Stroke::new(3.0, shell::shade(palette::PEACH, -0.2)),
-            egui::StrokeKind::Inside,
-        );
+        let (pic, plate) = card_layout(face);
+        shell::notched(ui.painter(), pic, shell::PX, palette::WELL);
         shell::draw_icon(
             ui.painter(),
             Icon::Plus,
             Rect::from_center_size(pic.center(), Vec2::splat(pic.width() * 0.45)),
-            palette::STONE,
+            palette::BUTTER,
         );
-        ui.painter().text(
-            Pos2::new(face.center().x, (pic.bottom() + face.bottom()) / 2.0),
+        shell::pixel_text(
+            ui.painter(),
+            plate.center(),
             Align2::CENTER_CENTER,
             label,
-            egui::FontId::proportional(18.0),
-            palette::STONE,
+            18.0,
+            palette::TEXT_DIM,
+            None,
         );
         resp
     }
+}
+
+/// Inside a card's face: the square picture well, and the name plate below.
+fn card_layout(face: Rect) -> (Rect, Rect) {
+    let pad = 10.0;
+    let side = face.width() - 2.0 * pad;
+    let pic = Rect::from_min_size(face.min + Vec2::splat(pad), Vec2::splat(side));
+    let plate = Rect::from_min_max(
+        Pos2::new(face.left() + pad, pic.bottom() + 8.0),
+        Pos2::new(face.right() - pad, face.bottom() - 6.0),
+    );
+    (pic, plate)
 }
 
 /// Shorten long names for tiles ("Alexandrina Maria" → "Alexandrina Ma…").

@@ -1,46 +1,75 @@
 //! The "shell" look: everything outside the skinned sampler (who's playing,
 //! the child's hub, games menu, profile form, calibration, grown-ups page).
 //!
-//! It borrows the pre-game screen's visual language: a cream→peach gradient,
-//! soft pastel tiles, charcoal ink, one orange accent. Buttons are drawn as
-//! chunky keycaps (a face on a darker lip that sinks when pressed), so the
-//! shell feels like the same toy as the sampler. Every clickable widget here
-//! reports an AccessKit label, which is also how the UI tests find it.
+//! **Arcade style**, the same 8-bit "chrome" as the games' entrance screens and
+//! the README pictures: a navy night with a slowly twinkling starfield and 80s
+//! stripe bands, chunky notched keycaps with a hard ink outline and a bevel,
+//! pixel titles in the Tiny5 font, vivid colours that sit calmly on the deep
+//! navy. The palette and the pixel bitmaps are shared with the game through
+//! `rondelek_core::arcade`, so the app and the games can't drift apart.
+//!
+//! Kid-facing words (titles, big keys, names) are in the **pixel font**;
+//! grown-up body text (descriptions, hints) stays in Space Grotesk, which
+//! reads better in sentences. Every clickable widget reports an AccessKit
+//! label, which is also how the UI tests find it.
 
 use egui::{
-    Align2, Color32, CornerRadius, FontId, Mesh, Painter, Pos2, Rect, Response, Sense, Shape,
-    Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType,
+    Align2, Color32, CornerRadius, FontFamily, FontId, Mesh, Painter, Pos2, Rect, Response, Sense,
+    Shape, Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType,
 };
+use rondelek_core::arcade as data;
 
-// ---- palette -------------------------------------------------------------
+// ---- palette ---------------------------------------------------------------
 
-/// Pastels shared with the game's pre-game screen (`game/src/lib.rs`).
+/// The arcade palette (`rondelek_core::arcade`) as egui colours, plus the
+/// roles the screens use.
 pub mod palette {
     use egui::Color32;
-    pub const CREAM: Color32 = Color32::from_rgb(251, 242, 228);
-    pub const PEACH: Color32 = Color32::from_rgb(246, 220, 198);
-    pub const MINT: Color32 = Color32::from_rgb(198, 229, 211);
-    pub const ROSE: Color32 = Color32::from_rgb(245, 169, 188);
-    pub const LILAC: Color32 = Color32::from_rgb(201, 184, 232);
-    pub const SKY: Color32 = Color32::from_rgb(169, 212, 239);
-    pub const BUTTER: Color32 = Color32::from_rgb(245, 226, 158);
-    pub const CHARCOAL: Color32 = Color32::from_rgb(74, 68, 60);
-    pub const STONE: Color32 = Color32::from_rgb(140, 124, 115);
-    pub const PAPER: Color32 = Color32::from_rgb(255, 252, 247);
-    pub const ORANGE: Color32 = Color32::from_rgb(0xFF, 0x6A, 0x1A);
-    pub const DANGER: Color32 = Color32::from_rgb(0xD6, 0x3A, 0x2E);
-    pub const OK_GREEN: Color32 = Color32::from_rgb(0x3C, 0xB0, 0x4B);
+    use rondelek_core::arcade as data;
+
+    const fn rgb(c: data::Rgb) -> Color32 {
+        Color32::from_rgb(c[0], c[1], c[2])
+    }
+
+    pub const NIGHT: Color32 = rgb(data::NIGHT);
+    pub const NIGHT_HI: Color32 = rgb(data::NIGHT_HI);
+    pub const NIGHT_LO: Color32 = rgb(data::NIGHT_LO);
+    pub const INK: Color32 = rgb(data::INK);
+    pub const ORANGE: Color32 = rgb(data::ORANGE);
+    pub const BUTTER: Color32 = rgb(data::BUTTER);
+    pub const PINK: Color32 = rgb(data::PINK);
+    pub const CYAN: Color32 = rgb(data::CYAN);
+    pub const CREAM: Color32 = rgb(data::CREAM);
+    pub const GREEN: Color32 = rgb(data::GREEN);
+    pub const MIST: Color32 = rgb(data::MIST);
+    pub const RED: Color32 = rgb(data::RED);
+    /// The card colours by name (`data::TILE_COLORS`).
+    pub const BLUE: Color32 = rgb(data::TILE_COLORS[0]);
+    pub const VIOLET: Color32 = rgb(data::TILE_COLORS[1]);
+    pub const SUNFLOWER: Color32 = rgb(data::TILE_COLORS[2]);
+
+    // Roles.
+    /// Main text on the night.
+    pub const TEXT: Color32 = CREAM;
+    /// Secondary text (hints, captions).
+    pub const TEXT_DIM: Color32 = MIST;
+    /// Raised surfaces: cards, plain keys.
+    pub const SURFACE: Color32 = NIGHT_HI;
+    /// Sunken wells: text fields, slider rails, name plates.
+    pub const WELL: Color32 = NIGHT_LO;
+    /// The one "do it" colour (Create, Save, Play).
+    pub const ACCENT: Color32 = ORANGE;
+    /// "Chosen" (the selected option in a group).
+    pub const CHOSEN: Color32 = BUTTER;
+    pub const OK: Color32 = GREEN;
+    pub const DANGER: Color32 = RED;
 }
 use palette::*;
 
-/// Tile colours, picked per child so each one gets "their" colour. The game's
-/// profile picker uses the same order (`game/src/profile_picker.rs`), so a
-/// child's colour matches everywhere.
-const TILE_COLORS: [Color32; 5] = [SKY, LILAC, BUTTER, MINT, ROSE];
-
-/// A stable pastel for `seed` (e.g. a profile uid).
+/// A child's stable colour, from their uid (same as in the games).
 pub fn tile_color(seed: &str) -> Color32 {
-    TILE_COLORS[rondelek_core::util::stable_pick(seed, TILE_COLORS.len())]
+    let [r, g, b] = data::tile_color(seed);
+    Color32::from_rgb(r, g, b)
 }
 
 /// Mix toward white (`amount > 0`) or black (`amount < 0`).
@@ -51,27 +80,157 @@ pub fn shade(c: Color32, amount: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(mix(c.r()), mix(c.g()), mix(c.b()), c.a())
 }
 
-/// Charcoal or white, whichever reads better on `bg`.
+/// Ink (near-black) or cream, whichever reads better on `bg`.
 pub fn ink_on(bg: Color32) -> Color32 {
     let lum = 0.299 * bg.r() as f32 + 0.587 * bg.g() as f32 + 0.114 * bg.b() as f32;
-    if lum < 150.0 {
-        Color32::WHITE
-    } else {
-        CHARCOAL
+    if lum < 140.0 { CREAM } else { INK }
+}
+
+// ---- the pixel grid & font ----------------------------------------------------
+
+/// One 8-bit "pixel" of the shell's chrome, in points.
+pub const PX: f32 = 3.0;
+
+/// The pixel font family (Tiny5, installed in `App::new`'s font setup).
+pub fn pixel_family() -> FontFamily {
+    FontFamily::Name("pixel".into())
+}
+
+/// Tiny5 at a crisp size: its glyphs sit on a 9-row grid, so sizes snap to
+/// whole multiples of 9 points (2× = 18, 3× = 27, …).
+pub fn pixel_font(size: f32) -> FontId {
+    let k = (size / 9.0).round().max(1.0);
+    FontId::new(k * 9.0, pixel_family())
+}
+
+/// Pixel text with an optional hard drop shadow (one font pixel down-right).
+#[allow(clippy::too_many_arguments)]
+pub fn pixel_text(
+    p: &Painter,
+    pos: Pos2,
+    align: Align2,
+    text: &str,
+    size: f32,
+    color: Color32,
+    shadow: Option<Color32>,
+) -> Rect {
+    let font = pixel_font(size);
+    let k = font.size / 9.0;
+    if let Some(sh) = shadow {
+        p.text(pos + Vec2::splat(k), align, text, font.clone(), sh);
+    }
+    p.text(pos, align, text, font, color)
+}
+
+/// Draw a shared pixel bitmap centred on `center`, each bitmap pixel `px` points.
+pub fn pixel_icon(p: &Painter, b: data::Bitmap, center: Pos2, px: f32, color: Color32) {
+    let (w, h) = data::bitmap_size(b);
+    let origin = center - Vec2::new(w as f32, h as f32) * px / 2.0;
+    for (col, row) in data::bitmap_cells(b) {
+        let r = Rect::from_min_size(
+            origin + Vec2::new(col as f32, row as f32) * px,
+            Vec2::splat(px),
+        );
+        p.rect_filled(r, 0.0, color);
     }
 }
 
-// ---- global style --------------------------------------------------------
+/// One of the six vowels as a bold pixel letter (`rondelek_core::arcade::
+/// vowel_glyph`), centred on `cx`, sitting on `baseline`.
+pub fn pixel_vowel(p: &Painter, label: &str, cx: f32, baseline: f32, px: f32, color: Color32) {
+    let Some((b, base)) = data::vowel_glyph(label) else {
+        return;
+    };
+    let (_, h) = data::bitmap_size(b);
+    let top = baseline - base as f32 * px;
+    pixel_icon(p, b, Pos2::new(cx, top + h as f32 * px / 2.0), px, color);
+}
 
-/// A light, roomy egui style for the shell's ordinary widgets (text fields,
-/// sliders, combo boxes). Forces the light theme: egui otherwise follows the
-/// OS and paints dark widgets onto our cream screens.
+// ---- shapes ---------------------------------------------------------------------
+
+/// A rectangle with its four corner pixels cut off — the 8-bit rounded corner.
+pub fn notched(p: &Painter, r: Rect, px: f32, c: Color32) {
+    p.rect_filled(r.shrink2(Vec2::new(px, 0.0)), 0.0, c);
+    p.rect_filled(r.shrink2(Vec2::new(0.0, px)), 0.0, c);
+}
+
+/// An arcade panel: ink outline, then `face` with a light top-left bevel and a
+/// dark bottom-right one.
+pub fn panel(p: &Painter, r: Rect, px: f32, face: Color32) {
+    notched(p, r, px, INK);
+    let inner = r.shrink(px);
+    notched(p, inner, px, shade(face, -0.35));
+    notched(
+        p,
+        Rect::from_min_max(inner.min, inner.max - Vec2::splat(px)),
+        px,
+        shade(face, 0.3),
+    );
+    notched(p, inner.shrink(px), px, face);
+}
+
+/// The "this one" frame around `r`: a coloured line and an ink gap (like the
+/// cabinet's screen well). Draw before the thing it frames.
+pub fn highlight(p: &Painter, r: Rect, px: f32, c: Color32) {
+    notched(p, r.expand(3.0 * px), px, c);
+    notched(p, r.expand(px), px, INK);
+}
+
+// ---- fonts -----------------------------------------------------------------
+
+/// Install the app's fonts: Space Grotesk (OFL) as the default proportional and
+/// monospace family, with egui's defaults behind it as fallback (Cyrillic,
+/// Greek, …), and Tiny5 (OFL) as the `pixel` family for kid-facing titles and
+/// keys — it covers every shipped language, the regular fonts back it up.
+pub fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "space_grotesk".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../../../assets/fonts/SpaceGrotesk.ttf"
+        ))),
+    );
+    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .insert(0, "space_grotesk".to_owned());
+    }
+    fonts.font_data.insert(
+        "tiny5".to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../../../assets/fonts/Tiny5-Regular.ttf"
+        ))),
+    );
+    let mut pixel = vec!["tiny5".to_owned()];
+    pixel.extend(
+        fonts
+            .families
+            .get(&FontFamily::Proportional)
+            .cloned()
+            .unwrap_or_default(),
+    );
+    fonts.families.insert(pixel_family(), pixel);
+    ctx.set_fonts(fonts);
+}
+
+/// Whether [`install_fonts`] has taken effect (fonts apply from the next frame).
+#[cfg(test)]
+pub fn fonts_installed(ctx: &egui::Context) -> bool {
+    ctx.fonts(|f| f.definitions().families.contains_key(&pixel_family()))
+}
+
+// ---- global style --------------------------------------------------------------
+
+/// The dark arcade style for egui's own widgets (text fields, sliders, combo
+/// boxes, scroll bars): navy surfaces, cream text, square corners.
 pub fn apply_style(ctx: &egui::Context) {
-    ctx.set_theme(egui::ThemePreference::Light);
+    ctx.set_theme(egui::ThemePreference::Dark);
     ctx.all_styles_mut(|style| {
         use egui::{FontFamily::Proportional, TextStyle};
         style.text_styles = [
-            (TextStyle::Heading, FontId::new(28.0, Proportional)),
+            (TextStyle::Heading, pixel_font(27.0)),
             (TextStyle::Body, FontId::new(17.0, Proportional)),
             (TextStyle::Button, FontId::new(17.0, Proportional)),
             (TextStyle::Small, FontId::new(13.0, Proportional)),
@@ -88,19 +247,26 @@ pub fn apply_style(ctx: &egui::Context) {
         style.spacing.combo_width = 280.0;
 
         let v = &mut style.visuals;
-        *v = egui::Visuals::light();
-        v.override_text_color = Some(CHARCOAL);
-        v.panel_fill = CREAM;
-        v.window_fill = PAPER;
-        v.extreme_bg_color = PAPER; // text-edit background
-        v.faint_bg_color = shade(PEACH, 0.5);
-        v.selection.bg_fill = shade(ORANGE, 0.55);
-        v.selection.stroke = Stroke::new(1.5, ORANGE);
-        v.hyperlink_color = ORANGE;
-        v.window_corner_radius = CornerRadius::same(16);
-        v.menu_corner_radius = CornerRadius::same(12);
-        v.window_stroke = Stroke::new(1.0, shade(PEACH, -0.1));
-        let radius = CornerRadius::same(10);
+        *v = egui::Visuals::dark();
+        v.override_text_color = Some(TEXT);
+        v.panel_fill = NIGHT;
+        v.window_fill = SURFACE;
+        v.extreme_bg_color = WELL; // text-edit background
+        v.faint_bg_color = shade(NIGHT_HI, 0.05);
+        v.code_bg_color = WELL;
+        v.selection.bg_fill = shade(ORANGE, -0.2);
+        v.selection.stroke = Stroke::new(2.0, BUTTER);
+        v.hyperlink_color = CYAN;
+        v.text_cursor.stroke = Stroke::new(2.0, BUTTER);
+        v.window_corner_radius = CornerRadius::ZERO;
+        v.menu_corner_radius = CornerRadius::ZERO;
+        v.window_stroke = Stroke::new(3.0, INK);
+        v.popup_shadow = egui::epaint::Shadow {
+            offset: [6, 6],
+            blur: 0,
+            spread: 0,
+            color: Color32::from_black_alpha(140),
+        };
         for w in [
             &mut v.widgets.noninteractive,
             &mut v.widgets.inactive,
@@ -108,90 +274,195 @@ pub fn apply_style(ctx: &egui::Context) {
             &mut v.widgets.active,
             &mut v.widgets.open,
         ] {
-            w.corner_radius = radius;
-            w.fg_stroke.color = CHARCOAL;
+            w.corner_radius = CornerRadius::ZERO;
+            w.fg_stroke.color = TEXT;
+            w.expansion = 0.0;
         }
         // bg_fill doubles as the slider rail / checkbox well; weak_bg_fill is
         // the button face.
-        v.widgets.inactive.bg_fill = shade(PEACH, -0.04);
-        v.widgets.inactive.weak_bg_fill = PAPER;
+        v.widgets.noninteractive.bg_fill = SURFACE;
+        v.widgets.noninteractive.bg_stroke = Stroke::new(2.0, INK);
+        v.widgets.noninteractive.fg_stroke.color = TEXT;
+        v.widgets.inactive.bg_fill = WELL;
+        v.widgets.inactive.weak_bg_fill = SURFACE;
+        v.widgets.inactive.bg_stroke = Stroke::new(2.0, INK);
         v.slider_trailing_fill = true;
-        v.widgets.inactive.bg_stroke = Stroke::new(1.0, shade(PEACH, -0.15));
-        v.widgets.hovered.bg_fill = shade(BUTTER, 0.4);
-        v.widgets.hovered.weak_bg_fill = shade(BUTTER, 0.4);
-        v.widgets.hovered.bg_stroke = Stroke::new(1.5, shade(PEACH, -0.3));
+        v.selection.bg_fill = CYAN;
+        v.widgets.hovered.bg_fill = shade(NIGHT_HI, 0.12);
+        v.widgets.hovered.weak_bg_fill = shade(NIGHT_HI, 0.12);
+        v.widgets.hovered.bg_stroke = Stroke::new(2.0, CYAN);
+        // (egui also takes *strong* text's colour from the active state, so
+        // its ink must stay light.)
         v.widgets.active.bg_fill = BUTTER;
-        v.widgets.active.weak_bg_fill = BUTTER;
-        v.widgets.active.bg_stroke = Stroke::new(1.5, ORANGE);
-        v.widgets.open.weak_bg_fill = shade(BUTTER, 0.4);
-        v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, shade(PEACH, -0.1));
+        v.widgets.active.weak_bg_fill = shade(NIGHT_HI, 0.25);
+        v.widgets.active.fg_stroke.color = TEXT;
+        v.widgets.active.bg_stroke = Stroke::new(2.0, BUTTER);
+        v.widgets.open.weak_bg_fill = shade(NIGHT_HI, 0.12);
+        v.widgets.open.bg_stroke = Stroke::new(2.0, CYAN);
     });
 }
 
-// ---- backgrounds & surfaces -----------------------------------------------
+// ---- backgrounds & surfaces -------------------------------------------------------
 
-/// The shell's backdrop: the pre-game screen's cream→peach vertical gradient.
+/// Deterministic 0..1 hash of a star index.
+fn hash01(i: u32, salt: u32) -> f32 {
+    let mut h = i.wrapping_mul(0x9E37_79B9) ^ salt.wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2C1B_3C6D);
+    h ^= h >> 12;
+    (h & 0xFFFF) as f32 / 65535.0
+}
+
+/// The shell's backdrop: navy night, a starfield that twinkles slowly, and the
+/// 80s stripe bands along the top and bottom. The twinkle rides on the app's
+/// slow idle repaint (it asks for no extra frames).
 pub fn background(painter: &Painter, rect: Rect) {
-    let mut mesh = Mesh::default();
-    mesh.colored_vertex(rect.left_top(), CREAM);
-    mesh.colored_vertex(rect.right_top(), CREAM);
-    mesh.colored_vertex(rect.right_bottom(), PEACH);
-    mesh.colored_vertex(rect.left_bottom(), PEACH);
-    mesh.add_triangle(0, 1, 2);
-    mesh.add_triangle(0, 2, 3);
-    painter.add(Shape::mesh(mesh));
+    painter.rect_filled(rect, 0.0, NIGHT);
+    let t = painter.ctx().input(|i| i.time) as f32;
+    let p = PX;
+    let cols = (rect.width() / p) as u32;
+    let rows = (rect.height() / p) as u32;
+    let n = (cols * rows / 420).clamp(40, 320);
+    for i in 0..n {
+        let x = rect.left() + (hash01(i, 1) * cols as f32).floor() * p;
+        let y = rect.top() + (hash01(i, 2) * rows as f32).floor() * p;
+        let col = match (hash01(i, 3) * 6.0) as u32 {
+            0 => CYAN,
+            1 => PINK,
+            2 => BUTTER,
+            _ => NIGHT_HI,
+        };
+        let phase = hash01(i, 4) * std::f32::consts::TAU;
+        let speed = 0.5 + hash01(i, 5) * 0.7;
+        let glow = 0.45 + 0.55 * (0.5 + 0.5 * (t * speed + phase).sin());
+        let size = if hash01(i, 6) > 0.9 { 2.0 * p } else { p };
+        painter.rect_filled(
+            Rect::from_min_size(Pos2::new(x, y), Vec2::splat(size)),
+            0.0,
+            col.gamma_multiply(glow),
+        );
+    }
+    // The stripes go on a layer above the page (Middle, over the central
+    // panel's Background) but below popups, so scrolling content slides
+    // *under* them, framed, instead of over them.
+    let over = painter.ctx().layer_painter(egui::LayerId::new(
+        egui::Order::Middle,
+        egui::Id::new("arcade_stripes"),
+    ));
+    stripes(&over, rect);
 }
 
-/// A white rounded card for grouping content (grown-ups page, forms).
-pub fn card_frame() -> egui::Frame {
-    egui::Frame::new()
-        .fill(PAPER)
-        .corner_radius(CornerRadius::same(20))
-        .inner_margin(egui::Margin::same(22))
-        .stroke(Stroke::new(1.0, shade(PEACH, -0.08)))
-        .shadow(egui::epaint::Shadow {
-            offset: [0, 4],
-            blur: 14,
-            spread: 0,
-            color: Color32::from_black_alpha(18),
-        })
+/// Height of the stripe bands along each edge.
+pub const STRIPES_H: f32 = 8.0 * PX;
+
+/// The part of a screen between the stripe bands, where content goes.
+pub fn inside_stripes(r: Rect) -> Rect {
+    r.shrink2(Vec2::new(0.0, STRIPES_H))
 }
 
-// ---- keycaps --------------------------------------------------------------
+/// The 80s stripe bands: orange, butter, pink, cyan — from each edge inward.
+pub fn stripes(painter: &Painter, rect: Rect) {
+    for (i, c) in [ORANGE, BUTTER, PINK, CYAN].iter().enumerate() {
+        let off = i as f32 * 2.0 * PX;
+        painter.rect_filled(
+            Rect::from_min_size(
+                Pos2::new(rect.left(), rect.top() + off),
+                Vec2::new(rect.width(), 2.0 * PX),
+            ),
+            0.0,
+            *c,
+        );
+        painter.rect_filled(
+            Rect::from_min_size(
+                Pos2::new(rect.left(), rect.bottom() - off - 2.0 * PX),
+                Vec2::new(rect.width(), 2.0 * PX),
+            ),
+            0.0,
+            *c,
+        );
+    }
+}
 
-/// Draw a chunky keycap into `rect`: a darker lip with the face on top. The
-/// face sinks onto the lip while pressed and brightens a touch on hover.
-/// Returns the face rect (where the label goes).
-pub fn draw_keycap(p: &Painter, rect: Rect, face: Color32, hovered: bool, pressed: bool) -> Rect {
-    let lip_h = (rect.height() * 0.09).clamp(4.0, 9.0);
-    let r = CornerRadius::same((rect.height().min(rect.width()) * 0.22).clamp(8.0, 26.0) as u8);
-    let lip = shade(face, -0.18);
-    // Soft drop shadow under the whole key.
-    p.rect_filled(
-        rect.translate(Vec2::new(0.0, 3.0)).expand(1.0),
-        r,
-        Color32::from_black_alpha(16),
+/// An arcade card around `add`'s contents (grown-ups page, forms): a notched,
+/// bevelled navy panel with a hard ink outline and drop shadow.
+pub fn card<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerResponse<R> {
+    let bg = ui.painter().add(Shape::Noop);
+    let inner = egui::Frame::new()
+        .inner_margin(egui::Margin::same(24))
+        .show(ui, add);
+    let r = inner.response.rect;
+    let p = ui.painter();
+    let mut shapes = Vec::new();
+    // Collect the panel's rectangles into one shape behind the content.
+    let collect = |rect: Rect, c: Color32, out: &mut Vec<Shape>| {
+        out.push(Shape::rect_filled(rect.shrink2(Vec2::new(PX, 0.0)), 0.0, c));
+        out.push(Shape::rect_filled(rect.shrink2(Vec2::new(0.0, PX)), 0.0, c));
+    };
+    collect(
+        r.translate(Vec2::splat(2.0 * PX)),
+        Color32::from_black_alpha(150),
+        &mut shapes,
     );
-    p.rect_filled(rect, r, lip);
-    let sink = if pressed { lip_h * 0.75 } else { 0.0 };
+    collect(r, INK, &mut shapes);
+    let inner_r = r.shrink(PX);
+    collect(inner_r, shade(SURFACE, -0.35), &mut shapes);
+    collect(
+        Rect::from_min_max(inner_r.min, inner_r.max - Vec2::splat(PX)),
+        shade(SURFACE, 0.18),
+        &mut shapes,
+    );
+    collect(inner_r.shrink(PX), SURFACE, &mut shapes);
+    p.set(bg, Shape::Vec(shapes));
+    inner
+}
+
+// ---- keycaps ------------------------------------------------------------------------
+
+/// Draw a chunky arcade keycap into `rect`: a hard shadow, an ink outline, and
+/// the face (with a light top/left bevel) standing on a dark lip. The face
+/// sinks onto the lip while pressed and brightens a touch on hover. Returns the
+/// face's content rect (where the label goes).
+pub fn draw_keycap(p: &Painter, rect: Rect, face: Color32, hovered: bool, pressed: bool) -> Rect {
+    let lip = 2.0 * PX;
+    notched(
+        p,
+        rect.translate(Vec2::splat(PX)),
+        PX,
+        Color32::from_black_alpha(150),
+    );
+    notched(p, rect, PX, INK);
+    let inner = rect.shrink(PX);
+    notched(p, inner, PX, shade(face, -0.45));
+    let sink = if pressed { lip } else { 0.0 };
     let face_rect = Rect::from_min_max(
-        rect.min + Vec2::new(0.0, sink),
-        Pos2::new(rect.max.x, rect.max.y - lip_h + sink),
+        inner.min + Vec2::new(0.0, sink),
+        Pos2::new(inner.max.x, inner.max.y - lip + sink),
     );
     let face_col = if hovered && !pressed {
-        shade(face, 0.12)
+        shade(face, 0.1)
     } else {
         face
     };
-    p.rect_filled(face_rect, r, face_col);
-    // Top highlight line, for a moulded look.
-    p.rect_stroke(
-        face_rect.shrink(1.0),
-        r,
-        Stroke::new(1.0, shade(face_col, 0.35)),
-        StrokeKind::Inside,
+    notched(p, face_rect, PX, face_col);
+    // Bevel: a light line along the top and the left.
+    let light = shade(face_col, 0.32);
+    p.rect_filled(
+        Rect::from_min_size(
+            face_rect.min + Vec2::new(PX, 0.0),
+            Vec2::new(face_rect.width() - 2.0 * PX, PX),
+        ),
+        0.0,
+        light,
     );
-    face_rect
+    p.rect_filled(
+        Rect::from_min_size(
+            face_rect.min + Vec2::new(0.0, PX),
+            Vec2::new(PX, face_rect.height() - 2.0 * PX),
+        ),
+        0.0,
+        light,
+    );
+    face_rect.shrink(PX)
 }
 
 /// How a key button looks. Build with [`KeyButton::new`], then `.show(ui)`.
@@ -204,6 +475,8 @@ pub struct KeyButton<'a> {
     /// Accessible name when there is no visible label (icon-only keys).
     a11y: Option<&'a str>,
     selected: bool,
+    /// Draw the label as a bold pixel vowel (see [`pixel_vowel`]).
+    vowel: bool,
 }
 
 impl<'a> KeyButton<'a> {
@@ -211,11 +484,22 @@ impl<'a> KeyButton<'a> {
         Self {
             label: Some(label),
             icon: None,
-            face: PAPER,
+            face: SURFACE,
             size: Vec2::new(200.0, 56.0),
-            font: 19.0,
+            font: 18.0,
             a11y: None,
             selected: false,
+            vowel: false,
+        }
+    }
+
+    /// A key showing one of the six vowels as a bold pixel letter (the pixel
+    /// font's own lowercase reads ambiguously at size). `label` is the vowel
+    /// ("a" … "y"), also its accessible name.
+    pub fn vowel(label: &'a str) -> Self {
+        Self {
+            vowel: true,
+            ..Self::new(label)
         }
     }
 
@@ -224,11 +508,12 @@ impl<'a> KeyButton<'a> {
         Self {
             label: None,
             icon: Some(icon),
-            face: PAPER,
+            face: SURFACE,
             size: Vec2::splat(52.0),
-            font: 19.0,
+            font: 18.0,
             a11y: Some(name),
             selected: false,
+            vowel: false,
         }
     }
 
@@ -244,11 +529,12 @@ impl<'a> KeyButton<'a> {
         self.size = size;
         self
     }
+    /// Label size; snapped to the pixel font's crisp sizes (18, 27, …).
     pub fn font(mut self, font: f32) -> Self {
         self.font = font;
         self
     }
-    /// Draw a ring around the key (the chosen option in a group).
+    /// Frame the key (the chosen option in a group).
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
         self
@@ -266,15 +552,10 @@ impl<'a> KeyButton<'a> {
         let face = if enabled {
             self.face
         } else {
-            shade(self.face, 0.45)
+            shade(self.face, -0.45)
         };
         if self.selected {
-            p.rect_stroke(
-                rect.expand(4.0),
-                CornerRadius::same(18),
-                Stroke::new(3.0, ORANGE),
-                StrokeKind::Outside,
-            );
+            highlight(p, rect, PX, CYAN);
         }
         let pressed = resp.is_pointer_button_down_on();
         let face_rect = draw_keycap(p, rect, face, resp.hovered() && enabled, pressed);
@@ -282,9 +563,10 @@ impl<'a> KeyButton<'a> {
         if !enabled {
             ink = ink.gamma_multiply(0.45);
         }
+        let font = pixel_font(self.font);
         match (self.icon, self.label) {
             (Some(icon), None) => {
-                let s = face_rect.height().min(face_rect.width()) * 0.52;
+                let s = face_rect.height().min(face_rect.width()) * 0.62;
                 draw_icon(
                     p,
                     icon,
@@ -293,8 +575,7 @@ impl<'a> KeyButton<'a> {
                 );
             }
             (Some(icon), Some(label)) => {
-                let s = (face_rect.height() * 0.46).min(34.0);
-                let font = FontId::proportional(self.font);
+                let s = (face_rect.height() * 0.52).min(30.0);
                 let galley = p.layout_no_wrap(label.to_string(), font, ink);
                 let gap = 10.0;
                 let total = s + gap + galley.size().x;
@@ -305,19 +586,23 @@ impl<'a> KeyButton<'a> {
                 );
                 draw_icon(p, icon, icon_rect, ink);
                 p.galley(
-                    Pos2::new(x0 + s + gap, face_rect.center().y - galley.size().y / 2.0),
+                    Pos2::new(
+                        (x0 + s + gap).round(),
+                        (face_rect.center().y - galley.size().y / 2.0).round(),
+                    ),
                     galley,
                     ink,
                 );
             }
+            (None, Some(label)) if self.vowel => {
+                let px = (face_rect.height() * 0.5 / data::VOWEL_ROWS as f32)
+                    .floor()
+                    .max(1.0);
+                let baseline = face_rect.center().y + px * data::VOWEL_ROWS as f32 / 2.0;
+                pixel_vowel(p, label, face_rect.center().x, baseline, px, ink);
+            }
             (None, Some(label)) => {
-                p.text(
-                    face_rect.center(),
-                    Align2::CENTER_CENTER,
-                    label,
-                    FontId::proportional(self.font),
-                    ink,
-                );
+                p.text(face_rect.center(), Align2::CENTER_CENTER, label, font, ink);
             }
             (None, None) => {}
         }
@@ -340,14 +625,15 @@ pub fn segmented<T: PartialEq + Copy>(
 ) -> bool {
     let mut changed = false;
     ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 16.0;
         for (value, label) in options {
             let on = *current == *value;
-            let face = if on { BUTTER } else { PAPER };
+            let face = if on { CHOSEN } else { SURFACE };
             if KeyButton::new(label)
                 .face(face)
                 .selected(on)
                 .size(Vec2::new(width, 46.0))
-                .font(16.0)
+                .font(18.0)
                 .show(ui)
                 .clicked()
                 && !on
@@ -360,10 +646,10 @@ pub fn segmented<T: PartialEq + Copy>(
     changed
 }
 
-// ---- avatar tiles ---------------------------------------------------------
+// ---- avatar tiles -----------------------------------------------------------------
 
-/// A child's picture: a photo/character texture (centre-cropped, rounded) or,
-/// without one, the drawn kid face on a pastel square.
+/// A child's picture in an ink-framed well: a photo/character texture
+/// (centre-cropped) on cream or, without one, the drawn kid face.
 pub fn paint_avatar(
     ui: &Ui,
     rect: Rect,
@@ -371,17 +657,18 @@ pub fn paint_avatar(
     bg: Color32,
     theme: &rondelek_core::config::Theme,
 ) {
-    let r = CornerRadius::same((rect.width() * 0.2).clamp(8.0, 40.0) as u8);
+    let p = ui.painter();
+    notched(p, rect.expand(PX), PX, INK);
     match tex {
         Some((id, size)) => {
+            p.rect_filled(rect, 0.0, CREAM);
             egui::Image::from_texture(egui::load::SizedTexture::new(id, rect.size()))
                 .uv(cover_uv(size))
-                .corner_radius(r)
                 .paint_at(ui, rect);
         }
         None => {
-            ui.painter().rect_filled(rect, r, shade(bg, 0.35));
-            crate::ui::draw_kid_face(ui.painter(), rect.shrink(rect.width() * 0.12), theme);
+            p.rect_filled(rect, 0.0, shade(bg, 0.55));
+            crate::ui::draw_kid_face(p, rect.shrink(rect.width() * 0.12), theme);
         }
     }
 }
@@ -399,19 +686,20 @@ pub fn cover_uv(size: [usize; 2]) -> Rect {
     Rect::from_min_max(Pos2::new(ux, uy), Pos2::new(1.0 - ux, 1.0 - uy))
 }
 
-/// A round status badge (e.g. calibration) with an icon inside.
+/// A small square status badge (e.g. the voice check) with an icon inside.
 pub fn badge(p: &Painter, center: Pos2, radius: f32, fill: Color32, icon: Icon) {
-    p.circle_filled(
-        center + Vec2::new(0.0, 1.5),
-        radius,
-        Color32::from_black_alpha(30),
+    let r = Rect::from_center_size(center, Vec2::splat(radius * 2.0));
+    notched(
+        p,
+        r.translate(Vec2::splat(PX)),
+        PX,
+        Color32::from_black_alpha(150),
     );
-    p.circle_filled(center, radius, fill);
-    p.circle_stroke(center, radius, Stroke::new(2.0, PAPER));
+    panel(p, r, PX, fill);
     draw_icon(
         p,
         icon,
-        Rect::from_center_size(center, Vec2::splat(radius * 1.1)),
+        Rect::from_center_size(center, Vec2::splat(radius * 1.15)),
         ink_on(fill),
     );
 }
@@ -628,46 +916,61 @@ pub fn draw_icon(p: &Painter, icon: Icon, r: Rect, ink: Color32) {
     }
 }
 
-// ---- text -------------------------------------------------------------------
+// ---- text -------------------------------------------------------------------------
 
-/// A big friendly heading.
+/// A big pixel heading: butter over a hard ink shadow, like the README
+/// frames' captions. `size` snaps to the pixel font's crisp sizes.
 pub fn title(ui: &mut Ui, text: &str, size: f32) {
-    ui.label(
-        egui::RichText::new(text)
-            .size(size)
-            .strong()
-            .color(CHARCOAL),
+    let font = pixel_font(size);
+    let k = font.size / 9.0;
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font.clone(), BUTTER);
+    let (rect, _) = ui.allocate_exact_size(galley.size() + Vec2::splat(k), Sense::hover());
+    let pos = Pos2::new(rect.left().round(), rect.top().round());
+    ui.painter().text(
+        pos + Vec2::splat(k),
+        Align2::LEFT_TOP,
+        text,
+        font.clone(),
+        INK,
     );
+    ui.painter().galley(pos, galley, BUTTER);
 }
 
-/// Secondary text.
+/// Secondary text (for the grown-ups): Space Grotesk, soft lilac-grey.
 pub fn hint(ui: &mut Ui, text: &str) {
-    ui.label(egui::RichText::new(text).size(15.0).color(STONE));
+    ui.label(egui::RichText::new(text).size(15.0).color(TEXT_DIM));
 }
 
-/// The 5×7 pixel wordmark (same glyphs as the skin's key labels), drawn as
-/// little rounded squares. ASCII only; `cell` is one pixel's size.
+/// The 5×7 pixel wordmark (same glyphs as the skin's key labels and the
+/// README pictures), drawn as hard square pixels with a drop shadow. ASCII
+/// only; `cell` is one pixel's size.
 pub fn pixel_wordmark(p: &Painter, left_center: Pos2, text: &str, cell: f32, ink: Color32) -> f32 {
-    let mut x = left_center.x;
-    let top = left_center.y - cell * 3.5;
-    for ch in text.chars() {
-        if ch != ' ' {
-            let bits = crate::pixelart::char_bits(ch);
-            for (row, bits_row) in bits.iter().enumerate() {
-                for col in 0..5 {
-                    if (bits_row >> (4 - col)) & 1 == 1 {
-                        let r = Rect::from_min_size(
-                            Pos2::new(x + col as f32 * cell, top + row as f32 * cell),
-                            Vec2::splat(cell * 0.9),
-                        );
-                        p.rect_filled(r, CornerRadius::same((cell * 0.25) as u8), ink);
+    let draw = |origin: Pos2, color: Color32| {
+        let mut x = origin.x;
+        let top = origin.y - cell * 3.5;
+        for ch in text.chars() {
+            if ch != ' ' {
+                let bits = crate::pixelart::char_bits(ch);
+                for (row, bits_row) in bits.iter().enumerate() {
+                    for col in 0..5 {
+                        if (bits_row >> (4 - col)) & 1 == 1 {
+                            let r = Rect::from_min_size(
+                                Pos2::new(x + col as f32 * cell, top + row as f32 * cell),
+                                Vec2::splat(cell),
+                            );
+                            p.rect_filled(r, 0.0, color);
+                        }
                     }
                 }
             }
+            x += cell * 6.0;
         }
-        x += cell * 6.0;
-    }
-    x - cell
+        x - cell
+    };
+    draw(left_center + Vec2::splat(cell), shade(ORANGE, -0.15));
+    draw(left_center, ink)
 }
 
 #[cfg(test)]
@@ -675,15 +978,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tile_color_is_stable_and_pastel() {
+    fn tile_color_is_stable_and_from_the_shared_palette() {
         assert_eq!(tile_color("abc"), tile_color("abc"));
-        assert!(TILE_COLORS.contains(&tile_color("anything")));
+        let c = tile_color("anything");
+        assert!(
+            data::TILE_COLORS
+                .iter()
+                .any(|t| Color32::from_rgb(t[0], t[1], t[2]) == c)
+        );
     }
 
     #[test]
     fn ink_contrasts_with_background() {
-        assert_eq!(ink_on(PAPER), CHARCOAL);
-        assert_eq!(ink_on(CHARCOAL), Color32::WHITE);
+        assert_eq!(ink_on(CREAM), INK);
+        assert_eq!(ink_on(NIGHT), CREAM);
+        assert_eq!(ink_on(BUTTER), INK);
+    }
+
+    #[test]
+    fn pixel_font_snaps_to_whole_font_pixels() {
+        assert_eq!(pixel_font(19.0).size, 18.0);
+        assert_eq!(pixel_font(28.0).size, 27.0);
+        assert_eq!(pixel_font(3.0).size, 9.0);
     }
 
     #[test]

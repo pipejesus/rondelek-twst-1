@@ -63,6 +63,7 @@ impl App {
     pub(super) fn draw_hub(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         shell::background(ui.painter(), full);
+        let full = shell::inside_stripes(full);
         let ctx = ui.ctx().clone();
         let Some(profile) = self.current_profile.clone() else {
             self.screen = AppScreen::Home;
@@ -92,23 +93,21 @@ impl App {
                 ui.add_space(((ui.available_height() - block_h) / 2.0).max(24.0));
                 // Header: picture + name (+ a small edit key for grown-ups).
                 let (pic, _) = ui.allocate_exact_size(Vec2::splat(140.0), Sense::hover());
-                ui.painter()
-                    .rect_filled(pic.expand(6.0), 34.0, shell::shade(face_color, 0.2));
+                shell::panel(ui.painter(), pic.expand(12.0), shell::PX, face_color);
                 shell::paint_avatar(ui, pic, avatar, face_color, &self.theme);
-                ui.add_space(6.0);
+                ui.add_space(18.0);
                 ui.horizontal(|ui| {
-                    let name = egui::RichText::new(profile.name()).size(34.0).strong();
                     let name_w = ui.fonts_mut(|f| {
                         f.layout_no_wrap(
                             profile.name().to_string(),
-                            egui::FontId::proportional(34.0),
-                            palette::CHARCOAL,
+                            shell::pixel_font(36.0),
+                            palette::TEXT,
                         )
                         .size()
                         .x
                     });
                     ui.add_space(((ui.available_width() - name_w) / 2.0 - 30.0).max(0.0));
-                    ui.label(name);
+                    shell::title(ui, profile.name(), 36.0);
                     if ui
                         .add(
                             KeyButton::icon(Icon::Pencil, self.i18n.t("settings.child.edit"))
@@ -132,14 +131,14 @@ impl App {
                         Icon::Pads,
                         self.i18n.t("hub.sampler"),
                         None,
-                        palette::SKY,
+                        palette::BLUE,
                     ),
                     (
                         HubAction::Games,
                         Icon::Star,
                         self.i18n.t("hub.games"),
                         None,
-                        palette::LILAC,
+                        palette::VIOLET,
                     ),
                     (
                         HubAction::Voice,
@@ -147,9 +146,9 @@ impl App {
                         self.i18n.t("hub.voice"),
                         Some(voice_sub),
                         if calibrated {
-                            palette::MINT
+                            palette::OK
                         } else {
-                            palette::BUTTER
+                            palette::SUNFLOWER
                         },
                     ),
                 ];
@@ -236,6 +235,9 @@ pub(super) fn big_tile(
     let resp = ui.interact(rect, ui.id().with(("big_tile", label)), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     let pressed = resp.is_pointer_button_down_on();
+    if resp.hovered() {
+        shell::highlight(ui.painter(), rect, shell::PX, palette::CYAN);
+    }
     let f = shell::draw_keycap(ui.painter(), rect, face, resp.hovered(), pressed);
     let ink = shell::ink_on(face);
     let p = ui.painter();
@@ -246,12 +248,14 @@ pub(super) fn big_tile(
             Vec2::splat(icon_s),
         );
         shell::draw_icon(p, icon, icon_r, ink);
-        p.text(
+        shell::pixel_text(
+            p,
             Pos2::new(f.center().x, f.top() + f.height() * 0.72),
             Align2::CENTER_CENTER,
             label,
-            egui::FontId::proportional(24.0),
+            27.0,
             ink,
+            None,
         );
         if let Some(sub) = sub {
             p.text(
@@ -275,12 +279,14 @@ pub(super) fn big_tile(
         } else {
             f.center().y
         };
-        p.text(
+        shell::pixel_text(
+            p,
             Pos2::new(x, y),
             Align2::LEFT_CENTER,
             label,
-            egui::FontId::proportional(24.0),
+            27.0,
             ink,
+            None,
         );
         if let Some(sub) = sub {
             p.text(

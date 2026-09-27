@@ -4,6 +4,7 @@
 //! `winit`, or `raylib` — so the two binaries can each pull in their own
 //! (mutually incompatible on Windows, see `game/src/lib.rs`) windowing stack
 //! without both ending up in the same link.
+pub mod arcade;
 pub mod audio;
 pub mod characters;
 pub mod config;

@@ -6,6 +6,7 @@ impl App {
     pub(super) fn draw_games(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         shell::background(ui.painter(), full);
+        let full = shell::inside_stripes(full);
 
         let playing = self.game_child.is_some();
         let building = self.game_build.is_some();
@@ -27,32 +28,30 @@ impl App {
 
                 if self.current_calibration.is_none() {
                     ui.allocate_ui(Vec2::new(width, 0.0), |ui| {
-                        shell::card_frame()
-                            .fill(shell::shade(palette::BUTTER, 0.35))
-                            .show(ui, |ui| {
-                                ui.set_width(width - 44.0);
-                                ui.horizontal(|ui| {
-                                    let (r, _) =
-                                        ui.allocate_exact_size(Vec2::splat(40.0), Sense::hover());
-                                    shell::draw_icon(ui.painter(), Icon::Mic, r, palette::CHARCOAL);
-                                    ui.label(
-                                        egui::RichText::new(self.i18n.t("games.calibrate_hint"))
-                                            .size(16.0),
-                                    );
-                                });
-                                if ui
-                                    .add(
-                                        KeyButton::new(self.i18n.t("hub.voice"))
-                                            .with_icon(Icon::Mic)
-                                            .face(palette::BUTTER)
-                                            .size(Vec2::new(240.0, 50.0))
-                                            .font(17.0),
-                                    )
-                                    .clicked()
-                                {
-                                    calibrate = true;
-                                }
+                        shell::card(ui, |ui| {
+                            ui.set_width(width - 48.0);
+                            ui.horizontal(|ui| {
+                                let (r, _) =
+                                    ui.allocate_exact_size(Vec2::splat(40.0), Sense::hover());
+                                shell::draw_icon(ui.painter(), Icon::Mic, r, palette::BUTTER);
+                                ui.label(
+                                    egui::RichText::new(self.i18n.t("games.calibrate_hint"))
+                                        .size(16.0),
+                                );
                             });
+                            if ui
+                                .add(
+                                    KeyButton::new(self.i18n.t("hub.voice"))
+                                        .with_icon(Icon::Mic)
+                                        .face(palette::BUTTER)
+                                        .size(Vec2::new(240.0, 50.0))
+                                        .font(17.0),
+                                )
+                                .clicked()
+                            {
+                                calibrate = true;
+                            }
+                        });
                     });
                     ui.add_space(14.0);
                 }
@@ -67,10 +66,13 @@ impl App {
                     });
                     let pressed = enabled && resp.is_pointer_button_down_on();
                     let face = if enabled {
-                        palette::PAPER
+                        palette::SURFACE
                     } else {
-                        shell::shade(palette::PAPER, -0.05)
+                        shell::shade(palette::SURFACE, -0.3)
                     };
+                    if enabled && resp.hovered() {
+                        shell::highlight(ui.painter(), rect, shell::PX, palette::CYAN);
+                    }
                     let f = shell::draw_keycap(
                         ui.painter(),
                         rect,
@@ -84,36 +86,40 @@ impl App {
                     );
                     paint_game_scene(ui.painter(), scene);
                     let x = scene.right() + 22.0;
-                    ui.painter().text(
-                        Pos2::new(x, f.top() + 48.0),
+                    shell::pixel_text(
+                        ui.painter(),
+                        Pos2::new(x, f.top() + 44.0),
                         Align2::LEFT_CENTER,
                         name,
-                        egui::FontId::proportional(28.0),
-                        palette::CHARCOAL,
+                        27.0,
+                        palette::BUTTER,
+                        Some(palette::INK),
                     );
                     let tagline = ui.painter().layout(
                         self.i18n.t(game.tagline_key).to_string(),
                         egui::FontId::proportional(16.0),
-                        palette::STONE,
-                        (f.right() - x - 90.0).max(120.0),
+                        palette::TEXT_DIM,
+                        (f.right() - x - 96.0).max(120.0),
                     );
                     ui.painter()
-                        .galley(Pos2::new(x, f.top() + 72.0), tagline, palette::STONE);
-                    let play_c = Pos2::new(f.right() - 50.0, f.center().y);
-                    ui.painter().circle_filled(
-                        play_c,
-                        30.0,
-                        if enabled {
-                            palette::ORANGE
-                        } else {
-                            palette::STONE
-                        },
+                        .galley(Pos2::new(x, f.top() + 72.0), tagline, palette::TEXT_DIM);
+                    // The "PRESS START" key: orange, with a pixel play mark.
+                    let play = Rect::from_center_size(
+                        Pos2::new(f.right() - 50.0, f.center().y),
+                        Vec2::splat(66.0),
                     );
-                    shell::draw_icon(
+                    let play_face = if enabled {
+                        palette::ACCENT
+                    } else {
+                        shell::shade(palette::SURFACE, 0.1)
+                    };
+                    shell::panel(ui.painter(), play, shell::PX, play_face);
+                    shell::pixel_icon(
                         ui.painter(),
-                        Icon::Play,
-                        Rect::from_center_size(play_c + Vec2::new(3.0, 0.0), Vec2::splat(34.0)),
-                        Color32::WHITE,
+                        rondelek_core::arcade::ICON_PLAY,
+                        play.center() + Vec2::new(2.0, 0.0),
+                        4.0,
+                        palette::BUTTER,
                     );
                     if enabled && resp.clicked() {
                         launch = Some(game.id);
@@ -225,44 +231,63 @@ impl App {
     }
 }
 
-/// A tiny painted preview of the runner: sky, a cloud, grass, a hopping hero
-/// and a star, in the game's palette.
+/// A tiny pixel preview of Vowel Runner in its current look: blue sky, the
+/// golden score sun, a cloud, the meadow, the sea along the front, the blocky
+/// blue hero and a pink pillar.
 fn paint_game_scene(p: &egui::Painter, r: Rect) {
-    let radius = egui::CornerRadius::same(16);
-    p.rect_filled(r, radius, palette::SKY);
-    let ground = Rect::from_min_max(Pos2::new(r.left(), r.bottom() - r.height() * 0.26), r.max);
-    p.rect_filled(
-        ground,
-        egui::CornerRadius {
-            nw: 0,
-            ne: 0,
-            sw: 16,
-            se: 16,
-        },
-        Color32::from_rgb(139, 205, 130),
-    );
-    let cloud = Pos2::new(r.left() + r.width() * 0.3, r.top() + r.height() * 0.24);
-    for (dx, rr) in [(-14.0, 11.0), (0.0, 15.0), (15.0, 11.0)] {
-        p.circle_filled(cloud + Vec2::new(dx, 2.0), rr, Color32::WHITE);
+    let px = shell::PX;
+    shell::notched(p, r.expand(px), px, palette::INK);
+    p.rect_filled(r, 0.0, Color32::from_rgb(84, 176, 240));
+    let band = |y0: f32, y1: f32, c: Color32| {
+        p.rect_filled(
+            Rect::from_min_max(
+                Pos2::new(r.left(), r.top() + r.height() * y0),
+                Pos2::new(r.right(), r.top() + r.height() * y1),
+            ),
+            0.0,
+            c,
+        );
+    };
+    band(0.55, 1.0, Color32::from_rgb(184, 228, 255));
+    band(0.62, 0.70, Color32::from_rgb(112, 202, 92)); // meadow
+    band(0.70, 0.74, Color32::from_rgb(184, 122, 78)); // bank
+    band(0.74, 1.0, Color32::from_rgb(70, 142, 210)); // sea
+    // Cloud: three stacked blocks.
+    let c = Pos2::new(r.left() + r.width() * 0.26, r.top() + r.height() * 0.2);
+    for (dx, dy, w, h) in [(-18.0, 4.0, 36.0, 12.0), (-10.0, -4.0, 22.0, 10.0)] {
+        p.rect_filled(
+            Rect::from_min_size(c + Vec2::new(dx, dy), Vec2::new(w, h)),
+            0.0,
+            Color32::from_rgb(236, 244, 255),
+        );
     }
-    let hero = Rect::from_center_size(
-        Pos2::new(r.left() + r.width() * 0.35, ground.top() - 30.0),
-        Vec2::new(30.0, 34.0),
-    );
-    p.rect_filled(hero, 8.0, palette::ROSE);
-    p.circle_filled(hero.center() + Vec2::new(6.0, -6.0), 3.5, palette::CHARCOAL);
-    let block = Rect::from_min_size(
-        Pos2::new(r.left() + r.width() * 0.62, ground.top() - 26.0),
-        Vec2::new(28.0, 26.0),
-    );
-    p.rect_filled(block, 5.0, palette::LILAC);
-    shell::draw_icon(
-        p,
-        Icon::Star,
-        Rect::from_center_size(
-            Pos2::new(r.right() - r.width() * 0.2, r.top() + r.height() * 0.3),
-            Vec2::splat(30.0),
-        ),
+    // The sun (score).
+    let sun = Pos2::new(r.left() + r.width() * 0.62, r.top() + r.height() * 0.2);
+    p.rect_filled(
+        Rect::from_center_size(sun, Vec2::splat(20.0)),
+        0.0,
         palette::BUTTER,
     );
+    p.rect_filled(
+        Rect::from_center_size(sun, Vec2::splat(10.0)),
+        0.0,
+        palette::ORANGE,
+    );
+    // Hero and pillar standing on the meadow.
+    let ground = r.top() + r.height() * 0.62;
+    let hero = Rect::from_min_size(
+        Pos2::new(r.left() + r.width() * 0.3, ground - 24.0),
+        Vec2::new(20.0, 24.0),
+    );
+    p.rect_filled(hero, 0.0, Color32::from_rgb(169, 212, 239));
+    p.rect_filled(
+        Rect::from_min_size(hero.min + Vec2::new(12.0, 6.0), Vec2::splat(3.0)),
+        0.0,
+        palette::INK,
+    );
+    let pillar = Rect::from_min_size(
+        Pos2::new(r.left() + r.width() * 0.72, ground - 44.0),
+        Vec2::new(12.0, 44.0),
+    );
+    p.rect_filled(pillar, 0.0, Color32::from_rgb(245, 169, 188));
 }

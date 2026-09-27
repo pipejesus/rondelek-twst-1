@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/arcade/home.png" alt="The start screen, “Who’s playing?”, in an arcade frame captioned PLAYER SELECT: a row of pastel tiles, one per child, each with a cartoon character picture, and a “New child” tile" width="680">
+  <img src="docs/images/arcade/home.png" alt="The start screen, “Who’s playing?”, in an arcade frame captioned PLAYER SELECT: a night sky with little stars, a row of chunky arcade cards in bright colours, one per child, each with a cartoon character picture and the name in pixel letters, and a “New child” card" width="680">
 </p>
 
 <p align="center">
