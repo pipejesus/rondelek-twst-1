@@ -361,7 +361,7 @@ The module map and contributor rules are in [`AGENTS.md`](AGENTS.md).
 
 ## License
 
-MIT (see the `license` field in `Cargo.toml`). The bundled Space Grotesk font is
-under the SIL Open Font License (`assets/fonts/`), the picker flags are public
+MIT (see the `license` field in `Cargo.toml`). The bundled Space Grotesk and Tiny5
+fonts are under the SIL Open Font License (`assets/fonts/`), the picker flags are public
 domain, and the character pictures are the project's own generated placeholders
 (`assets/avatars/`).

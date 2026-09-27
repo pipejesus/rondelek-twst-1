@@ -188,7 +188,9 @@ app/src/                  rondelek: the egui sampler app
     widgets.rs            kid-face placeholder avatar
 game/src/                 rondelek-game: raylib voice games (child process)
   lib.rs                  run loop, text-free pre-game control selection
-  profile_picker.rs       reusable "who's playing?" screen (standalone launches; no Cyrillic yet, see TODO)
+  arcade.rs               the entrance screens' 8-bit look: palette, starfield,
+                          notched panels, pixel icons + vowels, Tiny5 text
+  profile_picker.rs       reusable "who's playing?" screen (standalone launches)
   runner.rs               "Vowel Runner" 2.5D game
   voice.rs                mic + vowel detector → per-frame game input
   models.rs               embedded flat-draw GLB props (clouds, bushes, score sun)
@@ -196,7 +198,8 @@ game/src/                 rondelek-game: raylib voice games (child process)
   lampula.rs              flat-draw's Lam::pula glass shader, 1:1 (the clouds)
   water.rs                the playful voice-reactive water along the front
 assets/
-  fonts/                  bundled Space Grotesk (OFL) + licence
+  fonts/                  bundled Space Grotesk (app) and Tiny5 (game's pixel
+                          text; covers every shipped language), OFL + licences
   i18n/                   <lang>.json translation files (en is source of truth)
   flags/                  <lang>.png picker flags (public domain, flagcdn)
   avatars/                <name>.png character avatars (placeholders, replaceable)

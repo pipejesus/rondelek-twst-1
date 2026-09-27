@@ -14,8 +14,9 @@
 //! Every game starts on a control-selection screen where the therapist picks
 //! which vowel triggers which move (three slots: jump ▲, duck ▼, shoot ★) and
 //! which obstacle kinds appear. The detector is then *focused* on the chosen
-//! vowels, so close sound-alikes among the unchosen ones can't cause misfires. The screen is deliberately
-//! text-free (letters, arrows, a play button) — no font or locale issues.
+//! vowels, so close sound-alikes among the unchosen ones can't cause misfires.
+//! The screen is deliberately text-free (letters, arrows, a play button) and
+//! drawn in the arcade style of [`arcade`], like the "who's playing?" screen.
 //!
 //! Started **without** a profile (double-clicked, or run with no arguments),
 //! a game first shows the "who's playing?" screen ([`profile_picker`]) so the
@@ -27,6 +28,7 @@
 //! `rondelek_core::games::GAMES`. It gets the profile picker and the control
 //! screen for free.
 
+pub mod arcade;
 pub mod lampula;
 pub mod models;
 pub mod profile_picker;
@@ -43,17 +45,15 @@ use rondelek_core::config::Settings;
 use rondelek_core::profile::Profile;
 use voice::VoiceBridge;
 
-// Base Pastel palette, shared by the selection screen and the games.
-pub(crate) const CREAM: Color = Color::new(251, 242, 228, 255);
+// The pastel colours Vowel Runner's obstacles, hero and HUD still use. (The
+// entrance screens moved to the vivid arcade palette in `arcade`.)
 pub(crate) const PEACH: Color = Color::new(246, 220, 198, 255);
-pub(crate) const MINT: Color = Color::new(198, 229, 211, 255);
 pub(crate) const MINT_DARK: Color = Color::new(154, 197, 172, 255);
 pub(crate) const ROSE: Color = Color::new(245, 169, 188, 255);
 pub(crate) const LILAC: Color = Color::new(201, 184, 232, 255);
 pub(crate) const SKY: Color = Color::new(169, 212, 239, 255);
 pub(crate) const BUTTER: Color = Color::new(245, 226, 158, 255);
 pub(crate) const CHARCOAL: Color = Color::new(74, 68, 60, 255);
-pub(crate) const STONE: Color = Color::new(140, 124, 115, 255);
 
 /// One frame of voice input, produced by [`VoiceBridge`].
 pub struct VoiceInput {
@@ -238,106 +238,66 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
 
 // ---- control selection screen --------------------------------------------
 
-/// A filled 5-pointed star (the shoot glyph). Drawn as a triangle fan; each
-/// triangle is emitted in both windings so it fills regardless of raylib's
-/// front-face rule.
-fn draw_star(d: &mut RaylibDrawHandle, cx: f32, cy: f32, r_out: f32, color: Color) {
-    let pts = 5;
-    let r_in = r_out * 0.44;
-    let center = Vector2::new(cx, cy);
-    let verts: Vec<Vector2> = (0..pts * 2)
-        .map(|k| {
-            let ang = -std::f32::consts::FRAC_PI_2 + k as f32 * std::f32::consts::PI / pts as f32;
-            let r = if k % 2 == 0 { r_out } else { r_in };
-            Vector2::new(cx + r * ang.cos(), cy + r * ang.sin())
-        })
-        .collect();
-    for k in 0..verts.len() {
-        let (a, b) = (verts[k], verts[(k + 1) % verts.len()]);
-        d.draw_triangle(center, a, b, color);
-        d.draw_triangle(center, b, a, color);
-    }
-}
-
-/// Mini obstacle icon inside a toggle button: 0 = low block, 1 = high bar,
-/// 2 = tall wall.
-fn draw_obstacle_icon(d: &mut RaylibDrawHandle, rect: Rectangle, kind: usize, color: Color) {
+/// Mini obstacle icon inside a toggle: 0 = low block, 1 = high bar, 2 = tall
+/// wall, 3 = tall pillar with an up-chevron. Plain rectangles, snapped to the
+/// arcade pixel `p`, so it matches the rest of the screen.
+fn draw_obstacle_icon(
+    d: &mut RaylibDrawHandle,
+    rect: Rectangle,
+    kind: usize,
+    color: Color,
+    p: f32,
+) {
+    let snap = |v: f32| (v / p).round() * p;
     let cx = rect.x + rect.width / 2.0;
-    let bottom = rect.y + rect.height * 0.80;
+    let bottom = snap(rect.y + rect.height * 0.80);
+    let block = |d: &mut RaylibDrawHandle, x: f32, y: f32, w: f32, h: f32| {
+        d.draw_rectangle_rec(
+            Rectangle {
+                x: snap(x),
+                y: snap(y),
+                width: snap(w).max(p),
+                height: snap(h).max(p),
+            },
+            color,
+        );
+    };
     match kind {
         0 => {
             let (bw, bh) = (rect.width * 0.34, rect.height * 0.34);
-            d.draw_rectangle_rounded(
-                Rectangle {
-                    x: cx - bw / 2.0,
-                    y: bottom - bh,
-                    width: bw,
-                    height: bh,
-                },
-                0.2,
-                4,
-                color,
-            );
+            block(d, cx - bw / 2.0, bottom - bh, bw, bh);
         }
         1 => {
-            let (bw, bh) = (rect.width * 0.5, rect.height * 0.14);
+            let bw = rect.width * 0.5;
             let top = rect.y + rect.height * 0.30;
-            d.draw_rectangle_rounded(
-                Rectangle {
-                    x: cx - bw / 2.0,
-                    y: top,
-                    width: bw,
-                    height: bh,
-                },
-                0.4,
-                4,
-                color,
-            );
-            for px in [cx - bw / 2.0 + bh * 0.4, cx + bw / 2.0 - bh * 0.4] {
-                d.draw_rectangle_rec(
-                    Rectangle {
-                        x: px - 2.0,
-                        y: top + bh,
-                        width: 4.0,
-                        height: bottom - (top + bh),
-                    },
-                    color,
-                );
+            block(d, cx - bw / 2.0, top, bw, 2.0 * p);
+            for px in [cx - bw / 2.0 + p, cx + bw / 2.0 - 2.0 * p] {
+                block(d, px, top + 2.0 * p, p, bottom - top - 2.0 * p);
             }
         }
         2 => {
             let bw = rect.width * 0.32;
             let top = rect.y + rect.height * 0.22;
-            let wall = Rectangle {
-                x: cx - bw / 2.0,
-                y: top,
-                width: bw,
-                height: bottom - top,
-            };
-            d.draw_rectangle_rec(wall, color);
+            block(d, cx - bw / 2.0, top, bw, bottom - top);
+            // Mortar courses.
             for k in 1..3 {
-                let y = (top + (bottom - top) * k as f32 / 3.0) as i32;
-                d.draw_line(wall.x as i32, y, (wall.x + bw) as i32, y, CREAM);
+                let y = top + (bottom - top) * k as f32 / 3.0;
+                d.draw_rectangle_rec(
+                    Rectangle {
+                        x: snap(cx - bw / 2.0),
+                        y: snap(y),
+                        width: snap(bw),
+                        height: (p / 2.0).max(1.0),
+                    },
+                    arcade::NIGHT_LO,
+                );
             }
         }
         _ => {
-            // Tall slim pillar (double-jump), with an up-chevron hint on top.
-            let bw = rect.width * 0.20;
-            let top = rect.y + rect.height * 0.20;
-            let pillar = Rectangle {
-                x: cx - bw / 2.0,
-                y: top,
-                width: bw,
-                height: bottom - top,
-            };
-            d.draw_rectangle_rounded(pillar, 0.4, 4, color);
-            let ch = rect.height * 0.12;
-            d.draw_triangle(
-                Vector2::new(cx, top - ch),
-                Vector2::new(cx - bw, top),
-                Vector2::new(cx + bw, top),
-                color,
-            );
+            let bw = rect.width * 0.18;
+            let top = rect.y + rect.height * 0.28;
+            block(d, cx - bw / 2.0, top, bw, bottom - top);
+            arcade::icon(d, arcade::ICON_UP, cx, top - 2.0 * p, p, color);
         }
     }
 }
@@ -436,182 +396,176 @@ fn select_controls(
 
         // --- draw ---
         {
+            use arcade::{BUTTER, CREAM, CYAN, GREEN, INK, NIGHT_HI, NIGHT_LO, ORANGE, PINK};
+            let t = rl.get_time() as f32;
+            let p = arcade::pixel_unit(s);
             let mut d = rl.begin_drawing(thread);
-            d.clear_background(CREAM);
-            d.draw_rectangle_gradient_v(0, 0, w as i32, h as i32, CREAM, PEACH);
+            arcade::backdrop(&mut d, w, h, p, t);
 
-            let arrow = |d: &mut RaylibDrawHandle, rect: Rectangle, up: bool| {
-                let cx = rect.x + rect.width / 2.0;
-                let top = rect.y + rect.height * 0.16;
-                let bot = rect.y + rect.height * 0.42;
-                let half = rect.width * 0.16;
-                // Counter-clockwise winding so raylib fills the triangle.
-                let (a, b, c) = if up {
-                    (
-                        Vector2::new(cx, top),
-                        Vector2::new(cx - half, bot),
-                        Vector2::new(cx + half, bot),
-                    )
-                } else {
-                    (
-                        Vector2::new(cx - half, top),
-                        Vector2::new(cx, bot),
-                        Vector2::new(cx + half, top),
-                    )
-                };
-                d.draw_triangle(a, b, c, CHARCOAL);
-            };
-            let letter = |d: &mut RaylibDrawHandle, rect: Rectangle, text: &str, frac: f32| {
-                let fs = (rect.height * frac) as i32;
-                let tw = d.measure_text(text, fs);
-                d.draw_text(
-                    text,
-                    (rect.x + rect.width / 2.0) as i32 - tw / 2,
-                    (rect.y + rect.height * 0.46) as i32,
-                    fs,
-                    CHARCOAL,
-                );
+            // The three moves share the first three card colours: jump blue,
+            // duck violet, shoot sunflower.
+            let slot_color = [
+                arcade::TILE_COLORS[0],
+                arcade::TILE_COLORS[1],
+                arcade::TILE_COLORS[2],
+            ];
+            // Vowel size: `frac` of the box's height for the letter's body.
+            let letter_px = |rect: Rectangle, frac: f32| {
+                (rect.height * frac / arcade::VOWEL_ROWS).round().max(2.0)
             };
 
-            // Slots: jump ▲ (sky), duck ▼ (lilac), shoot ★ (butter). Outline
-            // the active one; each shows its assigned vowel.
-            let slot_color = [SKY, LILAC, BUTTER];
+            // Slots: ▲ / ▼ / ★ over the assigned vowel. The active one (the
+            // slot the next vowel click fills) is framed, with a cursor.
             for i in 0..3 {
                 let rect = slot(i);
-                d.draw_rectangle_rounded(rect, 0.25, 8, slot_color[i]);
-                match i {
-                    0 => arrow(&mut d, rect, true),
-                    1 => arrow(&mut d, rect, false),
-                    _ => draw_star(
-                        &mut d,
-                        rect.x + rect.width / 2.0,
-                        rect.y + rect.height * 0.30,
-                        rect.height * 0.15,
-                        CHARCOAL,
-                    ),
-                }
-                letter(&mut d, rect, VOWELS[sel[i]].label(), 0.40);
                 if i == active {
-                    let grow = Rectangle {
-                        x: rect.x - 5.0,
-                        y: rect.y - 5.0,
-                        width: rect.width + 10.0,
-                        height: rect.height + 10.0,
-                    };
-                    d.draw_rectangle_rounded_lines(grow, 0.25, 8, CHARCOAL);
+                    arcade::highlight(&mut d, rect, p, CREAM);
+                    let bob = ((t * 2.4).sin() * p).round();
+                    arcade::icon_shadowed(
+                        &mut d,
+                        arcade::ICON_CURSOR,
+                        rect.x + rect.width / 2.0,
+                        rect.y - 6.0 * p + bob,
+                        p,
+                        BUTTER,
+                        INK,
+                    );
                 }
-            }
-
-            // Vowel cards; the three assigned ones wear their slot colour.
-            for (i, vowel) in VOWELS.iter().enumerate() {
-                let rect = card(i);
-                let fill = if i == sel[0] {
-                    SKY
-                } else if i == sel[1] {
-                    LILAC
-                } else if i == sel[2] {
-                    BUTTER
-                } else {
-                    Color::new(255, 255, 255, 220)
-                };
-                d.draw_rectangle_rounded(rect, 0.3, 6, fill);
-                d.draw_rectangle_rounded_lines(rect, 0.3, 6, MINT_DARK);
-                let fs = (rect.height * 0.5) as i32;
-                let tw = d.measure_text(vowel.label(), fs);
-                d.draw_text(
-                    vowel.label(),
-                    (rect.x + rect.width / 2.0) as i32 - tw / 2,
-                    (rect.y + rect.height * 0.26) as i32,
-                    fs,
-                    CHARCOAL,
+                arcade::panel(&mut d, rect, p, slot_color[i]);
+                let glyph = [arcade::ICON_UP, arcade::ICON_DOWN, arcade::ICON_STAR][i];
+                let (_, gh) = arcade::bitmap_size(glyph);
+                let px = (rect.height * 0.18 / gh).round().max(p / 2.0);
+                // No drop shadows on the big glyphs: they must read at a glance.
+                arcade::icon(
+                    &mut d,
+                    glyph,
+                    rect.x + rect.width / 2.0,
+                    rect.y + rect.height * 0.24,
+                    px,
+                    INK,
+                );
+                let px = letter_px(rect, 0.30);
+                arcade::vowel(
+                    &mut d,
+                    VOWELS[sel[i]].label(),
+                    rect.x + rect.width / 2.0,
+                    rect.y + rect.height * 0.775, // baseline: room for the i dot and the y tail
+                    px,
+                    INK,
                 );
             }
 
-            // Obstacle toggles: pick which kinds appear (difficulty). A lit
-            // toggle is fully coloured with a filled dot; a dim one is off.
-            let toggle_fill = [ROSE, LILAC, STONE, ROSE];
+            // Vowel keys: dark keycaps; the three assigned ones wear their
+            // move's colour.
+            for (i, vowel) in VOWELS.iter().enumerate() {
+                let rect = card(i);
+                let assigned = (0..3).find(|&sn| sel[sn] == i);
+                let (face, ink) = match assigned {
+                    Some(sn) => (slot_color[sn], INK),
+                    None => (NIGHT_HI, CREAM),
+                };
+                arcade::panel(&mut d, rect, p, face);
+                let px = letter_px(rect, 0.40);
+                arcade::vowel(
+                    &mut d,
+                    vowel.label(),
+                    rect.x + rect.width / 2.0,
+                    rect.y + rect.height * 0.46 + px * arcade::VOWEL_ROWS / 2.0,
+                    px,
+                    ink,
+                );
+            }
+
+            // Obstacle toggles (difficulty): a lit toggle shows its obstacle
+            // in colour and a green light; an unlit one is dim with a dark
+            // light.
+            let toggle_fill = [
+                PINK,
+                arcade::TILE_COLORS[1],
+                arcade::shade(CREAM, -0.3),
+                ORANGE,
+            ];
             for i in 0..4 {
                 let rect = toggle(i);
                 let on = enabled[i];
-                let bg = if on {
-                    Color::new(255, 255, 255, 235)
-                } else {
-                    Color::new(255, 255, 255, 110)
-                };
-                d.draw_rectangle_rounded(rect, 0.2, 6, bg);
-                d.draw_rectangle_rounded_lines(rect, 0.2, 6, if on { CHARCOAL } else { MINT_DARK });
+                arcade::panel(&mut d, rect, p, if on { NIGHT_HI } else { NIGHT_LO });
                 let icon = if on {
                     toggle_fill[i]
                 } else {
-                    Color::new(toggle_fill[i].r, toggle_fill[i].g, toggle_fill[i].b, 90)
+                    arcade::with_alpha(toggle_fill[i], 70)
                 };
-                draw_obstacle_icon(&mut d, rect, i, icon);
-                let dot = Vector2::new(rect.x + rect.width - 16.0 * s, rect.y + 16.0 * s);
-                d.draw_circle(
-                    dot.x as i32,
-                    dot.y as i32,
-                    7.0 * s,
-                    if on {
-                        MINT_DARK
-                    } else {
-                        Color::new(206, 200, 194, 255)
-                    },
-                );
+                draw_obstacle_icon(&mut d, rect, i, icon, p);
+                let led = Rectangle {
+                    x: rect.x + rect.width - 7.0 * p,
+                    y: rect.y + 3.0 * p,
+                    width: 4.0 * p,
+                    height: 4.0 * p,
+                };
+                arcade::notched(&mut d, led, p, INK);
+                let lamp = Rectangle {
+                    x: led.x + p,
+                    y: led.y + p,
+                    width: 2.0 * p,
+                    height: 2.0 * p,
+                };
+                d.draw_rectangle_rec(lamp, if on { GREEN } else { NIGHT_LO });
             }
 
-            // Reaction slider: turtle (steady) ↔ rabbit (snappy), wordless.
-            d.draw_rectangle_rounded(slider, 1.0, 6, Color::new(255, 255, 255, 200));
-            d.draw_rectangle_rounded_lines(slider, 1.0, 6, MINT_DARK);
-            let knob = Rectangle {
-                x: slider.x + reaction * slider.width - 12.0 * s,
-                y: slider.y - 8.0 * s,
-                width: 24.0 * s,
-                height: slider.height + 16.0 * s,
+            // Reaction slider: turtle (steady) ↔ rabbit (snappy), wordless. A
+            // pixel track that fills cyan up to the knob.
+            arcade::notched(&mut d, slider, p, INK);
+            let inner = Rectangle {
+                x: slider.x + p,
+                y: slider.y + p,
+                width: slider.width - 2.0 * p,
+                height: slider.height - 2.0 * p,
             };
-            d.draw_rectangle_rounded(knob, 0.6, 4, BUTTER);
-            d.draw_rectangle_rounded_lines(knob, 0.6, 4, CHARCOAL);
-            // Turtle glyph (left): low shell + head, blocky.
-            {
-                let gx = slider.x - 74.0 * s;
-                let gy = slider.y + slider.height / 2.0;
-                let px = |x: f32, y: f32, w: f32, h: f32| Rectangle {
-                    x: gx + x * s,
-                    y: gy + y * s,
-                    width: w * s,
-                    height: h * s,
-                };
-                d.draw_rectangle_rounded(px(0.0, -12.0, 40.0, 20.0), 0.8, 4, MINT_DARK);
-                d.draw_rectangle_rounded(px(36.0, -4.0, 14.0, 10.0), 0.6, 4, MINT_DARK);
-                d.draw_rectangle_rec(px(6.0, 8.0, 8.0, 6.0), MINT_DARK);
-                d.draw_rectangle_rec(px(26.0, 8.0, 8.0, 6.0), MINT_DARK);
-            }
-            // Rabbit glyph (right): body + two tall ears, blocky.
-            {
-                let gx = slider.x + slider.width + 28.0 * s;
-                let gy = slider.y + slider.height / 2.0;
-                let px = |x: f32, y: f32, w: f32, h: f32| Rectangle {
-                    x: gx + x * s,
-                    y: gy + y * s,
-                    width: w * s,
-                    height: h * s,
-                };
-                d.draw_rectangle_rounded(px(0.0, -8.0, 30.0, 22.0), 0.8, 4, CHARCOAL);
-                d.draw_rectangle_rounded(px(4.0, -30.0, 8.0, 24.0), 0.8, 4, CHARCOAL);
-                d.draw_rectangle_rounded(px(16.0, -30.0, 8.0, 24.0), 0.8, 4, CHARCOAL);
-                d.draw_rectangle_rec(px(30.0, -2.0, 8.0, 8.0), CHARCOAL);
-            }
+            d.draw_rectangle_rec(inner, NIGHT_LO);
+            d.draw_rectangle_rec(
+                Rectangle {
+                    width: (inner.width * reaction).round(),
+                    ..inner
+                },
+                CYAN,
+            );
+            let knob = Rectangle {
+                x: slider.x + reaction * slider.width - 4.0 * p,
+                y: slider.y - 3.0 * p,
+                width: 8.0 * p,
+                height: slider.height + 6.0 * p,
+            };
+            arcade::panel(&mut d, knob, p, BUTTER);
+            let mid = slider.y + slider.height / 2.0;
+            arcade::icon_shadowed(
+                &mut d,
+                arcade::ICON_TURTLE,
+                slider.x - 60.0 * s,
+                mid,
+                p,
+                GREEN,
+                INK,
+            );
+            arcade::icon_shadowed(
+                &mut d,
+                arcade::ICON_RABBIT,
+                slider.x + slider.width + 52.0 * s,
+                mid - p,
+                p,
+                PINK,
+                INK,
+            );
 
-            // Play button: mint pill with a ▶ triangle.
-            d.draw_rectangle_rounded(play, 0.5, 8, MINT);
-            d.draw_rectangle_rounded_lines(play, 0.5, 8, MINT_DARK);
-            let cx = play.x + play.width / 2.0;
-            let cy = play.y + play.height / 2.0;
-            let ph = play.height * 0.28;
-            d.draw_triangle(
-                Vector2::new(cx - ph * 0.6, cy - ph),
-                Vector2::new(cx - ph * 0.6, cy + ph),
-                Vector2::new(cx + ph, cy),
-                CHARCOAL,
+            // Play: the "PRESS START" button — orange, with a butter ▶.
+            arcade::panel(&mut d, play, p, ORANGE);
+            let (_, ph) = arcade::bitmap_size(arcade::ICON_PLAY);
+            let px = (play.height * 0.5 / ph).round().max(p / 2.0);
+            arcade::icon(
+                &mut d,
+                arcade::ICON_PLAY,
+                play.x + play.width / 2.0 + px / 2.0,
+                play.y + play.height / 2.0,
+                px,
+                BUTTER,
             );
         }
 

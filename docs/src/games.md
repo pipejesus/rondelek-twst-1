@@ -29,6 +29,38 @@ its shaders are tuned.
   per-vowel `scores` and the raw `level`. Keys **A E I O U Y** stand in for a voice
   (also how headless recordings drive the game).
 
+### The entrance screens: arcade style
+
+The two screens before play, "who's playing?" (`profile_picker.rs`) and the
+control screen (`select_controls` in `lib.rs`), share the 8-bit "chrome" of the
+README's pictures, from `game/src/arcade.rs`:
+
+- **Palette**: `genarcade`'s (navy night, orange, butter, pink, cyan, cream)
+  plus vivid card colours, `arcade::TILE_COLORS`. A child keeps their colour
+  *family* from the app (same order, via `stable_pick`), just brighter.
+- **Backdrop**: `sky` (navy plus a starfield whose stars twinkle slowly, each
+  on its own cycle) and `stripes` (the 80s bands along both edges, drawn last
+  on the scrolling picker so they frame it).
+- **Shapes**: everything sits on a grid of `p` real pixels per 8-bit pixel
+  (`pixel_unit`), so it stays crisp at any window size. `notched` rectangles
+  (corner pixels cut), `panel` (ink outline plus light/dark bevel), and
+  `highlight` (a coloured line and an ink gap, the cabinet's screen well, for
+  "this one").
+- **Pixel icons** are small bitmaps (`#` rows): ▲ ▼ ★ ▶, a bold "?", check, mic,
+  heart, cursor, turtle, rabbit. The **vowels** have their own bold lowercase
+  bitmaps (`vowel_glyph`) on a shared baseline, because the pixel font's
+  lowercase reads ambiguously when blown up ("a" looks like "d"), and these
+  are the letters a child is learning.
+- **Text** (only the children's names) uses **Tiny5** (OFL,
+  `assets/fonts/Tiny5-Regular.ttf`). Its glyphs sit on a 9-row grid, so it is
+  loaded at size 9 (one texel per font pixel) with nearest-neighbour filtering
+  and drawn at whole multiples. It covers Latin with every shipped accent and
+  Cyrillic, which fixed the picker's old missing-glyph Ukrainian names.
+
+The screens stay **text-free** (so no translations are needed): a pixel "?"
+between two stars means "who's playing?", ▶ means start. Motion is limited to
+the slow twinkle and a one-pixel bob of the focus cursor.
+
 Adding a game: a new file implementing `VoiceGame`, an arm in `game::run`'s
 `match id`, an entry in `GAMES`, and its name key in all seven locales (the i18n
 parity test enforces it).

@@ -3,10 +3,12 @@
 //!
 //! The sampler app always passes `--profile` when it launches a game, so this
 //! screen only appears when a game is started on its own (double-clicked, or
-//! run without arguments). It reads the same profile library as the app and
-//! mirrors the app's Home screen: a pastel tile per child (same colour as in
-//! the app, via `rondelek_core::util::stable_pick`), their photo or character,
+//! run without arguments). It reads the same profile library as the app: a
+//! card per child in their colour family (as in the app, via
+//! `rondelek_core::util::stable_pick`, but vivid), their photo or character,
 //! their name, and a small badge showing whether their voice check is done.
+//! Drawn in the arcade style of [`crate::arcade`]: a night sky with twinkling
+//! stars, chunky notched cards, a pixel "?" for a title.
 //!
 //! Using it from a game is one call:
 //!
@@ -22,24 +24,19 @@
 //!
 //! Controls: click/tap a tile, or arrow keys + Enter/Space. The mouse wheel
 //! scrolls when there are more children than fit. Text-free apart from the
-//! children's names, which are drawn with the bundled Space Grotesk font
-//! (loaded with exactly the letters the names need, so Polish or Ukrainian
-//! names render correctly).
+//! children's names, which are drawn in the Tiny5 pixel font (loaded with
+//! exactly the letters the names need; it covers Polish, Ukrainian and the
+//! other shipped languages).
 
 use raylib::prelude::*;
 
 use rondelek_core::profile::{self, Profile};
 
-use crate::{BUTTER, CHARCOAL, CREAM, LILAC, MINT, PEACH, ROSE, SKY, snap};
-
-/// Tile colours in the same order as the app's `ui::shell::tile_color`, so a
-/// child's colour matches everywhere.
-const TILE_COLORS: [Color; 5] = [SKY, LILAC, BUTTER, MINT, ROSE];
-const OK_GREEN: Color = Color::new(0x3C, 0xB0, 0x4B, 255);
-const ORANGE: Color = Color::new(0xFF, 0x6A, 0x1A, 255);
-const PAPER: Color = Color::new(255, 252, 247, 255);
-
-const FONT_TTF: &[u8] = include_bytes!("../../assets/fonts/SpaceGrotesk.ttf");
+use crate::arcade::{
+    self, BUTTER, CREAM, CYAN, GREEN, ICON_CHECK, ICON_CURSOR, ICON_MIC, ICON_QUESTION, ICON_STAR,
+    INK, NIGHT_LO, ORANGE, PixelFont, TILE_COLORS, notched, shade,
+};
+use crate::snap;
 
 /// What the picker returns.
 pub enum Pick {
@@ -77,7 +74,7 @@ pub fn choose_child(rl: &mut RaylibHandle, thread: &RaylibThread, opts: &PickerO
     }
 
     let names: String = profiles.iter().map(|p| p.name()).collect();
-    let font = load_font(rl, thread, &names);
+    let font = PixelFont::load(rl, thread, &names);
     let mut entries: Vec<Entry> = profiles
         .into_iter()
         .map(|p| Entry {
@@ -129,27 +126,37 @@ pub fn choose_child(rl: &mut RaylibHandle, thread: &RaylibThread, opts: &PickerO
         // --- draw ---
         {
             let pressed = rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT);
+            let t = rl.get_time() as f32;
+            let p = arcade::pixel_unit(grid.s);
             let mut d = rl.begin_drawing(thread);
-            d.clear_background(CREAM);
-            d.draw_rectangle_gradient_v(0, 0, w as i32, h as i32, CREAM, PEACH);
-            draw_header(&mut d, font.as_ref(), w, grid.s);
-            for (i, e) in entries.iter().enumerate() {
-                let r = grid.rect(i, scroll);
-                if r.y + r.height < 0.0 || r.y > h {
-                    continue;
-                }
-                let lit = hovered == Some(i) || focus == i;
-                draw_tile(
-                    &mut d,
-                    font.as_ref(),
-                    e,
-                    r,
-                    grid.s,
-                    lit,
-                    lit && pressed && hovered == Some(i),
-                    focus == i,
+            arcade::sky(&mut d, w, h, p, t);
+            draw_header(&mut d, w, grid.s, p);
+            // Cards scroll inside the band between the title and the bottom
+            // stripes, so a long list never slides over the "?"; the stripes,
+            // drawn last, frame the bottom edge.
+            let clip_top = (HEADER_BOTTOM * grid.s).round();
+            {
+                let mut cards = d.begin_scissor_mode(
+                    0,
+                    clip_top as i32,
+                    w as i32,
+                    (h - clip_top - arcade::stripes_h(p)) as i32,
                 );
+                for (i, e) in entries.iter().enumerate() {
+                    let r = grid.rect(i, scroll);
+                    if r.y + r.height < 0.0 || r.y > h {
+                        continue;
+                    }
+                    let lit = hovered == Some(i) || focus == i;
+                    let look = TileLook {
+                        lit,
+                        pressed: lit && pressed && hovered == Some(i),
+                        focused: focus == i,
+                    };
+                    draw_tile(&mut cards, &font, e, r, grid.s, p, look, t);
+                }
             }
+            arcade::stripes(&mut d, w, h, p);
         }
 
         frame += 1;
@@ -196,7 +203,7 @@ impl Grid {
         let cols = fit.min(n.max(1));
         let rows = n.div_ceil(cols).max(1);
         let grid_w = cols as f32 * tile_w + (cols - 1) as f32 * gap;
-        let header = 170.0 * s;
+        let header = GRID_TOP * s;
         let view_h = (h - header - margin).max(tile_h);
         let content_h = rows as f32 * tile_h + (rows - 1) as f32 * gap;
         // Centre vertically when everything fits; otherwise start under the header.
@@ -237,8 +244,8 @@ impl Grid {
         let r = self.rect(i, 0.0);
         let bottom_limit = h - 24.0 * self.s;
         let mut s = scroll;
-        if r.y - s < self.top.min(170.0 * self.s) {
-            s = r.y - self.top.min(170.0 * self.s);
+        if r.y - s < self.top.min(GRID_TOP * self.s) {
+            s = r.y - self.top.min(GRID_TOP * self.s);
         } else if r.y + r.height - s > bottom_limit {
             s = r.y + r.height - bottom_limit;
         }
@@ -273,14 +280,6 @@ fn move_focus(focus: usize, step: isize, n: usize) -> usize {
     }
 }
 
-/// ASCII plus every letter used in the children's names, for the font atlas.
-fn font_codepoints(names: &str) -> String {
-    let mut chars: Vec<char> = (' '..='~').chain(names.chars()).chain(['…']).collect();
-    chars.sort_unstable();
-    chars.dedup();
-    chars.into_iter().collect()
-}
-
 /// Shorten a long name to fit a tile.
 fn fit_name(name: &str, max: usize) -> String {
     if name.chars().count() <= max {
@@ -293,41 +292,6 @@ fn fit_name(name: &str, max: usize) -> String {
 }
 
 // ---- resources ------------------------------------------------------------------
-
-/// The bundled font with exactly the letters needed. `None` only if loading
-/// fails, in which case raylib's built-in (ASCII) font is used instead.
-fn load_font(rl: &mut RaylibHandle, thread: &RaylibThread, names: &str) -> Option<Font> {
-    let chars = font_codepoints(names);
-    let font = rl
-        .load_font_from_memory(thread, ".ttf", FONT_TTF, 72, Some(&chars))
-        .ok()?;
-    font.texture()
-        .set_texture_filter(thread, TextureFilter::TEXTURE_FILTER_BILINEAR);
-    Some(font)
-}
-
-/// Measure `text` at `size` px with the picker font (or the fallback).
-fn measure(d: &RaylibDrawHandle, font: Option<&Font>, text: &str, size: f32) -> Vector2 {
-    match font {
-        Some(f) => f.measure_text(text, size, 0.0),
-        None => Vector2::new(d.measure_text(text, size as i32) as f32, size),
-    }
-}
-
-/// Draw `text` with its top-left at `pos`.
-fn text(
-    d: &mut RaylibDrawHandle,
-    font: Option<&Font>,
-    text: &str,
-    pos: Vector2,
-    size: f32,
-    color: Color,
-) {
-    match font {
-        Some(f) => d.draw_text_ex(f, text, pos, size, 0.0, color),
-        None => d.draw_text(text, pos.x as i32, pos.y as i32, size as i32, color),
-    }
-}
 
 /// The child's photo, else their character, else `None` (a drawn face).
 fn load_picture(rl: &mut RaylibHandle, thread: &RaylibThread, p: &Profile) -> Option<Texture2D> {
@@ -346,148 +310,187 @@ fn load_picture(rl: &mut RaylibHandle, thread: &RaylibThread, p: &Profile) -> Op
 
 // ---- drawing ----------------------------------------------------------------------
 
-fn shade(c: Color, amount: f32) -> Color {
-    let t = amount.abs().clamp(0.0, 1.0);
-    let target = if amount >= 0.0 { 255.0 } else { 0.0 };
-    let mix = |v: u8| (v as f32 + (target - v as f32) * t).round() as u8;
-    Color::new(mix(c.r), mix(c.g), mix(c.b), c.a)
+/// Where the title area ends (1280×720 design px). Cards are clipped below it,
+/// which still leaves room above the first row for the focus cursor.
+const HEADER_BOTTOM: f32 = 122.0;
+/// Where the first row of cards may start (design px): far enough below the
+/// title that the focus cursor over a top-row card can't be read as part of
+/// the "?".
+const GRID_TOP: f32 = 196.0;
+
+/// A big pixel "?" between two little stars: "who's playing?" without words.
+/// Butter over an orange shadow, like the README marquee's PRESS START.
+fn draw_header(d: &mut RaylibDrawHandle, w: f32, s: f32, p: f32) {
+    let cy = 78.0 * s;
+    arcade::icon_shadowed(d, ICON_QUESTION, w / 2.0, cy, 2.0 * p, BUTTER, ORANGE);
+    let gap = 80.0 * s;
+    for side in [-1.0, 1.0] {
+        arcade::icon_shadowed(d, ICON_STAR, w / 2.0 + side * gap, cy, p, CYAN, INK);
+    }
 }
 
-/// A big "?" in a butter bubble: "who's playing?" without words.
-fn draw_header(d: &mut RaylibDrawHandle, font: Option<&Font>, w: f32, s: f32) {
-    let c = Vector2::new(w / 2.0, 92.0 * s);
-    d.draw_circle_v(
-        Vector2::new(c.x, c.y + 4.0 * s),
-        50.0 * s,
-        shade(BUTTER, -0.18),
-    );
-    d.draw_circle_v(c, 50.0 * s, BUTTER);
-    let size = 70.0 * s;
-    let m = measure(d, font, "?", size);
-    text(
-        d,
-        font,
-        "?",
-        Vector2::new(c.x - m.x / 2.0, c.y - m.y / 2.0),
-        size,
-        CHARCOAL,
-    );
+/// How a card is showing this frame.
+#[derive(Clone, Copy)]
+struct TileLook {
+    /// Hovered or keyboard-focused: slightly brighter, lifted a pixel.
+    lit: bool,
+    /// Being clicked: sinks a pixel.
+    pressed: bool,
+    /// The keyboard focus: framed, with the cursor above.
+    focused: bool,
 }
 
+/// One child's card: a chunky notched arcade card in their colour, their
+/// picture in an ink-framed well, their name on a dark plate, and the voice
+/// check badge. `t` (seconds) gently bobs the focus cursor.
 #[allow(clippy::too_many_arguments)]
 fn draw_tile(
     d: &mut RaylibDrawHandle,
-    font: Option<&Font>,
+    font: &PixelFont,
     e: &Entry,
     r: Rectangle,
     s: f32,
-    lit: bool,
-    pressed: bool,
-    focused: bool,
+    p: f32,
+    look: TileLook,
+    t: f32,
 ) {
-    let lip = 9.0 * s;
-    let round = 0.16;
-    // Shadow, lip, face (the face sinks onto the lip while pressed).
-    let shadow = Rectangle {
-        y: r.y + 4.0 * s,
-        ..r
+    let dy = if look.pressed {
+        p
+    } else if look.lit {
+        -p
+    } else {
+        0.0
     };
-    d.draw_rectangle_rounded(shadow, round, 8, Color::new(0, 0, 0, 22));
-    d.draw_rectangle_rounded(r, round, 8, shade(e.color, -0.18));
-    let sink = if pressed { lip * 0.75 } else { 0.0 };
-    let face = Rectangle {
-        x: r.x,
-        y: r.y + sink,
-        width: r.width,
-        height: r.height - lip,
-    };
-    d.draw_rectangle_rounded(
-        face,
-        round,
-        8,
-        if lit { shade(e.color, 0.12) } else { e.color },
-    );
-    if focused {
-        let ring = Rectangle {
-            x: r.x - 5.0 * s,
-            y: r.y - 5.0 * s,
-            width: r.width + 10.0 * s,
-            height: r.height + 10.0 * s,
-        };
-        d.draw_rectangle_rounded_lines_ex(ring, round, 8, 3.5 * s, ORANGE);
-    }
+    let card = Rectangle { y: r.y + dy, ..r };
 
-    // Picture.
-    let pad = 14.0 * s;
-    let pic = Rectangle {
-        x: face.x + pad,
-        y: face.y + pad,
-        width: face.width - 2.0 * pad,
-        height: face.width - 2.0 * pad,
+    // Hard drop shadow, then the focus frame, then the card itself.
+    notched(
+        d,
+        Rectangle {
+            x: r.x + p,
+            y: r.y + 2.0 * p,
+            ..r
+        },
+        p,
+        arcade::with_alpha(INK, 170),
+    );
+    if look.focused {
+        arcade::highlight(d, card, p, CYAN);
+        let bob = ((t * 2.4).sin() * p).round();
+        arcade::icon_shadowed(
+            d,
+            ICON_CURSOR,
+            card.x + card.width / 2.0,
+            card.y - 8.0 * p + bob,
+            (1.5 * p).round(),
+            BUTTER,
+            INK,
+        );
+    }
+    let face = if look.lit {
+        shade(e.color, 0.12)
+    } else {
+        e.color
     };
+    arcade::panel(d, card, p, face);
+
+    // Picture well: an ink frame, a cream ground, the picture.
+    let pad = 4.0 * p;
+    let side = card.width - 2.0 * pad;
+    let pic = Rectangle {
+        x: card.x + pad,
+        y: card.y + pad,
+        width: side,
+        height: side,
+    };
+    notched(
+        d,
+        Rectangle {
+            x: pic.x - p,
+            y: pic.y - p,
+            width: pic.width + 2.0 * p,
+            height: pic.height + 2.0 * p,
+        },
+        p,
+        INK,
+    );
+    d.draw_rectangle_rec(pic, CREAM);
     match &e.picture {
         Some(tex) => {
             let src = Rectangle::new(0.0, 0.0, tex.width as f32, tex.height as f32);
-            d.draw_rectangle_rounded(pic, 0.12, 8, PAPER);
             d.draw_texture_pro(tex, src, pic, Vector2::zero(), 0.0, Color::WHITE);
         }
         None => draw_default_face(d, pic, e.color),
     }
 
-    // Name.
-    let size = 26.0 * s;
-    let name = fit_name(e.profile.name(), 14);
-    let m = measure(d, font, &name, size);
-    let name_y = (pic.y + pic.height + face.y + face.height) / 2.0 - m.y / 2.0;
-    let pos = Vector2::new(face.x + (face.width - m.x) / 2.0, name_y);
-    text(d, font, &name, pos, size, CHARCOAL);
-
-    // Voice-check badge (for the grown-ups).
-    let bc = Vector2::new(pic.x + pic.width - 8.0 * s, pic.y + 8.0 * s);
-    let br = 16.0 * s;
-    d.draw_circle_v(
-        Vector2::new(bc.x, bc.y + 1.5 * s),
-        br,
-        Color::new(0, 0, 0, 30),
+    // Name plate: dark, with the name in cream pixels.
+    let plate = Rectangle {
+        x: card.x + pad,
+        y: pic.y + pic.height + 2.0 * p,
+        width: side,
+        height: card.y + card.height - 3.0 * p - (pic.y + pic.height + 2.0 * p),
+    };
+    notched(d, plate, p, NIGHT_LO);
+    let (name, k) = fit_to_width(font, e.profile.name(), plate.width - 2.0 * p, s);
+    font.draw_centred(
+        d,
+        &name,
+        plate.x + plate.width / 2.0,
+        plate.y + plate.height / 2.0,
+        k,
+        CREAM,
+        Some(INK),
     );
-    d.draw_circle_v(bc, br + 2.0 * s, PAPER);
-    if e.calibrated {
-        d.draw_circle_v(bc, br, OK_GREEN);
-        let t = 3.0 * s;
-        d.draw_line_ex(
-            Vector2::new(bc.x - 7.0 * s, bc.y),
-            Vector2::new(bc.x - 2.0 * s, bc.y + 5.0 * s),
-            t,
-            Color::WHITE,
-        );
-        d.draw_line_ex(
-            Vector2::new(bc.x - 2.0 * s, bc.y + 5.0 * s),
-            Vector2::new(bc.x + 7.0 * s, bc.y - 5.0 * s),
-            t,
-            Color::WHITE,
-        );
+
+    // Voice-check badge (for the grown-ups), over the picture's corner.
+    let b = 10.0 * p;
+    let badge = Rectangle {
+        x: pic.x + pic.width - b + 2.0 * p,
+        y: pic.y - 2.0 * p,
+        width: b,
+        height: b,
+    };
+    let (fill, glyph, ink) = if e.calibrated {
+        (GREEN, ICON_CHECK, CREAM)
     } else {
-        d.draw_circle_v(bc, br, BUTTER);
-        let mic = Rectangle {
-            x: bc.x - 3.5 * s,
-            y: bc.y - 8.0 * s,
-            width: 7.0 * s,
-            height: 11.0 * s,
-        };
-        d.draw_rectangle_rounded(mic, 1.0, 6, CHARCOAL);
-        d.draw_ring(bc, 6.0 * s, 7.8 * s, 0.0, 180.0, 12, CHARCOAL);
-        d.draw_line_ex(
-            Vector2::new(bc.x, bc.y + 7.0 * s),
-            Vector2::new(bc.x, bc.y + 10.0 * s),
-            1.8 * s,
-            CHARCOAL,
-        );
+        (BUTTER, ICON_MIC, INK)
+    };
+    arcade::panel(d, badge, p, fill);
+    let px = (p * 0.75).round().max(1.0);
+    arcade::icon(
+        d,
+        glyph,
+        badge.x + badge.width / 2.0,
+        badge.y + badge.height / 2.0,
+        px,
+        ink,
+    );
+}
+
+/// The name at the biggest pixel size (3×, then 2× the font) that fits
+/// `max_w`, shortened with `…` if even the smaller one doesn't.
+fn fit_to_width(font: &PixelFont, name: &str, max_w: f32, s: f32) -> (String, f32) {
+    let big = (3.0 * s).round().max(2.0);
+    let small = (2.0 * s).round().max(1.0);
+    for k in [big, small] {
+        if font.measure(name, k).x <= max_w {
+            return (name.to_string(), k);
+        }
     }
+    let mut n = name.chars().count();
+    while n > 2 {
+        n -= 1;
+        let short = fit_name(name, n);
+        if font.measure(&short, small).x <= max_w {
+            return (short, small);
+        }
+    }
+    (fit_name(name, 2), small)
 }
 
 /// A friendly drawn face for children without a picture (matches the app's).
 fn draw_default_face(d: &mut RaylibDrawHandle, r: Rectangle, bg: Color) {
-    d.draw_rectangle_rounded(r, 0.12, 8, shade(bg, 0.35));
+    d.draw_rectangle_rec(r, shade(bg, 0.55));
     let c = Vector2::new(r.x + r.width / 2.0, r.y + r.height / 2.0);
     let rad = r.width * 0.34;
     let ink = Color::new(140, 124, 115, 255);
@@ -554,26 +557,9 @@ mod tests {
     }
 
     #[test]
-    fn font_covers_every_name_letter() {
-        let set = font_codepoints("Łucja Żółć Ярина");
-        for ch in "ŁŻółćЯрина?…".chars() {
-            assert!(set.contains(ch), "missing {ch}");
-        }
-        assert!(set.contains('A') && set.contains('~'));
-    }
-
-    #[test]
     fn long_names_are_shortened() {
         assert_eq!(fit_name("Maya", 14), "Maya");
         assert_eq!(fit_name("Aleksandra Maria", 14).chars().count(), 14);
         assert!(fit_name("Aleksandra Maria", 14).ends_with('…'));
-    }
-
-    #[test]
-    fn tile_colours_match_the_app_order() {
-        // The app's ui::shell::TILE_COLORS is [SKY, LILAC, BUTTER, MINT, ROSE];
-        // keep this list in the same order so a child's colour matches.
-        assert_eq!(TILE_COLORS[0], SKY);
-        assert_eq!(TILE_COLORS[4], ROSE);
     }
 }

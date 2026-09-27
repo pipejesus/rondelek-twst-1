@@ -48,11 +48,11 @@ widgets, almost entirely from the **skin** spritesheet:
 ## The shell (every screen except the sampler)
 
 Everything outside the sampler (Home, Hub, profile form, voice check, games menu,
-settings page) is drawn with the **shell kit** in `ui/shell.rs`. It borrows the
-game's pre-game look (cream→peach gradient, pastel tiles, charcoal ink, one orange
-accent), so the app and the games read as one toy. (Vowel Runner's world itself
-has since moved to a brighter sunny-day palette; its pre-game screens keep this
-look. See [Voice games](games.md).)
+settings page) is drawn with the **shell kit** in `ui/shell.rs`: a cream→peach
+gradient, pastel tiles, charcoal ink, one orange accent. (The games have since
+moved on: their entrance screens use a vivid 8-bit arcade look and Vowel Runner's
+world a sunny-day palette, see [Voice games](games.md). The app is planned to
+follow; see `TODO.md`.)
 
 | Piece | Role |
 |-------|------|
