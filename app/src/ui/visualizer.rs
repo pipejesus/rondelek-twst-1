@@ -37,6 +37,9 @@ pub trait Visualizer {
         _calibration: Option<rondelek_core::audio::vowel::VowelCalibration>,
     ) {
     }
+    /// Supply the translated words a visualizer shows (called at start-up and
+    /// on every language change). Default is a no-op.
+    fn set_labels(&mut self, _i18n: &crate::i18n::I18n) {}
 }
 
 /// The default visualizer: a retro dot-matrix FFT spectrum.

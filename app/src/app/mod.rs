@@ -221,11 +221,14 @@ impl App {
             .map(|def| Pad::from_def(def, egui::Rect::ZERO))
             .collect();
 
-        let visualizers: Vec<Box<dyn Visualizer>> = vec![
+        let mut visualizers: Vec<Box<dyn Visualizer>> = vec![
             Box::new(SpectrumVisualizer::new()),
             Box::new(VowelVisualizer::new()),
             Box::new(OffVisualizer),
         ];
+        for viz in &mut visualizers {
+            viz.set_labels(&i18n);
+        }
         // Clamp in case a newer config selected a visualizer we no longer have.
         let active_visualizer = settings.active_visualizer.min(visualizers.len() - 1);
 
@@ -731,6 +734,9 @@ impl App {
     fn set_language(&mut self, code: &str) {
         self.settings.language = code.to_string();
         self.i18n.set_lang(code);
+        for viz in &mut self.visualizers {
+            viz.set_labels(&self.i18n);
+        }
         self.save_settings();
     }
 

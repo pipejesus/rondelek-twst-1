@@ -11,7 +11,7 @@ Tracked items intentionally left for later batches.
 - **Remaining European languages.** Framework + picker already list ~36 languages;
   fully translated: en, pl, de, fr, es, it, uk. The rest fall back to English.
   Add locale files under `assets/i18n/<code>.json` (keys must match `en.json`).
-- Consider local-time (vs UTC) session-folder timestamps if therapists want it
+- Consider local-time (vs UTC) session-folder timestamps if grown-ups want it
   (would add a date/time dependency).
 
 ## Sessions / profiles

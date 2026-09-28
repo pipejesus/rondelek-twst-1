@@ -21,6 +21,8 @@ pub struct VowelVisualizer {
     detector: VowelDetector,
     /// Whether the active profile is calibrated (drives the status line).
     calibrated: bool,
+    /// The status line's words: (calibrated, not calibrated), translated.
+    labels: (String, String),
 }
 
 impl VowelVisualizer {
@@ -29,6 +31,7 @@ impl VowelVisualizer {
             scores: [0.0; 6],
             detector: VowelDetector::new(),
             calibrated: false,
+            labels: (String::new(), String::new()),
         }
     }
 
@@ -99,6 +102,13 @@ impl Visualizer for VowelVisualizer {
         self.calibrated = self.detector.is_calibrated();
     }
 
+    fn set_labels(&mut self, i18n: &crate::i18n::I18n) {
+        self.labels = (
+            i18n.t("viz.calibrated").to_string(),
+            i18n.t("viz.not_calibrated").to_string(),
+        );
+    }
+
     fn draw(&self, painter: &Painter, rect: Rect, theme: &Theme, settings: &Settings) {
         if rect.width() <= 8.0 || rect.height() <= 8.0 {
             return;
@@ -108,12 +118,9 @@ impl Visualizer for VowelVisualizer {
 
         // Calibration status, top-left.
         let (status, status_color) = if self.calibrated {
-            ("Calibrated ✓".to_string(), theme.visualizer_bar_high)
+            (&self.labels.0, theme.visualizer_bar_high)
         } else {
-            (
-                "Not calibrated — set up the child's voice first".to_string(),
-                theme.text_secondary,
-            )
+            (&self.labels.1, theme.text_secondary)
         };
         painter.text(
             inner.left_top(),

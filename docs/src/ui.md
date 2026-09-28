@@ -1,15 +1,22 @@
 # UI, layout & rendering
 
-The UI is [`egui`](https://github.com/emilk/egui) / `eframe`, immediate-mode: there
-are no retained widget objects for the sampler — every frame recomputes geometry
-from the live window rectangle and paints. This makes the faceplate reflow fluidly
-on resize with no fixed pixel grid.
+Come on in. This page walks you through everything you can see in the app: how
+the sampler lays itself out, how it gets painted, the arcade-style screens
+around it, and the grown-ups' settings page.
+
+The UI is built with [`egui`](https://github.com/emilk/egui) / `eframe`, which is
+immediate-mode. For the sampler that means there are no widget objects kept
+around between frames. Every frame, the app looks at the live window rectangle,
+works out the geometry from scratch and paints. That's why the faceplate reflows
+smoothly when you resize the window: there's no fixed pixel grid to fight with.
 
 ## Fluid faceplate layout
 
-`app/src/ui/layout.rs::compute_layout` takes the available `Rect` and returns a `FaceLayout` with
-every sub-rectangle for the frame. Everything is derived proportionally, so there
-is a single source of truth for geometry.
+Here's where all the sampler's geometry comes from.
+`app/src/ui/layout.rs::compute_layout` takes the available `Rect` and hands back
+a `FaceLayout` holding every sub-rectangle for the frame. Everything is worked
+out in proportion to the window, so there's exactly one place to look when you
+want to know where something sits.
 
 ```mermaid
 flowchart TB
@@ -22,19 +29,21 @@ flowchart TB
     case --> pads[pad area: 4x3 square keycaps]
 ```
 
-Notes:
+A few things worth knowing:
 
-- The **back** and **REC** buttons are both square keycaps of equal size, on the
-  left and right of the header; the profile **avatar** is a square centred flush
-  with the top edge.
+- The **back** and **REC** buttons are square keycaps of the same size, one on
+  each side of the header. The profile **avatar** sits between them, also
+  square, centred and flush with the top edge.
 - The **screen** is where the active visualizer draws (`layout.screen`).
-- The **pads** are a `PAD_ROWS × PAD_COLS` grid of square keycaps, centred and size-
-  capped so they stay reasonable on large windows.
+- The **pads** are a `PAD_ROWS × PAD_COLS` grid of square keycaps. They're
+  centred, and their size is capped so they don't turn into giant slabs on a big
+  window.
 
 ## Rendering
 
-The sampler screen is painted through a cloned `egui::Painter` rather than
-widgets, almost entirely from the **skin** spritesheet:
+The sampler screen doesn't use widgets at all. It's painted through a cloned
+`egui::Painter`, and nearly all of it comes straight from the **skin**
+spritesheet. Here's who does what:
 
 | Piece | Where | Role |
 |-------|-------|------|
@@ -47,24 +56,29 @@ widgets, almost entirely from the **skin** spritesheet:
 
 ## The shell (every screen except the sampler)
 
-Everything outside the sampler (Home, Hub, profile form, voice calibration, games menu,
-settings page) is drawn with the **shell kit** in `ui/shell.rs`, in the **arcade
-style** shared with the games' entrance screens and the README pictures: a navy
-night with a slowly twinkling starfield and 80s stripe bands, chunky notched
-keycaps with a hard ink outline and a bevel, pixel titles, and vivid colours that
-sit calmly on the deep navy.
+Step outside the sampler and you're in the **shell**. Home, Hub, the profile
+form, voice calibration, the games menu and the settings page are all drawn with
+the **shell kit** in `ui/shell.rs`. It uses the same **arcade style** as the
+games' entrance screens and the README pictures: a navy night sky with a slowly
+twinkling starfield and 80s stripe bands, chunky notched keycaps with a hard ink
+outline and a bevel, pixel titles, and vivid colours that still sit calmly on
+the deep navy.
 
-The palette and the pixel bitmaps (icons, and the six bold lowercase vowels) are
-data in **`rondelek_core::arcade`**, shared with the game's raylib kit
-(`game/src/arcade.rs`), so the app and the games can't drift apart. A child's
-card colour comes from there too (`tile_color(uid)`), identical everywhere.
+The palette and the pixel bitmaps (icons, plus the six bold lowercase vowels)
+live as plain data in **`rondelek_core::arcade`**. The game's raylib kit
+(`game/src/arcade.rs`) reads the same data, so the app and the games can't drift
+apart. Each child's card colour comes from there too (`tile_color(uid)`), so a
+child is the same colour everywhere they look.
 
-**Two fonts, by audience.** Kid-facing words (titles, big keys, names) use the
-**Tiny5** pixel font (`pixel_font`, the `pixel` family; sizes snap to multiples
-of 9 so it stays crisp). Grown-up body text (descriptions, hints, form labels)
-stays in Space Grotesk, which reads better in sentences. The vowels are never
-set in the pixel font's lowercase, which turns ambiguous at size; they are drawn
-from their own bitmaps (`pixel_vowel`, `KeyButton::vowel`).
+**Two fonts, one for each audience.** Words meant for kids (titles, big keys,
+names) use the **Tiny5** pixel font (`pixel_font`, the `pixel` family). Its sizes
+snap to multiples of 9 so it stays crisp. Words meant for grown-ups
+(descriptions, hints, form labels) stay in Space Grotesk, which is much nicer to
+read in whole sentences. The vowels get special care: they're never set in the
+pixel font's lowercase, which gets ambiguous when it's blown up. Instead they're
+drawn from their own bitmaps (`pixel_vowel`, `KeyButton::vowel`).
+
+Here's what's in the kit:
 
 | Piece | Role |
 |-------|------|
@@ -78,73 +92,85 @@ from their own bitmaps (`pixel_vowel`, `KeyButton::vowel`).
 | `Icon`, `draw_icon` | Vector icons (back, gear, mic, pads, star, …), with no icon font needed. |
 | `title`, `hint`, `pixel_wordmark` | Butter pixel headings over an ink shadow, dim secondary text, the 5×7 "RONDELEK" wordmark. |
 
-Every clickable shell widget reports an **AccessKit label**, which is what the
-settings page's UI tests use to find and click controls.
+Every clickable shell widget reports an **AccessKit label**. That's how the
+settings page's UI tests find the controls and click them, so please give your
+new buttons one too.
 
-Screens live in `app/src/app/`, one file each: `home.rs` ("Who's playing?"),
+Each screen has its own file in `app/src/app/`: `home.rs` ("Who's playing?"),
 `hub.rs` (the child's three big tiles), `profile_form.rs`, `calibrate.rs` (voice
-calibration), `games.rs`, `settings.rs` (glue for the settings page) and `sampler.rs`.
-The hub's tiles fit long labels (`fit_label`): one line in the big pixel size,
-else two lines split at the middle space ("Calibrage / de la voix"), else the
-small size.
+calibration), `games.rs`, `settings.rs` (glue for the settings page) and
+`sampler.rs`. The hub's tiles make room for long labels with `fit_label`: one
+line in the big pixel size if it fits, otherwise two lines split at the middle
+space ("Calibrage / de la voix"), and failing that, the small size.
 
 ### Character avatars
 
+Not every child wants a photo, so there are characters to pick from.
 `rondelek_core::characters` (`core/src/characters.rs`, shared with the games'
-profile picker) embeds `assets/avatars/<name>.png`. There are two sets, both
-offered in the picture picker: the **pixel pals** (`pixel-fox`, `pixel-cat`, …;
-vivid 32×32 pixel art in the arcade look, from `cargo run --bin genpixelpals`,
-listed first) and the **classic** smooth set (`fox`, `cat`, …, from
-`cargo run --bin genavatars`). The app scales pixel pals with mipmaps and
-nearest-neighbour magnification (`characters::is_pixel`), so their pixels stay
-square. Profiles store the character's *name*
-(`ProfileManifest::character`), so replacing a PNG updates every profile using it.
-See `assets/avatars/README.md`.
+profile picker) embeds `assets/avatars/<name>.png`. You'll find two sets, and
+the picture picker offers both:
+
+- the **pixel pals** (`pixel-fox`, `pixel-cat`, …): vivid 32×32 pixel art in the
+  arcade look, made by `cargo run --bin genpixelpals`, and listed first;
+- the **classic** smooth set (`fox`, `cat`, …), made by
+  `cargo run --bin genavatars`.
+
+The app scales pixel pals with mipmaps and nearest-neighbour magnification
+(`characters::is_pixel`), so their pixels stay nice and square. A profile stores
+the character's *name* (`ProfileManifest::character`), not the picture, so if
+you replace a PNG, every profile using that character picks up the new one. See
+`assets/avatars/README.md`.
 
 ## Theming & fonts
 
 - **Skins** own the sampler's look: one `skin.png` spritesheet plus `skin.json`
-  colour overrides. Two are built in (`ui::skin::BUILTIN`): **Arcade**
-  (`genarcadeskin`, the default when none is chosen) and **Classic**
-  (`genskin`, `skins/base/`, also the fallback for any file a skin lacks).
-  `Skin::load` takes the chosen name: an installed skin of that name, else the
-  built-in, else the default. The grown-ups page lists Arcade, Classic, then
-  installed skins. See `docs/SKINS.md`. There is no dark mode.
-- **Theme** (`core/src/config/theme.rs`) is the colour struct for everything in
-  the sampler still drawn procedurally (visualizers, LEDs, text): `theme_light()`
-  defaults, overridden by the skin's `skin.json`. The shell screens use the fixed
-  `shell::palette` instead, so a sampler skin never makes the menus unreadable.
+  colour overrides. Two come built in (`ui::skin::BUILTIN`): **Arcade**
+  (`genarcadeskin`, the default when nobody has chosen one) and **Classic**
+  (`genskin`, `skins/base/`, which is also the fallback for any file a skin
+  leaves out). `Skin::load` takes the chosen name and tries, in order: an
+  installed skin of that name, then the built-in, then the default. The
+  grown-ups page lists Arcade, Classic, then any installed skins. See
+  `docs/SKINS.md`. There is no dark mode.
+- **Theme** (`core/src/config/theme.rs`) is the colour struct for the parts of
+  the sampler that are still drawn in code (visualizers, LEDs, text). It starts
+  from the `theme_light()` defaults, and the skin's `skin.json` overrides them.
+  The shell screens use the fixed `shell::palette` instead, so a wild sampler
+  skin can never make the menus unreadable.
 - **Fonts**: Space Grotesk (OFL) is embedded and installed as the default
-  proportional + monospace family, with `egui`'s default fonts as fallback so
-  Cyrillic/Greek still render. Tiny5 (OFL, pixel) is the `pixel` family for the
-  shell's kid-facing words; it covers every shipped language itself.
-  (`shell::install_fonts`; the settings page's UI tests install them too.)
+  proportional + monospace family, with `egui`'s default fonts behind it as a
+  fallback so Cyrillic and Greek still render. Tiny5 (OFL, pixel) is the `pixel`
+  family for the shell's kid-facing words, and it covers every shipped language
+  on its own. (This all happens in `shell::install_fonts`; the settings page's
+  UI tests install the fonts too.)
 
 ## Internationalization
 
-`i18n/mod.rs` provides runtime translations:
+The app speaks several languages, and `i18n/mod.rs` is where it learns them:
 
 - `assets/i18n/en.json` is the **source of truth**; `pl, de, fr, es, it, uk` are
-  seeded locales. A test fails if keys drift between them.
-- Lookup resolves **active locale → English → the key itself**.
-- The system language is detected once on first run (`sys-locale`) and saved to
-  settings. The flag key on Home opens the settings page at its language grid.
+  seeded locales. A test fails if the keys drift apart between them.
+- Lookup goes **active locale → English → the key itself**, so a missing
+  translation shows English rather than nothing.
+- The system language is detected once, on first run (`sys-locale`), and saved
+  to settings. The flag key on Home opens the settings page right at its
+  language grid.
 - All locale JSON and picker flags are embedded in the binary.
 - Dates shown to grown-ups go through `ui/when.rs` (`when::friendly`): local
-  time via `chrono`, "Today, 14:05" / "Yesterday, 09:12" / "26 September,
-  14:05" (the year only when it isn't this year). The word order and month
-  names are translations (`when.*`), so German reads "26. September" and
-  Spanish "26 de septiembre".
+  time via `chrono`, as "Today, 14:05" / "Yesterday, 09:12" / "26 September,
+  14:05" (the year appears only when it isn't this year). The word order and
+  the month names are translations too (`when.*`), so German reads
+  "26. September" and Spanish "26 de septiembre".
 
 > When you add or change any user-facing string you must update `en.json` **and**
 > every seeded locale. See [Contributing](contributing.md) and `AGENTS.md`.
 
 ## The settings page ("For grown-ups")
 
-`ui/settings_page.rs` is **one scrolling page** of cards. It replaced the old F12
-settings window, and there are no pop-up windows left. It opens from the gear key
-(Home, Hub) or `F12`, and the back key returns to where you came from. Each card
-says whether it affects **only this profile** or **everyone on this computer**.
+This is the grown-ups' corner. `ui/settings_page.rs` is **one scrolling page** of
+cards. It replaced the old F12 settings window, and there are no pop-up windows
+left anywhere. You open it with the gear key (on Home and Hub) or `F12`, and the
+back key takes you back to wherever you came from. Each card tells you whether
+it affects **only this profile** or **everyone on this computer**.
 
 | Card | Controls | `Settings` fields / data |
 |------|----------|--------------------------|
@@ -157,17 +183,22 @@ says whether it affects **only this profile** or **everyone on this computer**.
 | Look & language | language flag grid, sampler skin | `language`, `skin` |
 | About & data | version, open data folder | |
 
-The page only edits `Settings` and returns a `SettingsOutcome` of *requests*
-(switch language, load skin, delete child, open a session, play a chime, …). The
-app carries them out in `app/settings.rs`; opening a session closes (saves) any
-open one first, so it also works when the page was opened from the sampler. This split keeps the page testable: `settings_page::tests`
-renders it headless with `egui_kittest`, clicks controls by label and asserts on
-`Settings`. Changes save immediately.
+The page itself only edits `Settings`. Anything bigger comes back as a
+`SettingsOutcome` full of *requests* (switch language, load skin, delete child,
+open a session, play a chime, …), and the app carries them out in
+`app/settings.rs`. Opening a session first closes (and saves) any session that's
+already open, so it works even when the page was opened from the sampler.
+
+Why the split? It keeps the page easy to test. `settings_page::tests` renders it
+headless with `egui_kittest`, clicks controls by their labels and checks what
+ended up in `Settings`. Changes save straight away; there's no "Apply" button to
+forget.
 
 ## Level meter & camera
 
-- **Level meter** (`ui/level_meter.rs`) is an input-level bar with a translated
-  status line (too quiet / OK / too loud), shown in the voice calibration and on the
-  settings page.
-- **Camera** (`camera/mod.rs`) shows its live preview **inline in the profile
-  form**, at the webcam's native aspect ratio with a centred square crop guide.
+- The **level meter** (`ui/level_meter.rs`) is an input-level bar with a
+  translated status line underneath (too quiet / OK / too loud). You'll see it
+  in voice calibration and on the settings page.
+- The **camera** (`camera/mod.rs`) shows its live preview **inline in the
+  profile form**, at the webcam's native aspect ratio, with a centred square
+  crop guide so you know what ends up in the avatar.

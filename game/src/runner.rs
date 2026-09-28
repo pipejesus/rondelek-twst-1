@@ -303,11 +303,11 @@ pub struct Runner {
     /// The voice level, smoothed (quick up, slow down) — what the water
     /// dances to.
     voice_glow: f32,
-    /// Therapist-chosen controls (indices into VOWELS).
+    /// Grown-up-chosen controls (indices into VOWELS).
     jump_vowel: usize,
     duck_vowel: usize,
     shoot_vowel: usize,
-    /// Obstacle kinds allowed to spawn (therapist's difficulty pick; never
+    /// Obstacle kinds allowed to spawn (the grown-up's difficulty pick; never
     /// empty — falls back to all three).
     kinds: Vec<Kind>,
     gfx: Option<Gfx>,

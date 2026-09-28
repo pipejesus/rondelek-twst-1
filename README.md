@@ -1,374 +1,154 @@
 <p align="center">
-  <img src="docs/images/banner.png" alt="Rondelek TWST-1" width="100%">
+  <img src="docs/images/arcade/banner.png" alt="RONDELEK, in big pixel letters on an 8-bit arcade marquee with rainbow stripes and a starfield: “A sound board and voice games for kids”" width="100%">
 </p>
 
-# Rondelek TWST-1
+**Rondelek is a little arcade of sounds for kids.** Your child records a funny
+noise onto a big colourful key, taps it, and hears it come right back. Then
+they switch to a game and steer it with nothing but their voice: say *“aaa”*
+and the hero jumps. It's a toy first, and a sneaky bit of practice with sounds
+and vowels along the way.
 
-> A playful audio sampler for children with hearing implants — record short
-> sounds onto pads and play them back, turning speech and hearing practice into a
-> game.
+It runs on your own computer, with no accounts, no internet and no ads.
+Every child in the family gets their own card, picture and recordings.
+
+## Two ways to play
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="40%">
+      <img src="docs/images/arcade/sampler.png" alt="The sound board: a navy arcade cabinet with the child's pixel-fox picture on top, a neon dot-matrix screen, and a 4×3 grid of chunky rainbow keys labelled 1–4, Q/W/E/R and A/S/D/F" width="300">
+    </td>
+    <td align="center" valign="top" width="60%">
+      <picture>
+        <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/arcade/runner.png">
+        <img src="docs/images/arcade/runner.gif" alt="Vowel Runner: a little blue hero runs across a pixel meadow by a sparkling sea, under soft glassy clouds, fires stars that knock down brick walls marked with a vowel, and the golden sun at the top spins round to show each new point" width="460">
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <b>🎛 The sound board.</b> Twelve big keys, and every one can hold a
+      sound. Hold a key to record a giggle, a growl or a “ba-ba-ba”, then tap
+      it to hear it again, as often as they like. The little screen dances
+      along with their voice, or shows which vowel it hears.
+    </td>
+    <td valign="top">
+      <b>🎮 Voice games.</b> In <b>Vowel Runner</b> the child's voice is the
+      controller: one vowel jumps, another ducks, a third throws a star. A
+      grown-up picks which vowel does what, and which obstacles show up. A
+      miss just bounces off, and the golden sun spins round for every point.
+      <br><br><i>More games are on the way.</i>
+    </td>
+  </tr>
+</table>
+
+## Quick start
+
+It takes about five minutes, and one of them is the important one.
+
+**1. Get Rondelek** from the [latest release](https://github.com/pipejesus/rondelek-twst-1/releases/latest)
+(Windows and Linux, see [Download](#download) below) and open it.
+
+**2. Make a card for your child.** On *Who's playing?* press **New child**,
+type their name and pick a picture: a cartoon animal, a webcam photo, or any
+image you like.
 
 <p align="center">
-  <img src="docs/images/arcade/marquee.png" alt="An 8-bit arcade marquee with rainbow stripes and a starfield: 1UP, HI-SCORE and CREDIT counters above a big PRESS START and “Say a vowel to play”" width="100%">
+  <img src="docs/images/arcade/home.png" alt="The start screen, “Who’s playing?”: a row of chunky arcade cards in bright colours, one per child, each with a cartoon animal picture and a name, and a “New child” card" width="620">
 </p>
+
+**3. Do the voice calibration together. Please don't skip this one!**
+Tap your child's card, then the yellow **Voice calibration** tile. The app
+shows six vowels, *a e i o u y*. Tap one, hold the big button, and let your
+child say the sound and keep it going for a moment, like a little song:
+*“aaaaa”*. Do that for all six. It takes a minute or two.
+
+<table>
+  <tr>
+    <td align="center" width="50%"><img src="docs/images/arcade/hub.png" alt="The child's own screen, with their picture and name above three big tiles: Sounds, Games and Voice calibration" width="380"></td>
+    <td align="center" width="50%"><img src="docs/images/arcade/calibration.png" alt="Voice calibration: six big vowel keys, a e i o u y, with “Tap a sound, then hold the big button and say it”" width="380"></td>
+  </tr>
+</table>
+
+Why it matters so much: every child's voice is different, and so is every
+microphone. Calibration is how Rondelek learns what *your* child's vowels
+sound like. Without it, the games and the vowel screen simply can't
+understand them. With it, they respond to your child's own voice.
+
+A few things that help:
+
+- Record with the **same microphone** your child will play with, in a quiet-ish room.
+- Two or three takes per vowel (a bit higher, a bit lower, a bit louder) make
+  recognition noticeably better.
+- Got a new microphone, or does the game seem confused? Just calibrate again.
+  It's quick, and the grown-ups page will even tell you when the microphone
+  has changed since the last calibration.
+
+**4. Play!** **Sounds** opens the sound board, and **Games** opens the voice
+games. The sound board remembers everything, so next time your child carries
+on right where they left off.
+
+There's more about each step in the [Rondelek book](https://pipejesus.github.io/rondelek-twst-1/),
+including a friendly [guide to voice calibration](https://pipejesus.github.io/rondelek-twst-1/voice-calibration.html).
 
 <p align="center">
-  <picture>
-    <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/arcade/runner.png">
-    <img src="docs/images/arcade/runner.gif" alt="Vowel Runner gameplay in an arcade-screen frame: a little blue hero runs across a pixel meadow by a sparkling sea, under soft glassy clouds, fires stars that knock down brick walls marked with a vowel, and the golden sun at the top spins round to show each new point" width="680">
-  </picture>
-  <br>
-  <sub><b>Vowel Runner</b>: the child's voice is the controller. Say a vowel to jump,
-  duck or fire a star; grown-ups pick which vowel does what.</sub>
+  <img src="docs/images/arcade/marquee.png" alt="An 8-bit arcade marquee: 1UP, HI-SCORE and CREDIT counters above a big PRESS START and “Say a vowel to play”" width="100%">
 </p>
-
-<p align="center">
-  <img src="docs/images/arcade/home.png" alt="The start screen, “Who’s playing?”, in an arcade frame captioned PLAYER SELECT: a night sky with little stars, a row of chunky arcade cards in bright colours, one per child, each with a cartoon character picture and the name in pixel letters, and a “New child” card" width="680">
-</p>
-
-<p align="center">
-  <img src="docs/images/arcade/hub.png" alt="A child’s hub, captioned PICK A MODE: their picture and name above three big tiles — Sounds, Games and Voice calibration" width="430">
-  &nbsp;
-  <img src="docs/images/arcade/sampler.png" alt="The sampler in its Arcade skin, captioned SOUND BOARD: a navy cabinet with rainbow stripe trim and the child's pixel-fox picture, a neon dot-matrix screen, and a 4×3 grid of chunky rainbow pixel keys labelled 1–4, Q/W/E/R, A/S/D/F" width="292">
-</p>
-
-Rondelek is a small, self-contained desktop app. One install serves many
-children: each child gets their own tile, picture and recordings. There are no
-accounts, no network and no database; everything stays in plain folders on
-your computer.
-
----
 
 ## Download
 
-Ready-made downloads are on the
-[latest release](https://github.com/pipejesus/rondelek-twst-1/releases/latest)
+Everything is on the [latest release](https://github.com/pipejesus/rondelek-twst-1/releases/latest)
 page, under **Assets**.
 
-### Windows
+- **Windows:** download the `.zip`, unzip it anywhere, and double-click
+  **`rondelek.exe`**. Keep it next to `rondelek-game.exe`, because that's where
+  the games live. If Windows says *“Windows protected your PC”*, click
+  **More info → Run anyway**. (The app just isn't code-signed; that costs money
+  every year.)
+- **Linux:** download the `.AppImage`, allow it to run as a program
+  (right-click → *Properties*), and double-click it. Nothing to install.
+- **macOS:** no ready-made download yet, but it builds from source with a few
+  commands.
 
-1. Download the `.zip` (`…-windows-msvc.zip`).
-2. Unzip it anywhere, e.g. into *Documents*.
-3. Double-click **`rondelek.exe`**.
+The book has [more install details](https://pipejesus.github.io/rondelek-twst-1/getting-started.html)
+if you'd like them.
 
-Keep **`rondelek.exe` and `rondelek-game.exe` in the same folder**: the app
-starts the games from there.
+## For grown-ups
 
-The first time, Windows may show *“Windows protected your PC”*. The app isn't
-code-signed (that costs money every year), so click **More info → Run anyway**.
+- **Everything stays on your computer.** Children, pictures and recordings
+  are ordinary files in a folder you can open from the app. Nothing is sent
+  anywhere.
+- **One settings page, just for you.** The ⚙ key (or `F12`) opens
+  *For grown-ups*: speakers and microphone, how picky the voice recognition
+  should be, the language, the look of the sound board, and each child's
+  profile. You'll also find **every earlier session** of the sound board
+  there, ready to open again.
+- **Seven languages:** English, Polski, Deutsch, Français, Español, Italiano
+  and Українська.
 
-### Linux
+The [grown-ups guide](https://pipejesus.github.io/rondelek-twst-1/grown-ups.html)
+walks through the whole page.
 
-1. Download **`rondelek-…-x86_64.AppImage`**: one file, nothing to install.
-2. Make it executable: right-click → *Properties* → *Allow executing as a
-   program*, or in a terminal `chmod +x rondelek-*.AppImage`.
-3. Double-click it.
+## Curious how it's made?
 
-It runs on Ubuntu 22.04 or newer, Debian 12+, Fedora, Arch and other current
-distros. To start the games on their own, run it with `--game`. To get a menu
-entry and one-click updates, open it with
-[Gear Lever](https://flathub.org/apps/it.mijorus.gearlever). A plain
-`.tar.gz` of the same two programs is there too.
-
-### macOS
-
-No ready-made download yet: build it from source (below); it's a few commands.
-
----
-
-## Using Rondelek (for parents and therapists)
-
-1. **Add a child**: on *Who's playing?* press **+ New child**, type a name and
-   pick a picture: a cartoon character, a webcam photo, or an image file.
-2. **Voice calibration**: in the child's hub, press **Voice calibration** and record the six
-   vowels (*a e i o u y*). Tap a vowel, then hold the big button while the child
-   says it. Two or three takes per vowel, at different pitch and loudness, make
-   recognition better. The vowel screen and the games need this.
-3. **Sounds**: the sampler. Press **REC** (or `Space`), then hold a pad to record
-   into it; press REC again and tap pads to play them back. Each set of
-   recordings is a *session* and is kept, so next time the child continues
-   where they left off. Earlier sessions stay available to grown-ups (see 5).
-4. **Games**: voice-controlled games. Before each game you choose which vowel
-   makes the hero jump, duck or shoot, and which obstacles appear. The game also
-   works on its own: double-click **`rondelek-game.exe`** (on Linux, run the
-   AppImage with `--game`) and it first asks who's
-   playing (the same children and pictures as in the app), then starts.
-5. **For grown-ups**: the ⚙ key (or `F12`) opens one settings page: speaker and
-   microphone, how picky voice recognition is, the sampler screen, language, and
-   the child's own settings (rename, calibrate the voice again, delete the
-   profile). Its **Sessions** list shows every session with its date and how
-   many pads hold a sound: **Open** any of them to carry on there (the
-   **Sounds** button then continues that one), or start a new one with empty
-   pads.
-
-Deleting a profile moves its folder to a `.trash` folder inside the library
-instead of erasing it, so it can be recovered.
-
----
-
-## Building from source
-
-If you've never touched Rust before, this is all you need.
-
-### 1. Install Rust
-
-Rust is installed with **`rustup`**, the official toolchain manager. Grab it from
-[rustup.rs](https://rustup.rs) (on macOS/Linux it's one command):
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-```
-
-Then restart your terminal and check it works:
-
-```bash
-rustc --version   # should print 1.88 or newer (edition 2024 + let-chains)
-```
-
-### 2. Get the code
+Rondelek is written in Rust, with [egui](https://github.com/emilk/egui) for
+the app and [raylib](https://www.raylib.com/) for the games. If you have
+[Rust](https://rustup.rs) installed, this builds and runs it:
 
 ```bash
 git clone https://github.com/pipejesus/rondelek-twst-1.git rondelek
 cd rondelek
-```
-
-### 3. Run it
-
-```bash
 cargo run --release
 ```
 
-The first build compiles every dependency and takes a few minutes. That's
-normal, and it's cached afterwards. The app opens on *Who's playing?*.
-
-> ### ⚡ Always use `--release` — especially for the webcam
->
-> `cargo run` (without a flag) makes a **debug** build: fast to compile, but the
-> image and audio code runs *unoptimized*. The webcam preview is the dramatic
-> case — decoding and scaling each frame costs:
->
-> | Build | Per frame | Live preview |
-> |-------|-----------|--------------|
-> | `cargo run` (debug) | ~1300 ms | **~1 fps** (painfully laggy) |
-> | `cargo run --release` | ~38 ms | **~26 fps** (smooth) |
->
-> That's a ~34× difference. If the camera feels like a slideshow, you're almost
-> certainly on a debug build. **Develop with `--release`.**
-
----
-
-## Building a standalone binary
-
-To produce an optimized executable you can copy and run anywhere:
-
-```bash
-cargo build --release
-```
-
-This builds **two** executables in `target/release/`: the sampler
-**`rondelek`** and the voice-game runner **`rondelek-game`** (`.exe` on
-Windows). Fonts, translations, flags, the built-in skins, shaders and 3D models are
-embedded, but the sampler launches games by running `rondelek-game` from its own
-folder, so **always ship and copy both files together**.
-
----
-
-## Platform notes
-
-Rondelek runs on **Windows, macOS and Linux**. Ready-made downloads are
-built for Windows and Linux (an AppImage; see
-[`packaging/appimage`](packaging/appimage/README.md)).
-
-### macOS
-Nothing extra to install — audio (CoreAudio) and camera (AVFoundation) are
-built in. The **first** time you use *Take photo*, macOS asks for camera
-permission. If you decline, the app just shows "Camera unavailable" and
-everything else keeps working. (You can re-enable it later under *System
-Settings → Privacy & Security → Camera*.)
-
-### Linux
-You'll need a few system development packages for audio, file dialogs, the
-window/GL surface, and the webcam. On Debian/Ubuntu:
-
-```bash
-sudo apt install build-essential pkg-config cmake clang \
-  libasound2-dev libgtk-3-dev libudev-dev libv4l-dev \
-  libx11-dev libxcb1-dev libxrandr-dev libxinerama-dev libxcursor-dev \
-  libxi-dev libgl1-mesa-dev
-```
-
-`cmake`, `clang` and the X11/GL headers are for raylib, which the voice-game
-binary compiles from source.
-
-Package names vary by distro — if a build fails, the compiler error usually
-names the missing library.
-
-### Windows
-Install the **MSVC C++ Build Tools** (the "Desktop development with C++"
-workload from the Visual Studio Installer), then `rustup` and `cargo` work as
-above. Audio and camera use the built-in Windows APIs.
-
----
-
-## Everyday development
-
-```bash
-cargo run --release          # build and run (games are rebuilt on launch)
-cargo test                   # run the test suite
-cargo fmt --all              # auto-format the code
-cargo clippy --all-targets   # lint for common mistakes
-```
-
-**Branches & worktrees.** `develop` is the main branch. Work happens on a branch
-in its own worktree under `.claude/worktrees/` (usually one per session) and
-lands on `develop` as a fast-forward. The full workflow is in `AGENTS.md`.
-
-**Git hooks (optional but recommended).** `pre-commit` checks formatting and
-`pre-push` runs clippy and the tests (the same checks as CI). Enable them once
-per clone:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-**Translations must stay in sync.** `assets/i18n/en.json` is the source of truth;
-every seeded locale (`pl, de, fr, es, it, uk`) must carry the same keys. A test
-(`cargo test`) fails if they drift. See `AGENTS.md` for the full contributor rule.
-
----
-
-## Voice games
-
-The vowel engine powers mini-games (raylib, in their own fullscreen window,
-launched from a child's **Games** tile as a separate process). The first game
-is **Vowel Runner**: say one vowel to jump, another to duck, a third to shoot
-stars. Misses just bounce away, and every cleared obstacle earns a point: the
-hand-drawn pixel sun with the count on its face whirls round once per point and
-comes back showing the new number, like a coin flipping over. It's
-rendered in blocky 2.5D under a bright blue sky: parallax clouds and bushes
-(hand-drawn `flat-draw` models; the clouds bob and breathe through flat-draw's
-Lam::pula glass shader), fog-shaded hills, a toon-shaded hero, and a playful
-sea along the front, with goldfish, foam and twinkles, whose waves dance
-when the child makes a sound.
-
-Each game opens on a text-free control screen where the grown-up assigns a
-vowel to each move (▲ jump / ▼ duck / ★ shoot), toggles which obstacle kinds
-appear, sets the turtle↔rabbit **Reaction** slider (steadier ↔ snappier; also on
-the settings page as `game_reaction`), and presses ▶. Detection is then limited
-to the chosen vowels, so sound-alikes that weren't picked (e.g. e vs y) can't
-cause misfires. Keys A/E/I/O/U/Y simulate vowels for testing without a mic; Esc
-closes the game and returns to the app.
-
-Run a game directly: `cargo run -p rondelek-game` (asks who's playing), or
-`cargo run -p rondelek-game -- runner --profile <profile-dir>` (what the app does).
-It's a separate binary/crate (`game/`) from the sampler app (`app/`), sharing
-audio/config/profile logic through `core/` — raylib and the app's eframe/winit
-stack both define a Windows `ShowCursor` symbol, so they can't share a link.
-Adding a game = implement `VoiceGame` (`game/src/`), register it in the
-`match` in `game::run` and in `rondelek_core::games::GAMES` (a `GameInfo`
-with its id and i18n name + tagline keys), then add those keys to every
-locale. Every game gets the "who's playing?" picker for free
-(`game/src/profile_picker.rs`, reusable via `profile_picker::choose_child`).
-The pre-game selection screen is still Runner-specific (`select_controls` returns the Runner's moves and obstacle
-toggles) and must be generalised for a second game.
-
----
-
-## Skins
-
-The whole faceplate is image-driven. Two skins are built in: **Arcade**, the
-default ([`skins/arcade/`](skins/arcade/), `cargo run --bin genarcadeskin`),
-and **Classic** ([`skins/base/`](skins/base/), `cargo run --bin genskin`),
-which is also the fallback. Pick one under *For grown-ups → Look & language*.
-Designers can make their own — a zip with a `skin.json` and a single `skin.png`
-spritesheet, dropped into the user skins folder. See [docs/SKINS.md](docs/SKINS.md).
-The repo's [`skins/index.json`](skins/index.json) catalogs skins available here.
-
----
-
-## Controls
-
-| Input | Action |
-|-------|--------|
-| `1 2 3 4` / `Q W E R` / `A S D F` | trigger the 12 sample pads |
-| `Space` | toggle **REC** mode |
-| *(REC mode)* hold a pad | record while held; release or `Esc` to stop |
-| *(play mode)* tap a pad | play its sample |
-| button left of REC | cycle the visualizer (spectrum → vowel meter → off) |
-| *(voice calibration)* hold `Space` | record the vowel on screen |
-| `F12` | open / close the settings page ("For grown-ups") |
-| `Ctrl+Shift+S` | save a screenshot |
-
----
-
-## Performance note (Linux/Wayland)
-
-winit's Wayland backend busy-spins between compositor frame callbacks, which
-can burn a full CPU core while the sampler screen animates. If fans spin up,
-launch with the `--x11` flag to run under XWayland instead, which blocks
-properly on vsync:
-
-```sh
-cargo run --release -- --x11
-```
-
-Static screens idle at a slow repaint heartbeat on either backend, so the fix
-matters mainly for the sampler and voice-check screens.
-
----
-
-## Handy environment variables
-
-Useful for testing, demos, and screenshots — they jump straight to a screen and
-(optionally) capture a frame:
-
-| Variable | Effect |
-|----------|--------|
-| `RONDELEK_LANG=de` | start in a specific language |
-| `RONDELEK_SIZE=640x760` | set the initial window size |
-| `RONDELEK_PROFILE=<dir>` | open that child's hub |
-| `RONDELEK_SESSION=<dir>` | jump straight into a session (the sampler) |
-| `RONDELEK_SCREEN=newprofile` \| `editprofile` \| `calibrate` \| `games` \| `settings` | open that screen (`editprofile`, `calibrate`, `games` need `RONDELEK_PROFILE`) |
-| `RONDELEK_CALIB_VOWEL=<n>` | with `calibrate`: open vowel *n*'s record screen |
-| `RONDELEK_VIZ=<n>` | select visualizer *n* (0 spectrum, 1 vowels, 2 off) |
-| `RONDELEK_SHOT=<file.png>` | render a few frames, save a screenshot, and exit |
-| `RONDELEK_GAME_SCREEN=profiles` \| `select` | *(game)* run the harness on the profile picker / control-selection screen |
-| `RONDELEK_GAME_FRAMES=<n>` / `RONDELEK_GAME_SHOT=<png>` | *(game)* quit after *n* frames / save a screenshot |
-
-Example — capture the sampler screen and quit:
-
-```bash
-RONDELEK_SESSION="$HOME/Library/Application Support/rondelek/profiles/<id>/sessions/<ts>" \
-RONDELEK_SHOT=out.png cargo run --release
-```
-
----
-
-## How it works (the short version)
-
-- **Children → sessions**, stored as plain folders under your OS data directory
-  (`…/rondelek/profiles/<slug>-<id>/`), each with a small JSON manifest. A child's
-  picture is either a square `avatar.png` photo or a built-in character.
-- **Screens:** *Who's playing?* (a tile per child) → the child's *hub* (Sounds,
-  Games, Voice calibration) → the *Sampler*. Also a *profile form* (name + a character,
-  photo or uploaded picture), the *voice calibration* (record the six vowels
-  a e i o u y) and one *settings page* for grown-ups. There are no pop-up
-  windows.
-- **Vowel detection** matches the child's voice against their own calibrated
-  MFCC templates. The vowel visualizer and the games share it.
-- **Audio is mono end-to-end**, captured at the device rate and resampled on
-  playback so pitch stays correct.
-- **Visualizers** are CPU-rendered (no GPU shader, so maximally portable): an amber
-  dot-matrix spectrum and a vowel meter.
-
-For the full architecture see the developer handbook in [`docs/`](docs/src/introduction.md).
-The module map and contributor rules are in [`AGENTS.md`](AGENTS.md).
-
----
+From there, [Building from source](https://pipejesus.github.io/rondelek-twst-1/building.html)
+covers each platform and the everyday commands, and the rest of the
+[book](https://pipejesus.github.io/rondelek-twst-1/) shows you around the code.
+Contributor rules are in [`AGENTS.md`](AGENTS.md). Sound-board skins have their
+own guide in [`docs/SKINS.md`](docs/SKINS.md).
 
 ## License
 
-MIT (see the `license` field in `Cargo.toml`). The bundled Space Grotesk and Tiny5
-fonts are under the SIL Open Font License (`assets/fonts/`), the picker flags are public
-domain, and the character pictures are the project's own generated placeholders
-(`assets/avatars/`).
+MIT (see `Cargo.toml`). The bundled Space Grotesk and Tiny5 fonts are under the
+SIL Open Font License (`assets/fonts/`), the language flags are public domain,
+and the character pictures are the project's own (`assets/avatars/`).

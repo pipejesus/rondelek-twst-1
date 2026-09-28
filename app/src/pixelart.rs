@@ -1,5 +1,5 @@
 //! Shared procedural-art primitives for the build-time image generators
-//! (`genskin`, `genbanner`, `genavatars`, pulled in via
+//! (`genskin`, `genarcade`, `genavatars`, pulled in via
 //! `#[path = "../pixelart.rs"]`). The app itself only uses the 5×7 pixel font
 //! (`char_bits`) for the shell's wordmark, so the whole visual language (matte
 //! shading, the pixel font) lives in one place.

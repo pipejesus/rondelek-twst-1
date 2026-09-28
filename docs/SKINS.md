@@ -1,9 +1,12 @@
 # Skins
 
-The whole sampler faceplate — background, case, screen bezel, every key —
-is drawn from one image, so a designer can reskin the app without touching
-code. A skin is a `skin.png` spritesheet plus a `skin.json`, distributed as
-a zip of the folder holding them.
+Hello, designer. This guide is for you.
+
+The whole sampler faceplate (the background, the case, the screen bezel and
+every single key) is drawn from one image. That means you can give the app a
+completely new look without touching a line of code. A skin is a `skin.png`
+spritesheet plus a `skin.json`, and you share it as a zip of the folder that
+holds them.
 
 ## Installing a skin
 
@@ -13,38 +16,40 @@ Drop the `.zip` (or the unzipped folder) into:
 - Windows: `%APPDATA%\rondelek\skins\`
 - macOS: `~/Library/Application Support/rondelek/skins/`
 
-then pick it in the app: **For grown-ups (F12) → Look & language → Sampler
-skin**. Zips are extracted automatically on the next scan.
+Then pick it in the app under **For grown-ups (F12) → Look & language → Sampler
+skin**. You don't need to unzip anything yourself; zips are extracted
+automatically on the next scan.
 
 ## Built-in skins
 
-Two skins ship inside the app and are always offered, before any installed
-ones:
+Two skins ship inside the app. They're always on offer, listed before any
+installed ones:
 
-- **Arcade** (`skins/arcade/`, `cargo run --bin genarcadeskin`): the default.
-  The sampler as the app's arcade machine: a navy cabinet with the stripe trim,
-  a cyan screen well, rainbow pixel keycaps, neon visualizer bars.
-- **Classic** (`skins/base/`, `cargo run --bin genskin`): the original flat,
-  matte plastic look. It is also the **fallback**: a skin that leaves out
-  `skin.png` or `skin.json` gets Classic's.
+- **Arcade** (`skins/arcade/`, `cargo run --bin genarcadeskin`) is the default.
+  It turns the sampler into the app's arcade machine: a navy cabinet with the
+  stripe trim, a cyan screen well, rainbow pixel keycaps and neon visualizer
+  bars.
+- **Classic** (`skins/base/`, `cargo run --bin genskin`) is the original flat,
+  matte plastic look. It's also the **fallback**: if a skin leaves out
+  `skin.png` or `skin.json`, it borrows Classic's.
 
-An installed skin whose folder is named like a built-in (`arcade`, `base`)
-replaces it.
+If you name an installed skin's folder like a built-in (`arcade`, `base`), it
+replaces that built-in.
 
 ## Files in a skin
 
-A skin is just **two files**, both optional — anything missing falls back to
-the built-in Classic skin:
+A skin is just **two files**, and both are optional. Anything you leave out
+falls back to the built-in Classic skin:
 
 | File | Size | What it is |
 |---|---|---|
 | `skin.png` | 1536×1280 | the whole faceplate on one spritesheet (see the map below) |
 | `skin.json` | — | metadata + colour overrides |
 
-Everything the app draws from images lives in `skin.png` at a **fixed set of
-rectangles**, so you design the whole faceplate as one layered file and the
-app slices each element back out. Open `skins/base/skin.png` or
-`skins/arcade/skin.png` as your template.
+Everything the app draws from images lives in `skin.png`, at a **fixed set of
+rectangles**. So you get to design the whole faceplate as one layered file, and
+the app cuts each piece back out. The easiest way to start is to open
+`skins/base/skin.png` or `skins/arcade/skin.png` and use it as your template.
 
 ### Spritesheet map (1536 × 1280)
 
@@ -56,26 +61,27 @@ app slices each element back out. Open `skins/base/skin.png` or
 | Background | 896, 256, 512, 256 | window background; scaled to fill and centre-cropped |
 | Key caps | 5 columns of 256², from y = 512 | 15 caps, index order below |
 
-The 15 caps fill a 5-wide grid starting at (0, 512), row-major: the **12
-sample pads** (labelled 1 2 3 4 / Q W E R / A S D F), then **REC**, **BACK**,
-**CYCLE**.
+The 15 caps fill a grid five wide, starting at (0, 512) and going row by row:
+first the **12 sample pads** (labelled 1 2 3 4 / Q W E R / A S D F), then
+**REC**, **BACK** and **CYCLE**.
 
-Caps carry only their *idle* artwork — pressing is engine-driven (the cap
-sinks a few pixels and dims), so there are no `_pressed` images. Give each cap
-a small transparent margin (≈5% per side); the engine draws a soft raised
-shadow behind it, the sample LED (top-right), and the pulsing record ring —
-those colours come from `skin.json`.
+You only draw each cap's *idle* artwork. Pressing is handled by the app (the
+cap sinks a few pixels and dims), so there are no `_pressed` images to make.
+Leave each cap a small transparent margin, about 5% per side. The app draws a
+soft raised shadow behind it, the sample LED (top-right) and the pulsing record
+ring; their colours come from `skin.json`.
 
 ## Nine-slice
 
-The case and bezel stretch to any window size. To keep corners crisp they are
-drawn as a nine-slice: the corners of the region are used as-is, edges stretch
-along one axis, and the centre stretches in both. The corner size (44 px for
-the case, 26 px for the bezel, in `skin.png` pixels) is fixed by the app.
+The case and the bezel stretch to fit any window size. To keep their corners
+crisp while they do, they're drawn as a nine-slice: the corners of the region
+are used exactly as drawn, the edges stretch along one direction, and the
+centre stretches in both. The corner size is fixed by the app: 44 px for the
+case and 26 px for the bezel, measured in `skin.png` pixels.
 
-Because the centre gets stretched, keep it flat colour — put shading only near
-the edges. The bezel's 26-px inset is also the visualizer's opening, so the
-screen fills exactly the frame and never overlaps it.
+Because the centre gets stretched, keep it a flat colour and put any shading
+near the edges. The bezel's 26-px inset is also the visualizer's opening, so the
+screen fills the frame exactly and never overlaps it.
 
 ## skin.json
 
@@ -90,22 +96,22 @@ screen fills exactly the frame and never overlaps it.
 }
 ```
 
-`colors` overrides any of the app's palette entries with `#RRGGBB` or
-`#RRGGBBAA`. Keys: `panel_bg`, `panel_fg`, `pad_play_bg`, `pad_play_fg`,
-`pad_play_hover`, `pad_play_pressed`, `pad_record_bg`, `pad_record_fg`,
-`pad_function_bg`, `pad_function_fg`, `led_empty`, `led_full`,
+`colors` lets you override any of the app's palette entries, written as
+`#RRGGBB` or `#RRGGBBAA`. The keys are: `panel_bg`, `panel_fg`, `pad_play_bg`,
+`pad_play_fg`, `pad_play_hover`, `pad_play_pressed`, `pad_record_bg`,
+`pad_record_fg`, `pad_function_bg`, `pad_function_fg`, `led_empty`, `led_full`,
 `case_shadow`, `case_border`, `text_primary`, `text_secondary`,
 `visualizer_bg`, `visualizer_dot_off`, `visualizer_bar_low`,
 `visualizer_bar_mid`, `visualizer_bar_high`.
 
-They colour everything still drawn procedurally: the visualizer screen,
-LEDs, the record ring and tint, status text, and the profile/session
-screens.
+These colour everything that's still drawn in code rather than from the
+spritesheet: the visualizer screen, the LEDs, the record ring and tint, status
+text, and the profile/session screens.
 
 ## The base skin
 
-`skins/base/` in this repo is the built-in skin, generated procedurally by
-`cargo run --bin genskin` and embedded into the app at compile time. It is the
-reference for the spritesheet layout and style. `skins/index.json`
-lists the skins available in this repo (with screenshots) — the planned
-in-app browser reads it straight from GitHub.
+`skins/base/` in this repo is the built-in Classic skin. It's generated in code
+by `cargo run --bin genskin` and embedded into the app at compile time, and it's
+the reference for the spritesheet layout and style. `skins/index.json` lists the
+skins available in this repo (with screenshots); the planned in-app browser will
+read it straight from GitHub.

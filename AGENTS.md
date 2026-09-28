@@ -1,7 +1,8 @@
 # Rondelek TWST-1
 
-Audio sampler for children with hearing implants: record short sounds onto pads
-and play them back, turning speech/hearing practice into a game. Voice mini-games
+A playful sound board and voice games for kids: record funny sounds onto pads
+and play them back, then steer little games by saying vowels. A toy first,
+with some sneaky practice with sounds along the way. Voice mini-games
 (vowel-controlled) run as a separate raylib process. Built in Rust + egui + cpal,
 targeting macOS, Linux and Windows (desktop only).
 
@@ -19,7 +20,7 @@ cargo run --bin genarcadeskin # regenerate the built-in Arcade skin (skins/arcad
 cargo run --bin genavatars   # regenerate the classic character avatars (assets/avatars/)
 cargo run --bin genpixelpals # regenerate the pixel-art "pixel pals" (assets/avatars/pixel-*.png)
 cargo run --bin genicon      # regenerate the app icon (assets/icon/rondelek.png)
-cargo run --bin genarcade    # regenerate the README's arcade frames + marquee (docs/images/arcade/)
+cargo run --bin genarcade    # regenerate the README's banner, marquee + framed shots (docs/images/arcade/)
 docs/images/arcade/record-runner.sh  # re-record the README's gameplay GIF (Linux: Xvfb, xdotool, ffmpeg)
 packaging/appimage/build.sh target/release v0.0.0-local dist  # Linux AppImage from a release build
 ```
@@ -116,21 +117,31 @@ This is a solo project: no PRs or review needed. Keep it simple.
 
 - **Never break users' saved data.** `settings.json` and every profile's
   `profile.json` / `calibration.json` / `session.json` already exist on
-  therapists' machines. New `Settings` fields need `#[serde(default…)]`; renamed
+  families' machines. New `Settings` fields need `#[serde(default…)]`; renamed
   fields need `#[serde(alias = "old")]`. Never remove or retype a field without a
   migration and a test that parses the old shape.
 
-- **Keep the developer handbook current.** The `docs/` mdBook (published to GitHub
-  Pages) documents how the app is wired: audio routing, the visualizer, UI/layout,
-  the data model, the voice games, and dependencies. **After any change to
-  behaviour, wiring, data layout, or dependencies, update the relevant page in
-  `docs/src/` in the same commit.** Reference code by symbol name, not line number. Which page covers
-  what: audio/streams → `audio.md`; visualizer/DSP → `visualizer.md`; screens,
-  layout, rendering, i18n → `ui.md` (and `architecture.md` for the state machine);
+- **Keep the book current.** The `docs/` mdBook, *The Rondelek Book* (published
+  to GitHub Pages), has two parts. **Playing with Rondelek** is the guide for
+  parents: `getting-started.md` (download, first child), `voice-calibration.md`,
+  `sound-board.md`, `playing-games.md`, `grown-ups.md` (the settings page),
+  `controls.md`. **Under the hood** documents how the app is wired. **After any
+  change to behaviour, wiring, data layout, or dependencies, update the relevant
+  page in `docs/src/` in the same commit**, including the parents' page when
+  something they see or do changes. Reference code by symbol name, not line
+  number. Which page covers what: building, env vars → `building.md`;
+  audio/streams → `audio.md`; visualizer/DSP → `visualizer.md`; screens, layout,
+  rendering, i18n → `ui.md` (and `architecture.md` for the state machine);
   on-disk formats/settings → `data-model.md`; voice games (scene, art, shaders,
-  tuning) → `games.md`; dependencies → `libraries.md`. For a
-  new page, add it to `docs/src/SUMMARY.md`. See `docs/src/contributing.md` to build
+  tuning, adding a game) → `games.md`; dependencies → `libraries.md`. For a new
+  page, add it to `docs/src/SUMMARY.md`. See `docs/src/contributing.md` to build
   locally (`mdbook serve docs`).
+- **The README is the front page for parents.** Keep it short and friendly:
+  what Rondelek is, the two ways to play, the Quick start (with the voice
+  calibration), downloads, and links into the book. Details belong in the book.
+- **Tone:** warm, relaxed and plain, in the docs and in the app's grown-up text.
+  Rondelek is a playful toy for kids (with some sneaky practice), never pitched
+  as therapy or as being for any particular condition.
 
 ## Project Structure
 
@@ -175,11 +186,11 @@ app/src/                  rondelek: the egui sampler app
                           uses only its 5×7 font for the wordmark)
   bin/genskin.rs          generates skins/base/ (the embedded Classic skin, the fallback)
   bin/genarcadeskin.rs    generates skins/arcade/ (the embedded Arcade skin, the default)
-  bin/genbanner.rs        generates docs/images/banner.png
   bin/genavatars.rs       generates the classic (smooth) character avatars
   bin/genpixelpals.rs     generates the vivid 32×32 pixel-art avatars (pixel-*)
   bin/genicon.rs          generates assets/icon/rondelek.png (window + AppImage icon)
-  bin/genarcade.rs        generates docs/images/arcade/ (README marquee + framed shots)
+  bin/genarcade.rs        generates docs/images/arcade/ (README banner, marquee +
+                          framed shots of docs/images/*.png)
   ui/
     shell.rs              the arcade shell kit: palette, fonts, egui style,
                           starfield + stripes, keycaps, panels, pixel text/icons

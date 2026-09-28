@@ -1,8 +1,9 @@
 //! Generates the README's arcade-style picture section into
 //! `docs/images/arcade/`:
 //!
+//! - `banner.png`: the README's title, a "RONDELEK" marquee.
 //! - `marquee.png`: an 8-bit "PRESS START" marquee over a starfield.
-//! - `home.png`, `hub.png`, `sampler.png`: the screenshots in
+//! - `home.png`, `hub.png`, `calibration.png`, `sampler.png`: the screenshots in
 //!   `docs/images/` framed like arcade screens, with a pixel caption plate.
 //! - `runner-frame.png`: the same frame around a transparent 640×360 hole,
 //!   which `docs/images/arcade/record-runner.sh` lays over recorded gameplay
@@ -58,11 +59,27 @@ fn main() {
     std::fs::create_dir_all(&out).expect("create arcade dir");
     let pal = palette();
 
-    marquee(&pal).save(&out.join("marquee.png"));
+    marquee(
+        &pal,
+        ["1UP 000000", "HI-SCORE 999999", "CREDIT 01"],
+        "PRESS START",
+        12,
+        "* SAY A VOWEL TO PLAY *",
+    )
+    .save(&out.join("marquee.png"));
+    marquee(
+        &pal,
+        ["1UP", "TWST-1", "CREDIT 01"],
+        "RONDELEK",
+        14,
+        "* A SOUND BOARD AND VOICE GAMES FOR KIDS *",
+    )
+    .save(&out.join("banner.png"));
 
     let shots = [
         ("home.png", 760, "> PLAYER SELECT", "1UP"),
         ("hub.png", 460, "> PICK A MODE", "*"),
+        ("calibration.png", 460, "> VOICE CALIBRATION", "*"),
         ("sampler.png", 300, "> SOUND BOARD", "REC"),
     ];
     for (name, width, caption, badge) in shots {
@@ -187,8 +204,9 @@ fn frame(pal: &Palette, sw: u32, sh: u32, caption: &str, badge: &str) -> (Canvas
     (c, sx, sy)
 }
 
-/// The marquee: rainbow stripes, a starfield, a score row and PRESS START.
-fn marquee(pal: &Palette) -> Canvas {
+/// A marquee: rainbow stripes, a starfield, a score row (`row`: left, centre,
+/// right), a big `title` (glyph cell `big`) and a line of `sub` under it.
+fn marquee(pal: &Palette, row: [&str; 3], title: &str, big: u32, sub: &str) -> Canvas {
     let (w, h) = (1280, 300);
     let mut c = Canvas::new(w, h);
     notched(&mut c, 0, 0, w, h, pal.ink);
@@ -225,8 +243,8 @@ fn marquee(pal: &Palette) -> Canvas {
     // Score row.
     let cell = 3;
     let row_y = 72;
-    shadow_text(&mut c, "1UP 000000", 12 * P, row_y, cell, pal.pink, pal.ink);
-    let hi = "HI-SCORE 999999";
+    let [left, hi, credit] = row;
+    shadow_text(&mut c, left, 12 * P, row_y, cell, pal.pink, pal.ink);
     shadow_text(
         &mut c,
         hi,
@@ -236,7 +254,6 @@ fn marquee(pal: &Palette) -> Canvas {
         pal.cream,
         pal.ink,
     );
-    let credit = "CREDIT 01";
     shadow_text(
         &mut c,
         credit,
@@ -247,9 +264,7 @@ fn marquee(pal: &Palette) -> Canvas {
         pal.ink,
     );
 
-    // PRESS START, orange shadow under butter.
-    let big = 12;
-    let title = "PRESS START";
+    // The title, orange shadow under butter (`ty` is its vertical centre).
     let tx = (w - text_w(title, big)) / 2;
     let ty = 146;
     draw_text(
@@ -271,7 +286,6 @@ fn marquee(pal: &Palette) -> Canvas {
         pal.butter,
     );
 
-    let sub = "* SAY A VOWEL TO PLAY *";
     let sc = 4;
     shadow_text(
         &mut c,

@@ -1,11 +1,16 @@
 # The visualizer
 
-The visualizer is a **pluggable** subsystem: the app owns a
-`Vec<Box<dyn Visualizer>>` and cycles through it. Three implementations ship:
-`SpectrumVisualizer` (dot-matrix spectrum), `VowelVisualizer` (vowel meter) and
-`OffVisualizer` (blank screen). The trait and the spectrum live in
-`app/src/ui/visualizer.rs`; the vowel meter is in `app/src/ui/vowel_visualizer.rs`.
-The detector itself is GUI-free, in `core/src/audio/vowel.rs`.
+The visualizer is the little screen above the pads that dances along with the
+sound. It's a **pluggable** subsystem: the app owns a `Vec<Box<dyn Visualizer>>`
+and cycles through it. Three implementations ship today:
+
+- `SpectrumVisualizer`, a dot-matrix spectrum,
+- `VowelVisualizer`, a vowel meter,
+- `OffVisualizer`, a restful blank screen.
+
+The trait and the spectrum live in `app/src/ui/visualizer.rs`, and the vowel meter
+is in `app/src/ui/vowel_visualizer.rs`. The vowel detector itself is GUI-free and
+lives in `core/src/audio/vowel.rs`.
 
 ## The interface
 
@@ -27,15 +32,17 @@ pub trait Visualizer {
 
 `App::drain_capture` builds an `AudioFrame` from both taps (see
 [Audio routing](audio.md)) and calls `update` **only on frames that brought new
-audio**, so the smoothing/decay cadence follows the sound rather than the render
-frame rate. `draw` is called every frame from `draw_session`.
+audio**. That way the smoothing and decay keep time with the sound, not with the
+render frame rate. `draw`, on the other hand, is called every frame from
+`draw_session`.
 
 ### Source selection
 
-`SpectrumVisualizer::update` picks whichever tap is **louder** over the last FFT
-window (`louder_window`). This automatically follows the sound with no coupling to
-UI mode: the mic wins while recording, the (full-scale) playback monitor wins while
-a clip plays. Ties favour the mic.
+Should the display show the microphone or what's playing? `SpectrumVisualizer::update`
+settles it simply: whichever tap is **louder** over the last FFT window wins
+(`louder_window`). It follows the sound on its own, with no ties to the UI mode.
+While a child records, the mic wins; while a clip plays, the (full-scale) playback
+monitor wins. If it's a tie, the mic gets it.
 
 ```mermaid
 flowchart TD
@@ -57,59 +64,66 @@ flowchart LR
     smooth --> draw[dot-matrix draw]
 ```
 
-Three design decisions matter here, each learned from real behaviour:
+Three design choices make the bars feel lively, and each one was learned by
+watching how the display actually behaved:
 
-1. **Logarithmic frequency bands** (`bar_bin_range`). FFT bins map *linearly* to
-   frequency, but almost all speech energy sits below ~4 kHz (the bottom ~18% of
-   bins). Linear grouping clumped all movement into the leftmost few bars. Log
-   bands give each bar a geometrically wider frequency range, so the energy-dense
-   low end spreads across many bars and the display fills at any bar count.
+1. **Logarithmic frequency bands** (`bar_bin_range`). FFT bins map to frequency
+   *linearly*, but nearly all the energy in speech sits below about 4 kHz, in the
+   bottom 18% or so of the bins. Grouping bins linearly bunched all the movement
+   into the leftmost few bars. Log bands give each bar a geometrically wider slice
+   of frequency, so the busy low end spreads out across many bars and the display
+   fills nicely at any bar count.
 
-2. **Decibel response** (`level_from_magnitude`). Loudness is perceived
+2. **Decibel response** (`level_from_magnitude`). Our ears hear loudness
    logarithmically, so bar height is a dB mapping across a `[floor, ceiling]`
-   window (ceiling fixed at −12 dB; floor user-tunable, default −60 dB) rather than
-   a linear gain. Normal speech lands in the lively middle; loud input tops out
-   gracefully instead of pinning.
+   window rather than a linear gain. The ceiling is fixed at −12 dB; the floor is
+   adjustable and defaults to −60 dB. Normal speech lands in the lively middle,
+   and loud input tops out gracefully instead of pinning.
 
-3. **Attack / release smoothing**. Rises use `visualizer_smoothing` (fast attack),
-   falls use `visualizer_decay` (slow release) — classic peak-meter behaviour.
+3. **Attack / release smoothing.** Rises use `visualizer_smoothing` (a fast
+   attack) and falls use `visualizer_decay` (a slow release). It's the classic
+   peak-meter feel.
 
-All of this is **display-only** — it never touches recorded or played audio.
+All of this is **display-only**. None of it ever touches the audio that's recorded
+or played.
 
-### Tunable knobs (Settings → Visualizer)
+### Tunable knobs (settings page → Sampler screen)
 
-Open **Settings** (`F12`) and pick the **Visualizer** tab. It exposes:
+Open the settings page (`F12`), find the **Sampler screen** card and tick
+**Show advanced settings**. You'll find these:
 
 | Control | Setting | Effect |
 |---------|---------|--------|
-| Smoothing | `visualizer_smoothing` | Attack speed (higher = smoother rise). |
-| Decay | `visualizer_decay` | Release speed. |
-| Bars | `visualizer_num_bars` | Number of columns. |
-| Floor (dB) | `visualizer_floor_db` | Sensitivity — lower = more movement. |
+| Smoothness | `visualizer_smoothing` | Attack speed (higher = smoother rise). |
+| How fast bars fall | `visualizer_decay` | Release speed. |
+| Number of bars | `visualizer_num_bars` | Number of columns. |
+| Sensitivity (dB) | `visualizer_floor_db` | The floor; lower = more movement. |
 
-These persist in the settings JSON (see [Data model](data-model.md)).
+They're saved in the settings JSON (see [Data model](data-model.md)).
 
 ## Cycling between visualizers
 
-The app owns a `Vec<Box<dyn Visualizer>>` plus an `active_visualizer` index. The
-**square button just left of REC** (`layout.cycle`) calls `App::cycle_visualizer`,
-which advances the index (wrapping around) and persists it to settings. Only the
-active visualizer is fed audio (`update`) and drawn each frame. Three ship today:
-the [spectrum](#the-spectrum-dsp-pipeline), the [vowel meter](#vowel-detection), and
-"off".
+Alongside its `Vec<Box<dyn Visualizer>>`, the app keeps an `active_visualizer`
+index. The **square button just left of REC** (`layout.cycle`) calls
+`App::cycle_visualizer`, which moves the index along (wrapping round at the end)
+and saves it to settings. Only the active visualizer is fed audio (`update`) and
+drawn each frame. Three ship today: the [spectrum](#the-spectrum-dsp-pipeline),
+the [vowel meter](#vowel-detection), and "off".
 
 ## Vowel detection
 
-`VowelVisualizer` (`ui/vowel_visualizer.rs`) shows the detected Polish vowel as a
-large letter plus a match meter per vowel (**a e i o u y**). It runs the single
-detector against the active profile's calibration; an uncalibrated profile is told
-to calibrate first (there is no fallback).
+`VowelVisualizer` (`ui/vowel_visualizer.rs`) shows the Polish vowel it hears as a
+big letter, with a match meter for each vowel (**a e i o u y**). It runs the one
+and only detector against the active profile's calibration. If a profile hasn't
+been calibrated yet, it kindly says so and asks for a calibration first (there is
+no fallback).
 
-The detector lives in `core/src/audio/vowel.rs` and matches the **shape of the spectral
-envelope** via **MFCCs** — deliberately *not* formants. Estimating formants from a
-child's high‑pitched, short‑vocal‑tract voice is a known ill‑posed problem (LPC
-reports false formants at high f0) and was the cause of the old detector's
-unreliability. Comparing envelope shapes to the child's own templates sidesteps it.
+The detector lives in `core/src/audio/vowel.rs`. It matches the **shape of the
+spectral envelope** using **MFCCs**, and it deliberately does *not* use formants.
+Estimating formants from a child's high-pitched, short-vocal-tract voice is a
+known ill-posed problem (LPC reports false formants at high f0), and it was the
+reason the old detector was so unreliable. Comparing envelope shapes against the
+child's own templates steps neatly around it.
 
 ```mermaid
 flowchart LR
@@ -120,32 +134,37 @@ flowchart LR
     cls --> gate2[confidence + margin gate]
 ```
 
-Key choices:
+The choices that matter:
 
-- **MFCC, from a proven crate.** Features come from `spectrograms` (pure‑Rust FFT).
-  The only in‑tree code is the ~20‑line nearest‑template classifier. If this ever
-  needs onset/pitch or a second opinion, swap the feature source for **aubio** via
-  `aubio-rs` (battle‑tested C) — the template code is unchanged.
-- **c0 dropped + cepstral‑mean normalization** remove overall gain and the fixed
-  microphone colour, so the same mic cancels on both sides (see
+- **MFCCs, from a proven crate.** The features come from `spectrograms` (a
+  pure-Rust FFT). The only home-grown code is the roughly 20-line
+  nearest-template classifier. If this ever needs onset or pitch detection, or a
+  second opinion, you can swap the feature source for **aubio** via `aubio-rs`
+  (battle-tested C) and leave the template code exactly as it is.
+- **Dropping c0 and cepstral-mean normalization** remove the overall gain and the
+  fixed colour of the microphone. Since the same mic is used for calibration and
+  play, its colour cancels out on both sides (see
   [How calibration works](calibration-explained.md)).
-- **Confidence *and* margin gate** (`vowel_show_threshold`, `vowel_margin_threshold`)
-  make recognition a firm decision rather than a flickering guess.
+- **A confidence *and* a margin gate** (`vowel_show_threshold`,
+  `vowel_margin_threshold`) turn recognition into a firm decision rather than a
+  flickering guess.
 
-Settings → **Detection** tab: **Voicing** threshold, meter **Smoothing**, **Show at**
-(confidence), **Min margin**. The detector is unit‑tested by synthesising
-source‑filter vowels, building templates, and asserting classification plus gain‑ and
-coloration‑invariance.
+Grown-ups tune this on the settings page's **Voice recognition** card: a
+Relaxed / Normal / Strict preset, and behind **Show advanced settings** the raw
+knobs (the voicing threshold, meter smoothing, how sure it must be before showing
+a vowel, the minimum margin, and steady mode). The detector is unit-tested by
+synthesising source-filter vowels, building templates from them, and checking
+that classification holds up and is unaffected by gain and mic colouring.
 
 ### Calibration
 
-> **New here?** Read [How calibration works](calibration-explained.md) first — a
-> plain-language explanation of the idea (and what it deliberately avoids),
-> written for anyone including clinicians. This section covers the implementation.
+> **New here?** Have a read of [How calibration works](calibration-explained.md)
+> first. It explains the idea in plain language (and what it deliberately avoids),
+> for anyone at all, grown-ups included. This section is about the implementation.
 
-Detection is **calibration‑only**: a child must calibrate before the vowel view
-works. Calibrate from the **Calibrate voice** button on the Sessions screen (or
-Settings → Calibration → Recalibrate):
+Detection needs a **voice calibration**, full stop: a child has to calibrate before
+the vowel view will work. A grown-up starts one from the **Voice calibration** key
+on the Hub, or from the settings page's **Profile** card (**Calibrate the voice**):
 
 ```mermaid
 flowchart LR
@@ -155,42 +174,47 @@ flowchart LR
     tmpl --> save[calibration.json<br/>templates + channel_mean + mic]
 ```
 
-Calibration captures **all six vowels** and builds one MFCC **template** each
+Calibration captures **all six vowels** and builds one MFCC **template** for each
 (`vowel::build_calibration`):
 
-- The mean MFCC across *all* frames is the **channel (mic) estimate**; it's
-  subtracted from every template so the mic's colour is removed.
-- Each vowel's template is the mean + per‑dimension variance of its
-  channel‑normalized frames (outlier frames trimmed). The variance drives the
-  diagonal‑Mahalanobis distance at match time.
-- The calibration also stores the `input_device` name, so Settings → Calibration
-  can warn when the current mic differs.
+- The mean MFCC across *all* frames is the **channel (mic) estimate**. It's
+  subtracted from every template, which takes the mic's colour out.
+- Each vowel's template is the mean plus the per-dimension variance of its
+  channel-normalized frames (with outlier frames trimmed). The variance drives the
+  diagonal-Mahalanobis distance when matching.
+- The calibration also remembers the `input_device` name, so the settings page's
+  Profile card can gently point out when a different mic is in use now.
 
-The live detector (`VowelDetector`) seeds its running channel mean from the stored
-one and adapts slowly, so early frames match well. When a profile isn't calibrated
-the vowel view shows **"Not calibrated — set up the child's voice first"** and
-matches nothing.
+The live detector (`VowelDetector`) starts its running channel mean from the stored
+one and adapts slowly, so even the first frames match well. When a profile isn't
+calibrated, the vowel view shows **"Not calibrated — set up the child's voice
+first"** and matches nothing.
 
-Flow (`app.rs`): `begin_calibration` → `draw_calibrate` shows an **overview grid** of
-the six vowels (recorded ones turn green with a ✓). Tapping a vowel opens its **record
-screen**, where the child records by **holding** a button (or Space) — push‑to‑talk,
-**no auto‑advance**. `pump_calibration` feeds voiced MFCC frames into `current` only
-while held; releasing commits the take to `captured[i]` if it has at least
-`vowel::MIN_CAPTURE_SAMPLES` frames (a live level meter + progress bar show while
-recording). Any vowel can be re‑recorded by opening it again. Once all six are
-captured, **Save** calls `finish_calibration`, which builds the templates, writes
-`calibration.json`, and calls `apply_profile_calibration` to push the calibration to
-the visualizers via `Visualizer::set_calibration`. Screenshot harness:
-`RONDELEK_SCREEN=calibrate` (optionally `RONDELEK_CALIB_VOWEL=<0-5>` to open a vowel's
-record screen).
+Here's how the flow goes (`app/src/app/calibrate.rs`). `begin_calibration` →
+`draw_calibrate` shows an **overview grid** of the six vowels, and recorded ones
+turn green with a ✓. Tapping a vowel opens its **record screen**, where the child
+records by **holding** a button (or Space). It's push-to-talk, with **no
+auto-advance**, so nobody gets hurried along. `pump_calibration` feeds voiced MFCC
+frames into `current` only while the button is held. Letting go commits the take
+to `captured[i]`, as long as it has at least `vowel::MIN_CAPTURE_SAMPLES` frames (a
+live level meter and a progress bar keep the child company while recording). Any
+vowel can be recorded again just by opening it. Once all six are in, **Save**
+calls `finish_calibration`, which builds the templates, writes `calibration.json`,
+and calls `apply_profile_calibration` to hand the calibration to the visualizers
+via `Visualizer::set_calibration`.
+
+For screenshots, use `RONDELEK_SCREEN=calibrate` (and optionally
+`RONDELEK_CALIB_VOWEL=<0-5>` to open a vowel's record screen).
 
 ## Adding a new visualizer
 
-1. Create a struct implementing `Visualizer` (`update` + `draw`, optionally
-   `demo_fill`).
-2. Consume whichever of `frame.input` / `frame.playback` you need — the rates are
-   available for time/frequency-axis visualizers.
-3. Add it to the `visualizers` vector in `App::new`; the cycle button picks it up
-   automatically.
-4. Update the `RONDELEK_VIZ` docs and this page. (The saved `active_visualizer`
-   is clamped to the vector's length, so nothing else has to change.)
+Fancy making your own? It only takes a few steps:
+
+1. Create a struct that implements `Visualizer` (`update` + `draw`, and
+   `demo_fill` if you like).
+2. Use whichever of `frame.input` / `frame.playback` you need. The rates are there
+   too, for visualizers with a time or frequency axis.
+3. Add it to the `visualizers` vector in `App::new`. The cycle button picks it up
+   by itself.
+4. Update the `RONDELEK_VIZ` docs and this page. (The saved `active_visualizer` is
+   clamped to the vector's length, so nothing else needs to change.)

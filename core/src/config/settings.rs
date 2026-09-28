@@ -214,7 +214,7 @@ impl Settings {
     }
 }
 
-/// Named bundles of the five vowel-detection knobs, so a parent or therapist
+/// Named bundles of the five vowel-detection knobs, so a grown-up
 /// can pick "how picky" recognition is without touching raw thresholds.
 /// Nothing extra is stored: the settings page shows the preset whose values
 /// match the current settings (or "custom").

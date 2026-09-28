@@ -1,8 +1,8 @@
 # Libraries
 
-Every third-party crate and why it's here. Versions are in `Cargo.toml`;
-`Cargo.lock` is committed (this is an application, not a library) for reproducible
-builds.
+Here's every third-party crate in the house, and why it's here. Versions live in
+`Cargo.toml`. `Cargo.lock` is committed too (this is an application, not a
+library), so builds are reproducible.
 
 ## GUI
 
@@ -30,10 +30,10 @@ builds.
 | `raylib` | Window, 3D renderer and input for the voice mini-games. Confined to the `game` crate on purpose — see `docs/WORKSPACE_SPLIT.md`. |
 | `serde_json` | Reads the optional shader tuning files (`RONDELEK_LAMPULA`, `RONDELEK_WATER`). Already a dependency of `core` and `app`. |
 
-Game art comes from our **flat-draw** pixel editor as `.glb` files; the game
-embeds and draws them itself, and two of its shaders (Lam::pula, and the model
-vertex shader it needs) are copied from flat-draw verbatim. How all of that
-works (models, shaders, tuning tables, the water) is in
+The game art comes from our own **flat-draw** pixel editor, as `.glb` files. The
+game embeds them and draws them itself, and two of its shaders (Lam::pula, plus
+the model vertex shader it needs) are copied from flat-draw verbatim. The full
+tour of models, shaders, tuning tables and the water is in
 [Voice games](games.md).
 
 ## Camera & images
@@ -58,9 +58,11 @@ works (models, shaders, tuning tables, the water) is in
 
 ## Declared but currently unused
 
+One crate is sitting on the shelf for now:
+
 | Crate | Note |
 |-------|------|
 | `ringbuf` | Declared in `Cargo.toml` but **not currently used** — the audio taps use `std::collections::VecDeque` behind a `Mutex`. It is a candidate either for adoption (a lock-free tap) or removal. |
 
-> If you add, remove, or repurpose a dependency, update this page in the same
-> change (see [Contributing](contributing.md)).
+> If you add, remove or repurpose a dependency, please update this page in the
+> same change (see [Contributing](contributing.md)). Future you will be grateful.

@@ -1,13 +1,13 @@
 [Desktop Entry]
 Type=Application
 Name=Rondelek
-GenericName=Sound sampler for kids
+GenericName=Sound board and voice games for kids
 Comment=Record sounds onto pads, play them back, and play voice games
 Exec=rondelek
 Icon=rondelek
 Terminal=false
 Categories=Education;
-Keywords=sampler;speech;hearing;vowels;kids;
+Keywords=sampler;sound board;voice;vowels;kids;games;
 StartupWMClass=rondelek
 Actions=Games;
 

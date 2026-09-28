@@ -24,7 +24,7 @@ pub struct VoiceBridge {
     level: f32,
     held: Option<usize>,
     refractory: f32,
-    /// When set, only these vowels compete for the gate — the therapist's
+    /// When set, only these vowels compete for the gate — the grown-up's
     /// chosen controls (2 or 3 of them). All other vowels are ignored
     /// entirely, which removes close-pair confusion (e.g. e vs y) from the game.
     focus: Option<Vec<usize>>,
@@ -63,7 +63,7 @@ impl VoiceBridge {
         }
     }
 
-    /// Restrict the gate to the chosen control vowels (therapist's mapping).
+    /// Restrict the gate to the chosen control vowels (the grown-up's mapping).
     pub fn set_focus(&mut self, vowels: &[usize]) {
         self.focus = Some(vowels.to_vec());
     }

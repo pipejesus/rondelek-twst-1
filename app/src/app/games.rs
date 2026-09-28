@@ -34,9 +34,12 @@ impl App {
                                 let (r, _) =
                                     ui.allocate_exact_size(Vec2::splat(40.0), Sense::hover());
                                 shell::draw_icon(ui.painter(), Icon::Mic, r, palette::BUTTER);
-                                ui.label(
-                                    egui::RichText::new(self.i18n.t("games.calibrate_hint"))
-                                        .size(16.0),
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(self.i18n.t("games.calibrate_hint"))
+                                            .size(16.0),
+                                    )
+                                    .wrap(),
                                 );
                             });
                             if ui

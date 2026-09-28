@@ -11,7 +11,7 @@
 //! Windows binary. Keeping raylib's dependents in their own executable is
 //! what keeps that from happening.
 //!
-//! Every game starts on a control-selection screen where the therapist picks
+//! Every game starts on a control-selection screen where a grown-up picks
 //! which vowel triggers which move (three slots: jump ▲, duck ▼, shoot ★) and
 //! which obstacle kinds appear. The detector is then *focused* on the chosen
 //! vowels, so close sound-alikes among the unchosen ones can't cause misfires.
@@ -155,7 +155,7 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
     };
     let calibration = profile.as_ref().and_then(|p| p.load_calibration());
 
-    // Phase 1: the therapist picks which vowel drives which move, plus the
+    // Phase 1: a grown-up picks which vowel drives which move, plus the
     // Reaction slider (turtle = steady, rabbit = snappy).
     let picked = if max_frames.is_some() && !harness_select {
         // harness default: a jumps, e ducks, i shoots; all obstacles on.
@@ -176,7 +176,7 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
         return Ok(());
     }
     if (reaction - settings.game_reaction).abs() > 0.001 {
-        // Remember the therapist's choice for next time.
+        // Remember the grown-up's choice for next time.
         let (mut fresh, path) = Settings::load();
         fresh.game_reaction = reaction;
         fresh.save(&path);
@@ -186,7 +186,7 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
     bridge.set_focus(&[jump_vowel, duck_vowel, shoot_vowel]);
     bridge.set_reaction(reaction);
 
-    // Therapist's obstacle pick → the kinds allowed to spawn.
+    // The grown-up's obstacle pick → the kinds allowed to spawn.
     let kinds: Vec<runner::Kind> = [
         runner::Kind::Jump,
         runner::Kind::Duck,
@@ -302,7 +302,7 @@ fn draw_obstacle_icon(
     }
 }
 
-/// Let the therapist assign a vowel to each of the three moves (jump ▲, duck ▼,
+/// Let a grown-up assign a vowel to each of the three moves (jump ▲, duck ▼,
 /// shoot ★), toggle which obstacle kinds appear (difficulty), and set the
 /// Reaction slider. Returns `(jump, duck, shoot, reaction, [jump, duck, wall,
 /// high])`, or `None` if the window was closed. Text-free by design.

@@ -5,7 +5,7 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 default-run = "rondelek"
-description = "TWST-1 audio sampler for children with hearing implants"
+description = "TWST-1: a playful sound board and voice games for kids"
 
 [dependencies]
 rondelek-core = { path = "../core" }
