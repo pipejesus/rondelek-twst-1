@@ -3533,7 +3533,7 @@ dependencies = [
 
 [[package]]
 name = "rondelek"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3555,7 +3555,7 @@ dependencies = [
 
 [[package]]
 name = "rondelek-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "cpal",
@@ -3573,7 +3573,7 @@ dependencies = [
 
 [[package]]
 name = "rondelek-game"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "raylib",
