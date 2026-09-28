@@ -1,4 +1,4 @@
-//! The child's hub (sampler / games / voice check), and opening or creating
+//! The child's hub (sampler / games / voice calibration), and opening or creating
 //! sampler sessions.
 
 use super::*;
@@ -31,7 +31,11 @@ impl App {
         }
     }
 
-    pub(super) fn enter_session(&mut self, session: Session) {
+    pub(super) fn enter_session(&mut self, mut session: Session) {
+        // Remember it as the session in use, so Sounds carries on here.
+        if let Err(e) = session.mark_opened() {
+            eprintln!("Could not save session.json: {e:#}");
+        }
         self.samples = session.load_samples(self.capture_rate);
         for (idx, sample) in self.samples.iter().enumerate() {
             if let Some(pad) = self.pads.get_mut(idx) {
@@ -48,18 +52,19 @@ impl App {
         self.screen = AppScreen::Session;
     }
 
-    /// The sampler tile: carry on with the latest board, or start the first one.
+    /// The sampler tile: carry on with the session used last, or start the
+    /// first one.
     fn continue_sampler(&mut self) {
-        if self.profile_sessions.is_empty() {
-            self.start_new_session();
-        } else {
-            self.open_session_info(0);
+        match profile::most_recently_used(&self.profile_sessions) {
+            Some(idx) => self.open_session_info(idx),
+            None => self.start_new_session(),
         }
     }
 
     /// The child's hub: their picture and name, then three big tiles
-    /// (sounds, games, voice check). No lists to browse: the sampler tile
-    /// simply continues the latest board.
+    /// (sounds, games, voice calibration). No lists to browse: the sampler
+    /// tile simply carries on with the session used last (grown-ups pick
+    /// another one on the settings page).
     pub(super) fn draw_hub(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         shell::background(ui.painter(), full);
@@ -241,31 +246,56 @@ pub(super) fn big_tile(
     let f = shell::draw_keycap(ui.painter(), rect, face, resp.hovered(), pressed);
     let ink = shell::ink_on(face);
     let p = ui.painter();
-    if stacked {
-        let icon_s = f.height() * 0.38;
-        let icon_r = Rect::from_center_size(
-            Pos2::new(f.center().x, f.top() + f.height() * 0.36),
-            Vec2::splat(icon_s),
-        );
-        shell::draw_icon(p, icon, icon_r, ink);
-        shell::pixel_text(
-            p,
-            Pos2::new(f.center().x, f.top() + f.height() * 0.72),
-            Align2::CENTER_CENTER,
-            label,
-            27.0,
-            ink,
-            None,
-        );
+    let sub_font = egui::FontId::proportional(15.0);
+    let sub_gap = 6.0;
+    let sub_h = if sub.is_some() {
+        sub_gap
+            + p.layout_no_wrap("Ag".into(), sub_font.clone(), ink)
+                .size()
+                .y
+    } else {
+        0.0
+    };
+    // The label (fitted, maybe two lines) and the status line as one block,
+    // centred vertically in `area`; `align` is CENTER_TOP or LEFT_TOP.
+    let draw_text = |area: Rect, align: Align2| {
+        let (text, size) = fit_label(p, label, area.width());
+        let font = shell::pixel_font(size);
+        let line_h = p.layout_no_wrap("Ag".into(), font.clone(), ink).size().y;
+        let lines: Vec<&str> = text.lines().collect();
+        let label_h = line_h * lines.len() as f32;
+        let top = (area.center().y - (label_h + sub_h) / 2.0).round();
+        let x = if align == Align2::LEFT_TOP {
+            area.left()
+        } else {
+            area.center().x
+        };
+        for (i, line) in lines.iter().enumerate() {
+            let y = top + i as f32 * line_h;
+            p.text(Pos2::new(x, y), align, *line, font.clone(), ink);
+        }
         if let Some(sub) = sub {
             p.text(
-                Pos2::new(f.center().x, f.top() + f.height() * 0.86),
-                Align2::CENTER_CENTER,
+                Pos2::new(x, top + label_h + sub_gap),
+                align,
                 sub,
-                egui::FontId::proportional(15.0),
+                sub_font.clone(),
                 ink.gamma_multiply(0.8),
             );
         }
+    };
+    if stacked {
+        let icon_s = f.height() * 0.38;
+        let icon_r = Rect::from_center_size(
+            Pos2::new(f.center().x, f.top() + f.height() * 0.30),
+            Vec2::splat(icon_s),
+        );
+        shell::draw_icon(p, icon, icon_r, ink);
+        let text_area = Rect::from_min_max(
+            Pos2::new(f.left() + 12.0, icon_r.bottom() + 6.0),
+            Pos2::new(f.right() - 12.0, f.bottom() - 6.0),
+        );
+        draw_text(text_area, Align2::CENTER_TOP);
     } else {
         let icon_s = f.height() * 0.55;
         let icon_r = Rect::from_center_size(
@@ -273,30 +303,69 @@ pub(super) fn big_tile(
             Vec2::splat(icon_s),
         );
         shell::draw_icon(p, icon, icon_r, ink);
-        let x = icon_r.right() + 22.0;
-        let y = if sub.is_some() {
-            f.center().y - 11.0
-        } else {
-            f.center().y
-        };
-        shell::pixel_text(
-            p,
-            Pos2::new(x, y),
-            Align2::LEFT_CENTER,
-            label,
-            27.0,
-            ink,
-            None,
+        let text_area = Rect::from_min_max(
+            Pos2::new(icon_r.right() + 22.0, f.top()),
+            Pos2::new(f.right() - 12.0, f.bottom()),
         );
-        if let Some(sub) = sub {
-            p.text(
-                Pos2::new(x, f.center().y + 16.0),
-                Align2::LEFT_CENTER,
-                sub,
-                egui::FontId::proportional(15.0),
-                ink.gamma_multiply(0.8),
-            );
-        }
+        draw_text(text_area, Align2::LEFT_TOP);
     }
     resp
+}
+
+/// A tile label that fits `max_w`: one line in the big pixel size, else two
+/// lines (split at the most central space), else the same in the small size.
+/// Returns the text (with a `\n` when split) and its pixel size.
+fn fit_label(p: &egui::Painter, label: &str, max_w: f32) -> (String, f32) {
+    let width = |text: &str, size: f32| {
+        p.layout_no_wrap(text.to_string(), shell::pixel_font(size), Color32::WHITE)
+            .size()
+            .x
+    };
+    let two_lines = split_in_two(label);
+    for size in [27.0, 18.0] {
+        if width(label, size) <= max_w {
+            return (label.to_string(), size);
+        }
+        if let Some(two) = &two_lines
+            && width(two, size) <= max_w
+        {
+            return (two.clone(), size);
+        }
+    }
+    (two_lines.unwrap_or_else(|| label.to_string()), 18.0)
+}
+
+/// `label` broken into two lines at the space nearest its middle.
+fn split_in_two(label: &str) -> Option<String> {
+    let mid = label.chars().count() / 2;
+    let (at, _) = label
+        .char_indices()
+        .enumerate()
+        .filter(|(_, (_, c))| *c == ' ')
+        .min_by_key(|(n, _)| n.abs_diff(mid))
+        .map(|(_, ci)| ci)?;
+    Some(format!("{}\n{}", &label[..at], &label[at + 1..]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_in_two;
+
+    #[test]
+    fn labels_split_at_the_middle_space() {
+        assert_eq!(
+            split_in_two("Voice calibration").as_deref(),
+            Some("Voice\ncalibration")
+        );
+        assert_eq!(
+            split_in_two("Calibrage de la voix").as_deref(),
+            Some("Calibrage\nde la voix")
+        );
+        // Multi-byte text splits on a character boundary.
+        assert_eq!(
+            split_in_two("Калібрування голосу").as_deref(),
+            Some("Калібрування\nголосу")
+        );
+        assert_eq!(split_in_two("Stimmkalibrierung"), None);
+    }
 }

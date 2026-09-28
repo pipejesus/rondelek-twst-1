@@ -22,6 +22,8 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 nokhwa = { version = "0.10.11", features = ["input-native"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 winit = { version = "0.30.13", default-features = false, features = ["x11"] }
+# Local time for the dates grown-ups see (sessions, voice calibration).
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 # Headless UI tests (drive the settings page by its AccessKit labels).

@@ -16,7 +16,7 @@ profiles/
     calibration.json             optional, per-child vowel calibration
     sessions/
       2026-07-01_22-11-06/       one practice run (timestamped folder)
-        session.json             { uid, name, created, modified, pads[] }
+        session.json             { uid, name, created, modified, last_opened, pads[] }
         pad_01.wav               a recorded sample (mono, device rate)
         pad_05.wav
         ...
@@ -63,8 +63,16 @@ calibrated" — the child is asked to recalibrate. See
   display name), `avatar` (photo filename or none), `character` (optional
   built-in avatar name), `created`.
 - **`session.json`** (`session::SessionManifest`): `uid`, `name`, `created`,
-  `modified`, and a `pads` vector of `PadEntry { label, file, has_sample }`, always
-  normalised to exactly `NUM_SAMPLES` entries.
+  `modified` (last recording), `last_opened` (last time it was opened in the
+  sampler; `0`/absent in manifests from before it existed), and a `pads` vector
+  of `PadEntry { label, file, has_sample }`, always normalised to exactly
+  `NUM_SAMPLES` entries. All times are Unix seconds (UTC); the UI shows them in
+  local time.
+- `Profile::list_sessions` reads every manifest field by field (a broken one
+  still lists) into a `SessionInfo`, newest created first, with a count of
+  recorded pads. The session **Sounds** continues is the most recently *used*
+  one (`profile::most_recently_used`, the latest of `created` / `modified` /
+  `last_opened`), not simply the newest.
 
 Both are written with `serde_json` pretty-printing. Missing/legacy fields fall back
 to `serde` defaults so older manifests keep loading.

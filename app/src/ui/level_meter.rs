@@ -1,5 +1,5 @@
 //! A tiny input-level meter: a horizontal bar coloured by how usable the signal
-//! is. Shown during the voice check and on the settings page so a helper
+//! is. Shown during voice calibration and on the settings page so a helper
 //! can see at a glance that the mic is neither clipping nor too quiet.
 //!
 //! There is deliberately no microphone *frequency* calibration (a sweep): vowel

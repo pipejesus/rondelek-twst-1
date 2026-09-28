@@ -47,7 +47,7 @@ widgets, almost entirely from the **skin** spritesheet:
 
 ## The shell (every screen except the sampler)
 
-Everything outside the sampler (Home, Hub, profile form, voice check, games menu,
+Everything outside the sampler (Home, Hub, profile form, voice calibration, games menu,
 settings page) is drawn with the **shell kit** in `ui/shell.rs`, in the **arcade
 style** shared with the games' entrance screens and the README pictures: a navy
 night with a slowly twinkling starfield and 80s stripe bands, chunky notched
@@ -70,7 +70,7 @@ from their own bitmaps (`pixel_vowel`, `KeyButton::vowel`).
 |-------|------|
 | `install_fonts`, `apply_style` | Space Grotesk + Tiny5 (`pixel` family); egui's **dark** theme restyled for its stock widgets (navy surfaces, cream text, square corners). |
 | `background`, `stripes`, `inside_stripes` | The night sky + stars (twinkling on the app's slow idle repaint, no extra frames), and the stripe bands, painted on a layer above the page so scrolling content slides under them. Screens lay out inside `inside_stripes`. |
-| `draw_keycap`, `KeyButton` | Arcade keycaps: hard shadow, ink outline, a bevelled face on a dark lip that sinks when pressed. Labels in the pixel font; `KeyButton::vowel` draws a pixel vowel. `KeyButton` implements `egui::Widget`. |
+| `draw_keycap`, `KeyButton` | Arcade keycaps: hard shadow, ink outline, a bevelled face on a dark lip that sinks when pressed. Labels in the pixel font; `KeyButton::vowel` draws a pixel vowel. A key grows wider than its `size` when its label (in some language) wouldn't fit. `KeyButton` implements `egui::Widget`. |
 | `segmented` | A row of keycaps acting as radio buttons; the chosen one is butter and framed. |
 | `notched`, `panel`, `highlight`, `card` | The 8-bit shapes: corner-cut rectangles, bevelled panels, the cyan "this one" frame (a line and an ink gap), and a card around ui content. |
 | `paint_avatar`, `badge`, `tile_color` | Avatar in an ink-framed well (photo, character or drawn face), square status badges, each child's colour. |
@@ -83,7 +83,10 @@ settings page's UI tests use to find and click controls.
 
 Screens live in `app/src/app/`, one file each: `home.rs` ("Who's playing?"),
 `hub.rs` (the child's three big tiles), `profile_form.rs`, `calibrate.rs` (voice
-check), `games.rs`, `settings.rs` (glue for the settings page) and `sampler.rs`.
+calibration), `games.rs`, `settings.rs` (glue for the settings page) and `sampler.rs`.
+The hub's tiles fit long labels (`fit_label`): one line in the big pixel size,
+else two lines split at the middle space ("Calibrage / de la voix"), else the
+small size.
 
 ### Character avatars
 
@@ -127,6 +130,11 @@ See `assets/avatars/README.md`.
 - The system language is detected once on first run (`sys-locale`) and saved to
   settings. The flag key on Home opens the settings page at its language grid.
 - All locale JSON and picker flags are embedded in the binary.
+- Dates shown to grown-ups go through `ui/when.rs` (`when::friendly`): local
+  time via `chrono`, "Today, 14:05" / "Yesterday, 09:12" / "26 September,
+  14:05" (the year only when it isn't this year). The word order and month
+  names are translations (`when.*`), so German reads "26. September" and
+  Spanish "26 de septiembre".
 
 > When you add or change any user-facing string you must update `en.json` **and**
 > every seeded locale. See [Contributing](contributing.md) and `AGENTS.md`.
@@ -136,11 +144,12 @@ See `assets/avatars/README.md`.
 `ui/settings_page.rs` is **one scrolling page** of cards. It replaced the old F12
 settings window, and there are no pop-up windows left. It opens from the gear key
 (Home, Hub) or `F12`, and the back key returns to where you came from. Each card
-says whether it affects **only this child** or **everyone on this computer**.
+says whether it affects **only this profile** or **everyone on this computer**.
 
 | Card | Controls | `Settings` fields / data |
 |------|----------|--------------------------|
-| Child (only with a child selected) | edit name/picture, voice-check status + redo, delete (type the name to confirm; moves to `.trash`) | `profile.json`, `calibration.json` |
+| Profile (only with a child selected) | edit name/picture, voice calibration status + calibrate again, delete the profile (type the name to confirm; moves to `.trash`) | `profile.json`, `calibration.json` |
+| Sessions (only with a child selected) | the child's sessions, newest first: friendly date, "n of 12 pads recorded", the one **Sounds** carries on with marked and keyed **Continue**, **Open** on the others; the latest five (plus the current one) until "Show all"; **New session with empty pads** | `sessions/*/session.json` (read via `Profile::list_sessions`) |
 | Sound | speaker, volume, test chime, microphone, live level meter | `output_device`, `volume`, `input_device` |
 | Voice recognition | Relaxed / Normal / Strict presets (`DetectionPreset`); "advanced" shows the raw knobs | `vowel_*` |
 | Sampler screen | spectrum / vowels / off; advanced spectrum knobs | `active_visualizer`, `visualizer_*` |
@@ -149,15 +158,16 @@ says whether it affects **only this child** or **everyone on this computer**.
 | About & data | version, open data folder | |
 
 The page only edits `Settings` and returns a `SettingsOutcome` of *requests*
-(switch language, load skin, delete child, play a chime, …). The app carries them
-out in `app/settings.rs`. This split keeps the page testable: `settings_page::tests`
+(switch language, load skin, delete child, open a session, play a chime, …). The
+app carries them out in `app/settings.rs`; opening a session closes (saves) any
+open one first, so it also works when the page was opened from the sampler. This split keeps the page testable: `settings_page::tests`
 renders it headless with `egui_kittest`, clicks controls by label and asserts on
 `Settings`. Changes save immediately.
 
 ## Level meter & camera
 
 - **Level meter** (`ui/level_meter.rs`) is an input-level bar with a translated
-  status line (too quiet / OK / too loud), shown in the voice check and on the
+  status line (too quiet / OK / too loud), shown in the voice calibration and on the
   settings page.
 - **Camera** (`camera/mod.rs`) shows its live preview **inline in the profile
   form**, at the webcam's native aspect ratio with a centred square crop guide.

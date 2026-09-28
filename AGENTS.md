@@ -163,9 +163,9 @@ app/src/                  rondelek: the egui sampler app
   app/
     mod.rs                App struct, AppScreen state machine, per-frame loop, audio
     home.rs               "Who's playing?" (child tiles + new child)
-    hub.rs                the child's hub (sounds / games / voice check) + sessions
+    hub.rs                the child's hub (sounds / games / voice calibration) + sessions
     profile_form.rs       create/edit a child: name, character/photo/upload
-    calibrate.rs          voice check (vowel calibration)
+    calibrate.rs          voice calibration (the vowel detector's per-child templates)
     games.rs              games menu + launching the game process
     settings.rs           glue for the grown-ups settings page
     sampler.rs            the skinned sampler
@@ -183,7 +183,9 @@ app/src/                  rondelek: the egui sampler app
   ui/
     shell.rs              the arcade shell kit: palette, fonts, egui style,
                           starfield + stripes, keycaps, panels, pixel text/icons
-    settings_page.rs      the one-page "For grown-ups" settings (+ kittest UI tests)
+    settings_page.rs      the one-page "For grown-ups" settings, incl. the sessions
+                          list (+ kittest UI tests)
+    when.rs               friendly local dates ("Today, 14:05"), translated
     characters.rs         re-exports rondelek_core::characters
     skin.rs               skin loading (skin.png spritesheet + skin.json colours)
     layout.rs             fluid faceplate layout from the live window rect
@@ -230,10 +232,14 @@ packaging/appimage/       Linux AppImage: AppRun (app / --game), desktop entry,
   carries its own uid. Folder names never use the raw name; see `profile::slug` /
   `sanitize_name`.
 - **Screens** (`app/`, `AppScreen`): `Home` ("Who's playing?") → `Hub` (Sounds /
-  Games / Voice check) → `Session` (the skinned sampler), plus `ProfileForm`,
+  Games / Voice calibration) → `Session` (the skinned sampler), plus `ProfileForm`,
   `Calibrate`, `Games` and `Settings` (the one-page "For grown-ups" settings,
   opened by the gear keys or F12). Kids never browse session lists: Sounds
-  continues the latest session.
+  continues the session used last. Grown-ups see and open every session on the
+  settings page (Sessions card); opening one makes it the one Sounds continues.
+- **Wording (Greg's call):** it's **"voice calibration"** (it builds the vowel
+  detector's calibration; never "voice check"), and grown-up text says
+  **"profile"**, not "child", for the thing you edit or delete.
 - **Two looks.** The sampler is drawn from the skin. Every other screen uses the
   shell kit (`ui/shell.rs`), in the **arcade style** shared with the games'
   entrance screens (palette + pixel bitmaps in `core::arcade`): navy night,

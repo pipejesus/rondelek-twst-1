@@ -9,20 +9,22 @@
 //! the UI tests drive the page headless with fake devices.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use egui::{Align, Color32, RichText, TextureHandle, TextureId, Ui, Vec2};
 
 use crate::i18n::{EUROPEAN_LANGS, I18n};
-use crate::ui::level_meter;
 use crate::ui::shell::{self, Icon, KeyButton, palette::*};
+use crate::ui::{level_meter, when};
 use rondelek_core::audio::device::{self, DevicePref};
-use rondelek_core::config::{DetectionPreset, Settings, Theme};
-use rondelek_core::util::format_timestamp;
+use rondelek_core::config::{DetectionPreset, NUM_SAMPLES, Settings, Theme};
+use rondelek_core::profile::SessionInfo;
 
 /// The page's sections, in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Child,
+    Sessions,
     Sound,
     Voice,
     Screen,
@@ -39,6 +41,10 @@ pub struct ChildInfo<'a> {
     /// `Some(created)` when calibrated.
     pub calibrated_at: Option<u64>,
     pub calibration_mic: Option<&'a str>,
+    /// The child's sessions, newest first (`Profile::list_sessions`).
+    pub sessions: &'a [SessionInfo],
+    /// The one the Sounds tile carries on with (`profile::most_recently_used`).
+    pub current_session: Option<usize>,
 }
 
 /// Everything the page reads, gathered by the app each frame.
@@ -70,6 +76,10 @@ pub struct SettingsOutcome {
     pub recalibrate: bool,
     pub edit_child: bool,
     pub delete_child: bool,
+    /// Open this session in the sampler.
+    pub open_session: Option<PathBuf>,
+    /// Start a new session with empty pads and open it.
+    pub new_session: bool,
     pub test_sound: bool,
     pub open_data_folder: bool,
     pub open_skins_folder: bool,
@@ -82,11 +92,15 @@ pub struct SettingsPage {
     screen_advanced: bool,
     /// While asking "are you sure?": what the grown-up has typed so far.
     delete_confirm: Option<String>,
+    /// List every session, not just the latest few.
+    all_sessions: bool,
     /// Scroll this section into view on the next frame.
     pub scroll_to: Option<Section>,
 }
 
 const CARD_W: f32 = 700.0;
+/// Sessions listed before "Show all".
+const SESSIONS_SHOWN: usize = 5;
 
 impl SettingsPage {
     pub fn show(&mut self, ui: &mut Ui, cx: SettingsCtx) -> SettingsOutcome {
@@ -111,6 +125,7 @@ impl SettingsPage {
             voice_advanced,
             screen_advanced,
             delete_confirm,
+            all_sessions,
             scroll_to,
         } = self;
 
@@ -129,6 +144,9 @@ impl SettingsPage {
                         delete_confirm,
                         &mut out,
                     )
+                });
+                section(ui, scroll_to, Section::Sessions, |ui| {
+                    sessions_card(ui, i18n, child, all_sessions, &mut out)
                 });
             }
             section(ui, scroll_to, Section::Sound, |ui| {
@@ -250,7 +268,7 @@ fn child_card(
                 RichText::new(format!(
                     "✔ {} · {}",
                     i18n.t("settings.child.calibrated"),
-                    human_time(when)
+                    when::friendly(i18n, when)
                 ))
                 .color(OK),
             );
@@ -337,6 +355,124 @@ fn child_card(
             }
         }
     }
+}
+
+/// The child's sessions: each with its date and how many pads hold a sound,
+/// the one Sounds carries on with marked, and a key to open any of them.
+fn sessions_card(
+    ui: &mut Ui,
+    i18n: &I18n,
+    child: &ChildInfo,
+    all: &mut bool,
+    out: &mut SettingsOutcome,
+) {
+    card_header(
+        ui,
+        Icon::Pads,
+        i18n.t("settings.sessions.title"),
+        i18n.t("settings.scope.child"),
+    );
+    let sessions = child.sessions;
+    if sessions.is_empty() {
+        explain(ui, i18n.t("settings.sessions.none"));
+    } else {
+        explain(ui, i18n.t("settings.sessions.explain"));
+        for (i, s) in sessions.iter().enumerate() {
+            // The latest few, plus the current one even when it's older.
+            let current = child.current_session == Some(i);
+            if (*all || i < SESSIONS_SHOWN || current) && session_row(ui, i18n, s, current) {
+                out.open_session = Some(s.dir.clone());
+            }
+        }
+        if sessions.len() > SESSIONS_SHOWN {
+            let label = if *all {
+                i18n.t("settings.sessions.show_fewer").to_string()
+            } else {
+                i18n.t("settings.sessions.show_all")
+                    .replace("{n}", &sessions.len().to_string())
+            };
+            if KeyButton::new(&label)
+                .size(Vec2::new(240.0, 42.0))
+                .font(15.0)
+                .show(ui)
+                .clicked()
+            {
+                *all = !*all;
+            }
+        }
+    }
+    ui.add_space(4.0);
+    if KeyButton::new(i18n.t("settings.sessions.new"))
+        .with_icon(Icon::Plus)
+        .size(Vec2::new(360.0, 48.0))
+        .font(15.0)
+        .show(ui)
+        .clicked()
+    {
+        out.new_session = true;
+    }
+}
+
+/// One session in the list. True when its open key was pressed.
+fn session_row(ui: &mut Ui, i18n: &I18n, s: &SessionInfo, current: bool) -> bool {
+    let date = if s.created > 0 {
+        when::friendly(i18n, s.created)
+    } else {
+        s.folder.clone()
+    };
+    let recorded = if s.recorded == 0 {
+        i18n.t("settings.sessions.nothing_recorded").to_string()
+    } else {
+        i18n.t("settings.sessions.recorded")
+            .replace("{n}", &s.recorded.to_string())
+            .replace("{total}", &NUM_SAMPLES.to_string())
+    };
+    let mut open = false;
+    egui::Frame::new()
+        .fill(WELL)
+        .stroke(egui::Stroke::new(
+            2.0,
+            if current { OK } else { shade_line() },
+        ))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(14, 10))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    ui.label(RichText::new(date).size(18.0).strong().color(TEXT));
+                    ui.label(RichText::new(recorded).size(14.0).color(TEXT_DIM));
+                    if current {
+                        ui.label(
+                            RichText::new(format!("✔ {}", i18n.t("settings.sessions.current")))
+                                .size(14.0)
+                                .color(OK),
+                        );
+                    }
+                });
+                ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                    let (label, face) = if current {
+                        (i18n.t("settings.sessions.continue"), OK)
+                    } else {
+                        (i18n.t("settings.sessions.open"), SURFACE)
+                    };
+                    open = KeyButton::new(label)
+                        .with_icon(Icon::Play)
+                        .face(face)
+                        .size(Vec2::new(170.0, 46.0))
+                        .font(15.0)
+                        .show(ui)
+                        .clicked();
+                });
+            });
+        });
+    open
+}
+
+/// The quiet outline of a session row that isn't the current one.
+fn shade_line() -> Color32 {
+    shell::shade(SURFACE, 0.25)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -677,18 +813,6 @@ fn about_card(ui: &mut Ui, i18n: &I18n, out: &mut SettingsOutcome) {
     }
 }
 
-/// "2026-07-20 10:45" from the folder-style UTC timestamp.
-fn human_time(secs: u64) -> String {
-    let ts = format_timestamp(secs); // YYYY-MM-DD_HH-MM-SS
-    match ts.split_once('_') {
-        Some((date, time)) => {
-            let hm: Vec<&str> = time.split('-').take(2).collect();
-            format!("{date} {}", hm.join(":"))
-        }
-        None => ts,
-    }
-}
-
 // ---- controls ----------------------------------------------------------------
 
 fn slider(
@@ -768,6 +892,8 @@ mod tests {
         flags: HashMap<String, TextureHandle>,
         skins: Vec<String>,
         with_child: bool,
+        sessions: Vec<SessionInfo>,
+        current_session: Option<usize>,
         /// Every non-empty outcome, in frame order.
         outcomes: Vec<SettingsOutcome>,
     }
@@ -782,6 +908,8 @@ mod tests {
                 flags: HashMap::new(),
                 skins: vec!["sunny".to_string()],
                 with_child,
+                sessions: Vec::new(),
+                current_session: None,
                 outcomes: Vec::new(),
             }
         }
@@ -813,6 +941,8 @@ mod tests {
                         tile: BLUE,
                         calibrated_at: None,
                         calibration_mic: None,
+                        sessions: &s.sessions,
+                        current_session: s.current_session,
                     });
                     let out = s.page.show(
                         ui,
@@ -837,6 +967,32 @@ mod tests {
                 },
                 State::new(with_child),
             )
+    }
+
+    /// A child with `n` sessions, newest first, one a day back from 2026-09-26;
+    /// session `i` has `i % 4` pads recorded.
+    fn harness_with_sessions(n: usize, current: Option<usize>) -> Harness<'static, State> {
+        let mut h = harness(true);
+        let day = 86_400;
+        h.state_mut().sessions = (0..n)
+            .map(|i| SessionInfo {
+                dir: PathBuf::from(format!("/library/maya/sessions/s{i}")),
+                folder: format!("s{i}"),
+                created: 1_790_424_000 - i as u64 * day,
+                modified: 0,
+                last_opened: 0,
+                recorded: i % 4,
+                uid: format!("uid-{i}"),
+            })
+            .collect();
+        h.state_mut().current_session = current;
+        h.run();
+        h
+    }
+
+    /// How many open keys ("Open" plus the current one's "Continue") show.
+    fn open_keys(h: &Harness<'static, State>) -> usize {
+        h.query_all_by_label("Open").count() + h.query_all_by_label("Continue").count()
     }
 
     #[test]
@@ -906,15 +1062,84 @@ mod tests {
     #[test]
     fn child_card_only_shows_with_a_child() {
         let h = harness(false);
-        assert!(h.query_by_label("Delete this child…").is_none());
+        assert!(h.query_by_label("Delete this profile…").is_none());
+        assert!(h.query_by_label("New session with empty pads").is_none());
         let h = harness(true);
-        assert!(h.query_by_label("Delete this child…").is_some());
+        assert!(h.query_by_label("Delete this profile…").is_some());
+        assert!(h.query_by_label("New session with empty pads").is_some());
+    }
+
+    #[test]
+    fn a_child_without_sessions_is_told_how_the_first_starts() {
+        let mut h = harness(true);
+        assert!(
+            h.query_by_label("No sessions yet. The first one starts when Sounds is opened.")
+                .is_some()
+        );
+        assert_eq!(open_keys(&h), 0);
+        h.get_by_label("New session with empty pads").click();
+        h.run();
+        assert!(h.state().any(|o| o.new_session));
+        assert!(!h.state().any(|o| o.open_session.is_some()));
+    }
+
+    #[test]
+    fn sessions_list_with_counts_and_the_current_one_marked() {
+        let h = harness_with_sessions(3, Some(1));
+        assert_eq!(h.get_all_by_label("Open").count(), 2);
+        assert_eq!(h.get_all_by_label("Continue").count(), 1);
+        assert_eq!(h.get_all_by_label("✔ Sounds opens this one").count(), 1);
+        // Session 0 has nothing yet; 1 and 2 have 1 and 2 pads.
+        assert!(h.query_by_label("No recordings yet").is_some());
+        assert!(h.query_by_label("1 of 12 pads recorded").is_some());
+        assert!(h.query_by_label("2 of 12 pads recorded").is_some());
+        // Dates read as dates, not folder names.
+        assert!(h.query_by_label("s0").is_none());
+    }
+
+    #[test]
+    fn open_and_continue_request_that_session() {
+        let mut h = harness_with_sessions(3, Some(1));
+        // The second "Open" is session 2 (session 1 shows "Continue").
+        h.get_all_by_label("Open").nth(1).unwrap().click();
+        h.run();
+        let want = PathBuf::from("/library/maya/sessions/s2");
+        assert!(h.state().any(|o| o.open_session.as_ref() == Some(&want)));
+
+        h.get_by_label("Continue").click();
+        h.run();
+        let want = PathBuf::from("/library/maya/sessions/s1");
+        assert!(h.state().any(|o| o.open_session.as_ref() == Some(&want)));
+        assert!(!h.state().any(|o| o.new_session || o.changed));
+    }
+
+    #[test]
+    fn long_lists_fold_but_keep_the_current_session_visible() {
+        // Current is the oldest of 8: it shows next to the latest five.
+        let mut h = harness_with_sessions(8, Some(7));
+        assert_eq!(open_keys(&h), SESSIONS_SHOWN + 1);
+        assert_eq!(h.get_all_by_label("Continue").count(), 1);
+
+        h.get_by_label("Show all (8)").click();
+        h.run();
+        assert_eq!(open_keys(&h), 8);
+
+        h.get_by_label("Show fewer").click();
+        h.run();
+        assert_eq!(open_keys(&h), SESSIONS_SHOWN + 1);
+    }
+
+    #[test]
+    fn short_lists_have_no_show_all() {
+        let h = harness_with_sessions(SESSIONS_SHOWN, Some(0));
+        assert_eq!(open_keys(&h), SESSIONS_SHOWN);
+        assert!(h.query_by_label_contains("Show all").is_none());
     }
 
     #[test]
     fn deleting_a_child_needs_the_name_typed() {
         let mut h = harness(true);
-        h.get_by_label("Delete this child…").click();
+        h.get_by_label("Delete this profile…").click();
         h.run();
         // Wrong name: the delete key stays disabled.
         h.state_mut().page.delete_confirm = Some("Max".to_string());
@@ -934,7 +1159,7 @@ mod tests {
     #[test]
     fn recalibrate_and_edit_are_requests_not_changes() {
         let mut h = harness(true);
-        h.get_by_label("Do the voice check").click();
+        h.get_by_label("Calibrate the voice").click();
         h.run();
         h.get_by_label("Change name or picture").click();
         h.run();

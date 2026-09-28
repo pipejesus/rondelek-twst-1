@@ -27,7 +27,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/arcade/hub.png" alt="A child’s hub, captioned PICK A MODE: their picture and name above three big tiles — Sounds, Games and Voice check" width="430">
+  <img src="docs/images/arcade/hub.png" alt="A child’s hub, captioned PICK A MODE: their picture and name above three big tiles — Sounds, Games and Voice calibration" width="430">
   &nbsp;
   <img src="docs/images/arcade/sampler.png" alt="The sampler in its Arcade skin, captioned SOUND BOARD: a navy cabinet with rainbow stripe trim and the child's pixel-fox picture, a neon dot-matrix screen, and a 4×3 grid of chunky rainbow pixel keys labelled 1–4, Q/W/E/R, A/S/D/F" width="292">
 </p>
@@ -80,13 +80,14 @@ No ready-made download yet: build it from source (below); it's a few commands.
 
 1. **Add a child**: on *Who's playing?* press **+ New child**, type a name and
    pick a picture: a cartoon character, a webcam photo, or an image file.
-2. **Voice check**: in the child's hub, press **Voice check** and record the six
+2. **Voice calibration**: in the child's hub, press **Voice calibration** and record the six
    vowels (*a e i o u y*). Tap a vowel, then hold the big button while the child
    says it. Two or three takes per vowel, at different pitch and loudness, make
    recognition better. The vowel screen and the games need this.
 3. **Sounds**: the sampler. Press **REC** (or `Space`), then hold a pad to record
-   into it; press REC again and tap pads to play them back. The board is kept, so
-   next time the child continues where they left off.
+   into it; press REC again and tap pads to play them back. Each set of
+   recordings is a *session* and is kept, so next time the child continues
+   where they left off. Earlier sessions stay available to grown-ups (see 5).
 4. **Games**: voice-controlled games. Before each game you choose which vowel
    makes the hero jump, duck or shoot, and which obstacles appear. The game also
    works on its own: double-click **`rondelek-game.exe`** (on Linux, run the
@@ -94,9 +95,13 @@ No ready-made download yet: build it from source (below); it's a few commands.
    playing (the same children and pictures as in the app), then starts.
 5. **For grown-ups**: the ⚙ key (or `F12`) opens one settings page: speaker and
    microphone, how picky voice recognition is, the sampler screen, language, and
-   the child's own settings (rename, redo the voice check, delete).
+   the child's own settings (rename, calibrate the voice again, delete the
+   profile). Its **Sessions** list shows every session with its date and how
+   many pads hold a sound: **Open** any of them to carry on there (the
+   **Sounds** button then continues that one), or start a new one with empty
+   pads.
 
-Deleting a child moves their folder to a `.trash` folder inside the library
+Deleting a profile moves its folder to a `.trash` folder inside the library
 instead of erasing it, so it can be recovered.
 
 ---
@@ -290,7 +295,7 @@ The repo's [`skins/index.json`](skins/index.json) catalogs skins available here.
 | *(REC mode)* hold a pad | record while held; release or `Esc` to stop |
 | *(play mode)* tap a pad | play its sample |
 | button left of REC | cycle the visualizer (spectrum → vowel meter → off) |
-| *(voice check)* hold `Space` | record the vowel on screen |
+| *(voice calibration)* hold `Space` | record the vowel on screen |
 | `F12` | open / close the settings page ("For grown-ups") |
 | `Ctrl+Shift+S` | save a screenshot |
 
@@ -345,8 +350,8 @@ RONDELEK_SHOT=out.png cargo run --release
   (`…/rondelek/profiles/<slug>-<id>/`), each with a small JSON manifest. A child's
   picture is either a square `avatar.png` photo or a built-in character.
 - **Screens:** *Who's playing?* (a tile per child) → the child's *hub* (Sounds,
-  Games, Voice check) → the *Sampler*. Also a *profile form* (name + a character,
-  photo or uploaded picture), the *voice check* (record the six vowels
+  Games, Voice calibration) → the *Sampler*. Also a *profile form* (name + a character,
+  photo or uploaded picture), the *voice calibration* (record the six vowels
   a e i o u y) and one *settings page* for grown-ups. There are no pop-up
   windows.
 - **Vowel detection** matches the child's voice against their own calibrated

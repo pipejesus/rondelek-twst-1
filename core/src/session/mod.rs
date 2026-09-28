@@ -34,6 +34,11 @@ pub struct SessionManifest {
     pub name: String,
     pub created: u64,
     pub modified: u64,
+    /// When the session was last opened in the sampler (0 = not since this
+    /// field exists). The Sounds tile carries on with the most recently used
+    /// session, see `profile::most_recently_used`.
+    #[serde(default)]
+    pub last_opened: u64,
     pub pads: Vec<PadEntry>,
 }
 
@@ -45,6 +50,7 @@ impl SessionManifest {
             name,
             created: now,
             modified: now,
+            last_opened: 0,
             pads: vec![PadEntry::default(); NUM_SAMPLES],
         }
     }
@@ -101,6 +107,13 @@ impl Session {
     #[allow(dead_code)] // used by session search (planned)
     pub fn name(&self) -> &str {
         &self.manifest.name
+    }
+
+    /// Stamp the session as opened now and persist it, so it becomes the one
+    /// the Sounds tile carries on with.
+    pub fn mark_opened(&mut self) -> Result<()> {
+        self.manifest.last_opened = now_secs();
+        self.save_manifest()
     }
 
     pub fn save_manifest(&self) -> Result<()> {
@@ -182,6 +195,36 @@ mod tests {
         assert_eq!(loaded[3].buf.len(), 256);
         assert!(!loaded[0].has_data);
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn manifest_without_last_opened_still_parses() {
+        // The shape written before `last_opened` existed.
+        let dir = temp_dir("old_manifest");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            Session::manifest_path(&dir),
+            r#"{"uid":"u-1","name":"2026-09-20_10-00-00","created":100,"modified":200,
+               "pads":[{"label":"","file":"pad_01.wav","has_sample":true}]}"#,
+        )
+        .unwrap();
+        let session = Session::open(dir.clone()).unwrap();
+        assert_eq!(session.manifest.last_opened, 0);
+        assert_eq!(session.manifest.modified, 200);
+        assert!(session.manifest.pads[0].has_sample);
+        assert_eq!(session.manifest.pads.len(), NUM_SAMPLES);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn mark_opened_persists() {
+        let dir = temp_dir("mark_opened");
+        let mut session = Session::create(dir.clone()).unwrap();
+        session.mark_opened().unwrap();
+        let reopened = Session::open(dir.clone()).unwrap();
+        assert!(reopened.manifest.last_opened > 0);
+        assert_eq!(reopened.manifest.uid, session.manifest.uid);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

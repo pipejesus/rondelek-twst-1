@@ -67,16 +67,18 @@ stateDiagram-v2
     ProfileForm --> Hub: Create / Save / Cancel (edit)
     Hub --> Session: Sounds (continue) / Start with empty pads
     Hub --> Games: Games
-    Hub --> Calibrate: Voice check
+    Hub --> Calibrate: Voice calibration
     Hub --> ProfileForm: edit key
     Hub --> Home: Back
     Calibrate --> Hub: Save / Cancel
-    Games --> Calibrate: voice-check nudge
+    Games --> Calibrate: calibration nudge
     Games --> Hub: Back
     Session --> Hub: Back (header key)
     Home --> Settings: gear / flag / F12
     Hub --> Settings: gear / F12
+    Session --> Settings: F12
     Settings --> Home: Back (returns to caller)
+    Settings --> Session: Open / Continue / New session
 ```
 
 - The profile form is shared between "new" and "edit" via `FormMode`. The
@@ -84,10 +86,14 @@ stateDiagram-v2
   `Remove`).
 - **Settings** is a screen (`AppScreen::Settings`, the "For grown-ups" page).
   `open_settings` remembers the screen it came from in `settings_return`, and can
-  scroll straight to a section (the Hub's gear opens the Child card). `F12` toggles
+  scroll straight to a section (the Hub's gear opens the Profile card). `F12` toggles
   it from anywhere.
-- The Hub has no session list: **Sounds** continues the latest session (or starts
-  the first); "Start with empty pads" creates a new one.
+- Kids never browse sessions: on the Hub, **Sounds** carries on with the session
+  **used last** (`profile::most_recently_used`: the latest of created, recorded
+  into, or opened), or starts the first; "Start with empty pads" creates a new
+  one. Grown-ups see every session on the settings page's **Sessions** card and
+  can open any of them; `enter_session` stamps the opened session
+  (`Session::mark_opened`), so Sounds then continues that one.
 - **Games** spawns `rondelek-game <id> --profile <dir>` from the folder the app's
   own exe is in (`spawn_game`). The app drops its `Capture` first so the game can
   open the microphone. Under `cargo run` (detected by the `CARGO` and

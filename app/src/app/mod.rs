@@ -37,9 +37,9 @@ enum AppScreen {
     Home,
     /// Create or edit a child (name + picture).
     ProfileForm,
-    /// The child's hub: sampler, games, voice check.
+    /// The child's hub: sampler, games, voice calibration.
     Hub,
-    /// Per-child voice calibration for the vowel detector ("voice check").
+    /// Per-child voice calibration for the vowel detector.
     Calibrate,
     /// The sampler.
     Session,
@@ -675,8 +675,12 @@ impl App {
         if self.screen != AppScreen::Settings {
             self.settings_return = self.screen;
         }
-        // Rescan so freshly dropped skin zips show up.
+        // Rescan so freshly dropped skin zips show up, and the sessions list
+        // shows what was just recorded.
         self.available_skins = ui::skin::discover();
+        if let Some(p) = self.current_profile.as_ref() {
+            self.profile_sessions = p.list_sessions();
+        }
         self.devices.age = f32::MAX;
         self.settings_page.scroll_to = section;
         self.screen = AppScreen::Settings;

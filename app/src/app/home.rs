@@ -134,7 +134,7 @@ impl App {
 
     /// One child: an arcade card in their colour, their picture in an
     /// ink-framed well, their name in pixel letters on a dark plate, and a
-    /// small voice-check badge for the grown-ups.
+    /// small voice-calibration badge for the grown-ups.
     fn child_tile(
         &self,
         ui: &mut Ui,

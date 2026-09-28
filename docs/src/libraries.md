@@ -53,6 +53,7 @@ works (models, shaders, tuning tables, the water) is in
 | `dirs` | Locate the OS data and config directories. |
 | `uuid` (v4) | Stable IDs for profiles and sessions. |
 | `sys-locale` | Detect the system language on first run. |
+| `chrono` (`clock`) | Local time for the dates grown-ups see (sessions, voice calibration), in `ui/when.rs`. Stored times stay UTC Unix seconds. |
 | `anyhow` | Ergonomic error handling (`Result` + `Context`) throughout. |
 
 ## Declared but currently unused

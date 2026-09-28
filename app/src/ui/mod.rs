@@ -8,6 +8,7 @@ pub mod shell;
 pub mod skin;
 pub mod visualizer;
 pub mod vowel_visualizer;
+pub mod when;
 pub mod widgets;
 
 pub use layout::{FaceLayout, compute as compute_layout};

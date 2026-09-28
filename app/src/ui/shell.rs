@@ -541,7 +541,24 @@ impl<'a> KeyButton<'a> {
     }
 
     pub fn show(self, ui: &mut Ui) -> Response {
-        let (rect, resp) = ui.allocate_exact_size(self.size, Sense::click());
+        // Grow wider when the label (in some language) doesn't fit.
+        let mut size = self.size;
+        if let Some(label) = self.label.filter(|_| !self.vowel) {
+            let text_w = ui
+                .painter()
+                .layout_no_wrap(label.to_string(), pixel_font(self.font), Color32::WHITE)
+                .size()
+                .x;
+            let icon_w = if self.icon.is_some() {
+                ((size.y - 6.0 * PX) * 0.52).min(30.0) + 10.0
+            } else {
+                0.0
+            };
+            size.x = size
+                .x
+                .max((text_w + icon_w + 2.0 * (14.0 + 2.0 * PX)).ceil());
+        }
+        let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
         let name = self.label.or(self.a11y).unwrap_or_default().to_string();
         let enabled = ui.is_enabled();
         resp.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, &name));
@@ -686,7 +703,7 @@ pub fn cover_uv(size: [usize; 2]) -> Rect {
     Rect::from_min_max(Pos2::new(ux, uy), Pos2::new(1.0 - ux, 1.0 - uy))
 }
 
-/// A small square status badge (e.g. the voice check) with an icon inside.
+/// A small square status badge (e.g. voice calibration done) with an icon inside.
 pub fn badge(p: &Painter, center: Pos2, radius: f32, fill: Color32, icon: Icon) {
     let r = Rect::from_center_size(center, Vec2::splat(radius * 2.0));
     notched(
@@ -976,6 +993,35 @@ pub fn pixel_wordmark(p: &Painter, left_center: Pos2, text: &str, cell: f32, ink
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_buttons_grow_to_fit_long_labels() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        let mut h = Harness::builder()
+            .with_size(Vec2::new(900.0, 300.0))
+            .build_ui(|ui| {
+                if !fonts_installed(ui.ctx()) {
+                    install_fonts(ui.ctx());
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                KeyButton::new("Short")
+                    .size(Vec2::new(200.0, 46.0))
+                    .show(ui);
+                KeyButton::new("A much longer label than the key was sized for")
+                    .with_icon(Icon::Play)
+                    .size(Vec2::new(200.0, 46.0))
+                    .show(ui);
+            });
+        h.run();
+        // Short labels keep the asked-for size; long ones get room.
+        assert_eq!(h.get_by_label("Short").rect().width(), 200.0);
+        let long = h
+            .get_by_label("A much longer label than the key was sized for")
+            .rect();
+        assert!(long.width() > 300.0, "grew to {}", long.width());
+    }
 
     #[test]
     fn tile_color_is_stable_and_from_the_shared_palette() {

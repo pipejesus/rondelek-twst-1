@@ -104,9 +104,36 @@ pub struct SessionInfo {
     pub dir: PathBuf,
     pub folder: String,
     pub created: u64,
+    /// Last time a pad was recorded (manifest `modified`).
+    pub modified: u64,
+    /// Last time it was opened in the sampler (0 = not recorded).
+    pub last_opened: u64,
+    /// How many pads hold a recording.
+    pub recorded: usize,
     /// Session uid, for future cross-referencing (notes, search).
     #[allow(dead_code)]
     pub uid: String,
+}
+
+impl SessionInfo {
+    /// When this session was last used: created, recorded into, or opened.
+    pub fn last_used(&self) -> u64 {
+        self.created.max(self.modified).max(self.last_opened)
+    }
+}
+
+/// The session the Sounds tile carries on with: the most recently used one
+/// (see [`SessionInfo::last_used`]). On a tie, the earlier entry wins, which
+/// in a [`Profile::list_sessions`] list is the newer session.
+pub fn most_recently_used(sessions: &[SessionInfo]) -> Option<usize> {
+    let mut best: Option<(usize, u64)> = None;
+    for (i, s) in sessions.iter().enumerate() {
+        let t = s.last_used();
+        if best.is_none_or(|(_, b)| t > b) {
+            best = Some((i, t));
+        }
+    }
+    best.map(|(i, _)| i)
 }
 
 impl Profile {
@@ -286,25 +313,30 @@ impl Profile {
                     continue;
                 }
                 let folder = entry.file_name().to_string_lossy().into_owned();
-                // Read uid/created from the manifest if present.
-                let (uid, created) = std::fs::read_to_string(dir.join("session.json"))
+                // Read what the manifest has, field by field, so one odd
+                // value never hides the whole session.
+                let v = std::fs::read_to_string(dir.join("session.json"))
                     .ok()
                     .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
-                    .map(|v| {
-                        (
-                            v.get("uid")
-                                .and_then(|u| u.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            v.get("created").and_then(|c| c.as_u64()).unwrap_or(0),
-                        )
-                    })
                     .unwrap_or_default();
+                let num = |key: &str| v.get(key).and_then(|n| n.as_u64()).unwrap_or(0);
+                let recorded = v.get("pads").and_then(|p| p.as_array()).map_or(0, |pads| {
+                    pads.iter()
+                        .filter(|pad| pad.get("has_sample").and_then(|b| b.as_bool()) == Some(true))
+                        .count()
+                });
                 out.push(SessionInfo {
                     dir,
                     folder,
-                    created,
-                    uid,
+                    created: num("created"),
+                    modified: num("modified"),
+                    last_opened: num("last_opened"),
+                    recorded,
+                    uid: v
+                        .get("uid")
+                        .and_then(|u| u.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                 });
             }
         }
@@ -507,6 +539,98 @@ mod tests {
         let sessions = profile.list_sessions();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].uid, session.manifest.uid);
+    }
+
+    /// Write a session folder with a hand-made manifest (any shape).
+    fn write_session(profile: &Profile, folder: &str, json: &str) {
+        let dir = profile.dir.join(SESSIONS_DIR).join(folder);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("session.json"), json).unwrap();
+    }
+
+    #[test]
+    fn list_sessions_reads_counts_and_times() {
+        let lib = TempLibrary::new();
+        let profile = lib.create("List Kid", None);
+        // An old manifest (no last_opened) with two recorded pads.
+        write_session(
+            &profile,
+            "2026-09-20_10-00-00",
+            r#"{"uid":"old","name":"x","created":100,"modified":300,"pads":[
+                {"label":"","file":"pad_01.wav","has_sample":true},
+                {"label":"","file":null,"has_sample":false},
+                {"label":"","file":"pad_03.wav","has_sample":true}]}"#,
+        );
+        // A newer one, opened later.
+        write_session(
+            &profile,
+            "2026-09-21_10-00-00",
+            r#"{"uid":"new","name":"y","created":200,"modified":200,"last_opened":250,"pads":[]}"#,
+        );
+        // A broken manifest still lists (as time 0, nothing recorded).
+        write_session(&profile, "2026-09-22_10-00-00", "not json");
+
+        let s = profile.list_sessions();
+        assert_eq!(s.len(), 3);
+        // Newest created first; the broken one (created 0) last.
+        assert_eq!(s[0].uid, "new");
+        assert_eq!(s[1].uid, "old");
+        assert_eq!(s[2].created, 0);
+        assert_eq!(s[1].recorded, 2);
+        assert_eq!(s[0].recorded, 0);
+        assert_eq!(s[1].modified, 300);
+        assert_eq!(s[0].last_opened, 250);
+        assert_eq!(s[1].last_opened, 0);
+    }
+
+    #[test]
+    fn sounds_carries_on_with_the_last_used_session() {
+        let lib = TempLibrary::new();
+        let profile = lib.create("Recent Kid", None);
+        assert_eq!(most_recently_used(&profile.list_sessions()), None);
+
+        // Recorded into last: the old session (modified 300 > newer's 250).
+        write_session(
+            &profile,
+            "a",
+            r#"{"uid":"old","name":"a","created":100,"modified":300,"pads":[]}"#,
+        );
+        write_session(
+            &profile,
+            "b",
+            r#"{"uid":"new","name":"b","created":200,"modified":200,"last_opened":250,"pads":[]}"#,
+        );
+        let s = profile.list_sessions();
+        assert_eq!(s[most_recently_used(&s).unwrap()].uid, "old");
+
+        // Opening a session makes it the one Sounds continues.
+        let mut newer =
+            Session::open(s.iter().find(|i| i.uid == "new").unwrap().dir.clone()).unwrap();
+        newer.mark_opened().unwrap();
+        let s = profile.list_sessions();
+        assert_eq!(s[most_recently_used(&s).unwrap()].uid, "new");
+
+        // A brand-new session is the newest of all.
+        let fresh = profile.new_session().unwrap();
+        let s = profile.list_sessions();
+        let i = most_recently_used(&s).unwrap();
+        assert!(i == 0 || s[i].last_used() == s[0].last_used());
+        assert_eq!(s[0].uid, fresh.manifest.uid);
+    }
+
+    #[test]
+    fn most_recently_used_prefers_the_newer_session_on_a_tie() {
+        let info = |uid: &str, created: u64, t: u64| SessionInfo {
+            dir: PathBuf::new(),
+            folder: uid.into(),
+            created,
+            modified: t,
+            last_opened: 0,
+            recorded: 0,
+            uid: uid.into(),
+        };
+        let s = vec![info("newer", 20, 50), info("older", 10, 50)];
+        assert_eq!(most_recently_used(&s), Some(0));
     }
 
     #[test]

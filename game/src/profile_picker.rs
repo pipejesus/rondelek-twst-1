@@ -6,7 +6,7 @@
 //! run without arguments). It reads the same profile library as the app: a
 //! card per child in their colour family (as in the app, via
 //! `rondelek_core::util::stable_pick`, but vivid), their photo or character,
-//! their name, and a small badge showing whether their voice check is done.
+//! their name, and a small badge showing whether their voice is calibrated.
 //! Drawn in the arcade style of [`crate::arcade`]: a night sky with twinkling
 //! stars, chunky notched cards, a pixel "?" for a title.
 //!
@@ -442,7 +442,7 @@ fn draw_tile(
         Some(INK),
     );
 
-    // Voice-check badge (for the grown-ups), over the picture's corner.
+    // Voice-calibration badge (for the grown-ups), over the picture's corner.
     let b = 10.0 * p;
     let badge = Rectangle {
         x: pic.x + pic.width - b + 2.0 * p,

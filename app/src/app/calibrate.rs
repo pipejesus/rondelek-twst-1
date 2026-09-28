@@ -1,4 +1,4 @@
-//! The voice check (per-child vowel calibration): the overview of six vowel
+//! Voice calibration (the vowel detector's per-child templates): the overview of six vowel
 //! keys and the hold-to-record screen.
 
 use super::*;

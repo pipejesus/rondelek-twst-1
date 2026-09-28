@@ -64,6 +64,8 @@ impl App {
                         .current_calibration
                         .as_ref()
                         .and_then(|c| c.input_device.as_deref()),
+                    sessions: &self.profile_sessions,
+                    current_session: profile::most_recently_used(&self.profile_sessions),
                 });
                 self.settings_page.show(
                     ui,
@@ -114,7 +116,14 @@ impl App {
         if outcome.open_skins_folder {
             open_folder(&ui::skin::skins_dir());
         }
-        if outcome.recalibrate {
+        if let Some(dir) = outcome.open_session {
+            // Leave whatever session is open (saved) and carry on in this one.
+            self.close_session();
+            self.open_session_dir(dir);
+        } else if outcome.new_session {
+            self.close_session();
+            self.start_new_session();
+        } else if outcome.recalibrate {
             self.begin_calibration();
         } else if outcome.edit_child {
             self.begin_edit_profile();
