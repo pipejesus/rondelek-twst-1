@@ -107,6 +107,25 @@ untouched but earns nothing. While an obstacle and the hero overlap along x,
 the obstacle notes whether the hero was ever in the air or ever ducking, and
 that decides it when it has gone by.
 
+### Ledges and little suns
+
+Now and then a **ledge pattern** takes an obstacle's turn (`LEDGE_CHANCE`,
+never twice running, so a ledge and an obstacle never share a stretch): a long
+low ledge, a high one, or a staircase from a low ledge up to a high one. Over
+each ledge float **little suns**, the score sun small and turning slowly,
+each one a point when the hero touches it. Unlike a cleared obstacle, a little
+sun doesn't speed the game up.
+
+Ledges are one-way, like Mario's: the hero jumps up through one from below and
+lands on it only on the way down. `floor_below` is the whole trick. It's the
+highest surface under the hero's feet that the feet were already above
+(the ground, or a ledge the hero overlaps along x), and the hero lands on it
+only while falling. A ledge that slides out from under the feet drops the
+hero back down. The low ledge (`LEDGE_LOW`, 180 px) takes a single jump (apex
+about 238 px) with room to spare and floats clear of the hero's head; the high
+one (`LEDGE_HIGH`, 300 px) needs the double jump, or a hop from the low ledge
+of a staircase. A test holds these numbers to each other.
+
 Gameplay runs in a 1280×720 logical space (`update`), and drawing maps that to
 world units (100 logical px = 1 unit).
 
@@ -127,6 +146,7 @@ glide past while the camera stays put.
 | Meadow & bank | z 0, parallax 1.0 | code-built **bricks** (`props::ground`): a grass top over layered earth, tile after tile, through Lam::pula |
 | **Water** | z 1.5 → 8.5 | little glass bricks rising and falling on a swell, through **Lam::pula** like the clouds; scrolls with the ground |
 | Obstacles | z 0 | code-built **bricks** (`props.rs`): a toy brick, a bridge, a brick wall, a candy pillar, through Lam::pula |
+| Ledges, little suns | z 0 | floating strips of meadow bricks (`props::ledge`); `sun.glb`, small, through the sun's Lam::pula |
 | Stars (bullets) | z 0 | procedural cubes |
 | Hero | z 0 | the blocky brick hero under the toon shader (**permanent by design**) |
 | Score sun | 3 units in front of the camera | `sun.glb` through its own Lam::pula, the count on its face |
@@ -318,6 +338,9 @@ place, never a random generator, so they look the same every game:
   seam, and leaves out the bottoms and backs, which are never seen. The grass
   is flat on purpose: bricks standing up out of it read as toys left lying
   about and pulled the eye off the obstacles.
+- **The ledges** (`ledge`, meadow bricks): a floating strip of meadow, 12 or
+  16 bricks long and two thick, its earth row a brick short at each end, with
+  grass hanging over the front.
 - **The obstacles** (0.125-unit bricks, half the meadow's, for a little detail
   at the hitboxes' size): a pink toy brick with studs (jump), a purple bridge
   on two posts (duck), a red brick wall with its mortar sunk in, so each brick
@@ -377,7 +400,8 @@ one value, never the whole game.
 ## Testing and recording
 
 - `cargo test -p rondelek-game` covers the gameplay (jumps, ducks, shooting,
-  the double jump's reach, which moves earn a star), the sun's spring and
+  the double jump's reach, which moves earn a star, landing on ledges and
+  jumping up through them, the little suns), the sun's spring and
   reveal, the voice glow, the tuning tables and their shaders, the
   pixel-lattice recovery, and the brick props (faces turned outward, corners
   on the lattice, sizes against the hitboxes).

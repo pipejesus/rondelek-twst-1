@@ -26,6 +26,11 @@ spins round like a coin to show the new score. (Leaping over a bar or a wall
 gets past it, but only ducking under the bar or knocking the wall down with a
 star counts, so every vowel gets its turn.)
 
+Now and then grassy ledges float by with little golden suns over them. Jump up
+onto a ledge (right through it from below is fine) and run along it to collect
+the suns: each one is a point too. The high ledges need the double jump, or a
+hop up from a low ledge just before them.
+
 When a sound comes out, the sea along the front gets playful too: its waves
 dance while the child makes noise. The scenery itself stays calm and slow on
 purpose, so nothing competes with the hero or makes anyone dizzy.

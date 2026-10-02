@@ -70,6 +70,27 @@ const WALL_H: f32 = 300.0;
 const HIGH_W: f32 = 64.0;
 const HIGH_H: f32 = 360.0;
 
+// Ledges: one-way platforms in meadow bricks (`props::ledge`). The hero jumps
+// up through one from below and lands on it only on the way down, like Mario;
+// when it slides out from under their feet, they drop off. Heights are of the
+// top, above the ground. A single jump (apex ~238) lands on a low ledge with
+// room to spare, and the low one floats clear of the hero's head (110); a
+// high ledge needs the double jump, or a hop from a low ledge just before it.
+const LEDGE_LOW: f32 = 180.0;
+const LEDGE_HIGH: f32 = 300.0;
+/// How often a ledge pattern takes an obstacle's turn (never twice running,
+/// so ledges and obstacles never share a stretch).
+const LEDGE_CHANCE: f32 = 0.3;
+/// Logical px from a staircase's low ledge to its high one.
+const STAIR_GAP: f32 = 70.0;
+// Little suns: the score sun, small, floating over the ledges to be
+// collected — a point each. Size (logical px), and how high the centre floats
+// over the ledge: the standing hero's middle, so running along collects them.
+const LITTLE_SUN_PX: f32 = 44.0;
+const LITTLE_SUN_LIFT: f32 = 55.0;
+/// Turns per second: a slow, calm spin.
+const LITTLE_SUN_SPIN: f32 = 0.35;
+
 // Logical px per world unit.
 const PPU: f32 = 100.0;
 
@@ -264,6 +285,56 @@ impl Obstacle {
     }
 }
 
+/// A ledge's length (the two `props::ledge` builds).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum LedgeSize {
+    Short,
+    Long,
+}
+
+impl LedgeSize {
+    fn bricks(self) -> usize {
+        match self {
+            LedgeSize::Short => props::LEDGE_SHORT,
+            LedgeSize::Long => props::LEDGE_LONG,
+        }
+    }
+
+    /// Length in logical px.
+    fn width(self) -> f32 {
+        self.bricks() as f32 * props::GROUND_CELL * PPU
+    }
+}
+
+/// A one-way platform (see `LEDGE_LOW`).
+struct Ledge {
+    /// Left edge, logical px.
+    x: f32,
+    /// Logical y of the top the hero stands on.
+    top: f32,
+    size: LedgeSize,
+}
+
+impl Ledge {
+    fn w(&self) -> f32 {
+        self.size.width()
+    }
+}
+
+/// A little sun to collect, floating over a ledge.
+struct LittleSun {
+    /// Centre, logical px.
+    x: f32,
+    y: f32,
+    /// Where in its spin it starts, so a row of them doesn't turn in step.
+    phase: f32,
+}
+
+fn little_sun_rect(s: &LittleSun) -> (f32, f32, f32, f32) {
+    let r = LITTLE_SUN_PX / 2.0;
+    (s.x - r, s.y - r, LITTLE_SUN_PX, LITTLE_SUN_PX)
+}
+
 /// A spinning star fired by the shoot vowel — destroys walls.
 struct Bullet {
     x: f32,
@@ -367,6 +438,8 @@ struct Gfx {
     /// The four obstacles in bricks. `None` → plain boxes, so the game
     /// still plays.
     obstacle_models: Option<ObstacleModels>,
+    /// The two ledge lengths in bricks. `None` → plain boxes.
+    ledge_models: Option<(BrickModel, BrickModel)>,
 }
 
 /// The obstacles, built in bricks once (`props.rs`) and drawn as many times
@@ -461,6 +534,10 @@ pub struct Runner {
     /// Obstacle kinds allowed to spawn (the grown-up's difficulty pick; never
     /// empty — falls back to all three).
     kinds: Vec<Kind>,
+    ledges: Vec<Ledge>,
+    little_suns: Vec<LittleSun>,
+    /// The last spawn was a ledge pattern (the next one is an obstacle).
+    last_ledges: bool,
     gfx: Option<Gfx>,
 }
 
@@ -497,6 +574,9 @@ impl Runner {
             duck_vowel,
             shoot_vowel,
             kinds,
+            ledges: Vec::new(),
+            little_suns: Vec::new(),
+            last_ledges: false,
             gfx: None,
         }
     }
@@ -511,12 +591,60 @@ impl Runner {
 
     fn hero_rect(&self) -> (f32, f32, f32, f32) {
         let h = if self.ducking { DUCK_H } else { HERO_H };
+        // Ducking keeps the feet where they are: on the ground or a ledge.
         let top = if self.on_ground && self.ducking {
-            GROUND_Y - DUCK_H
+            self.hero_y + HERO_H - DUCK_H
         } else {
             self.hero_y
         };
         (HERO_X - HERO_W / 2.0, top, HERO_W, h)
+    }
+
+    /// The highest surface under the hero at or below `bottom` (a logical y;
+    /// smaller is higher): the ground, or a ledge the hero overlaps along x
+    /// whose top is no higher than the feet. A ledge above the feet doesn't
+    /// count, which is what lets the hero jump up through one.
+    fn floor_below(&self, bottom: f32) -> f32 {
+        let (hx, _, hw, _) = self.hero_rect();
+        self.ledges
+            .iter()
+            .filter(|l| hx < l.x + l.w() && l.x < hx + hw && l.top >= bottom - 0.5)
+            .map(|l| l.top)
+            .fold(GROUND_Y, f32::min)
+    }
+
+    /// Add a ledge whose left edge is at `x` and top `height` above the
+    /// ground, little suns along it; its right edge.
+    fn add_ledge(&mut self, x: f32, size: LedgeSize, height: f32) -> f32 {
+        let w = size.width();
+        let top = GROUND_Y - height;
+        self.ledges.push(Ledge { x, top, size });
+        let n = (w / 100.0).round().max(1.0) as usize;
+        for i in 0..n {
+            let phase = self.rand() * std::f32::consts::TAU;
+            self.little_suns.push(LittleSun {
+                x: x + (i as f32 + 0.5) * w / n as f32,
+                y: top - LITTLE_SUN_LIFT,
+                phase,
+            });
+        }
+        x + w
+    }
+
+    /// Spawn a ledge pattern at the right edge: a long low ledge, a high one
+    /// (double jump), or a staircase from a low one up to a high one. How far
+    /// it reaches past the spawn point, logical px.
+    fn spawn_ledges(&mut self) -> f32 {
+        let x = LW + 120.0;
+        let end = match (self.rand() * 3.0) as u32 {
+            0 => self.add_ledge(x, LedgeSize::Long, LEDGE_LOW),
+            1 => self.add_ledge(x, LedgeSize::Short, LEDGE_HIGH),
+            _ => {
+                let step = self.add_ledge(x, LedgeSize::Short, LEDGE_LOW);
+                self.add_ledge(step + STAIR_GAP, LedgeSize::Short, LEDGE_HIGH)
+            }
+        };
+        end - x
     }
 }
 
@@ -759,6 +887,19 @@ impl VoiceGame for Runner {
                 },
             ),
             obstacle_models: ObstacleModels::build(thread),
+            ledge_models: {
+                let ledge = |size: LedgeSize| {
+                    BrickModel::build(
+                        thread,
+                        "ledge",
+                        &props::ledge(size.bricks()),
+                        &props::GROUND_PALETTE,
+                        props::GROUND_CELL,
+                        Build::default(),
+                    )
+                };
+                ledge(LedgeSize::Short).zip(ledge(LedgeSize::Long))
+            },
         });
     }
 
@@ -804,11 +945,20 @@ impl VoiceGame for Runner {
                 dead: false,
             });
         }
+        // Standing on a ledge that has slid out from under the feet: drop.
+        let feet = self.hero_y + HERO_H;
+        if self.on_ground && self.floor_below(feet) > feet + 0.5 {
+            self.on_ground = false;
+            self.vy = 0.0;
+        }
         if !self.on_ground {
             self.vy += GRAVITY * dt;
             self.hero_y += self.vy * dt;
-            if self.hero_y >= GROUND_Y - HERO_H {
-                self.hero_y = GROUND_Y - HERO_H;
+            // Land only on the way down, and only on a surface the feet were
+            // above a moment ago: a ledge is jumped up through from below.
+            let floor = self.floor_below(feet);
+            if self.vy >= 0.0 && self.hero_y + HERO_H >= floor {
+                self.hero_y = floor - HERO_H;
                 self.vy = 0.0;
                 self.on_ground = true;
                 self.air_jumped = false;
@@ -819,11 +969,20 @@ impl VoiceGame for Runner {
         // --- obstacles ---
         self.spawn_timer -= dt;
         if self.spawn_timer <= 0.0 {
-            let pick = (self.rand() * self.kinds.len() as f32) as usize;
-            let kind = self.kinds[pick.min(self.kinds.len() - 1)];
-            self.obstacles.push(Obstacle::new(LW + 120.0, kind));
             // Faster game = slightly denser spawns, always with breathing room.
-            self.spawn_timer = 2.6 - (self.speed - 260.0) / 240.0 * 0.8 + self.rand() * 0.6;
+            let gap = 2.6 - (self.speed - 260.0) / 240.0 * 0.8 + self.rand() * 0.6;
+            if !self.last_ledges && self.rand() < LEDGE_CHANCE {
+                // The next spawn waits until the whole pattern is in.
+                let reach = self.spawn_ledges();
+                self.spawn_timer = gap + reach / self.speed;
+                self.last_ledges = true;
+            } else {
+                let pick = (self.rand() * self.kinds.len() as f32) as usize;
+                let kind = self.kinds[pick.min(self.kinds.len() - 1)];
+                self.obstacles.push(Obstacle::new(LW + 120.0, kind));
+                self.spawn_timer = gap;
+                self.last_ledges = false;
+            }
         }
 
         let hero = self.hero_rect();
@@ -866,6 +1025,31 @@ impl VoiceGame for Runner {
             self.speed = (self.speed + 8.0).min(500.0);
         }
         self.obstacles.retain(|o| o.x > -200.0 && o.fly_y < 720.0);
+
+        // --- ledges and their little suns ---
+        for l in &mut self.ledges {
+            l.x -= self.speed * dt;
+        }
+        self.ledges.retain(|l| l.x + l.w() > -200.0);
+        for s in &mut self.little_suns {
+            s.x -= self.speed * dt;
+        }
+        // A little sun the hero touches is a point (it spins the score sun,
+        // but unlike an obstacle it doesn't speed the game up).
+        let hero = self.hero_rect();
+        let (taken, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.little_suns)
+            .into_iter()
+            .partition(|s| overlaps(hero, little_sun_rect(s), 0.0));
+        self.little_suns = kept.into_iter().filter(|s| s.x > -200.0).collect();
+        for s in taken {
+            self.stars += 1;
+            self.coin.earn();
+            self.sparkles.push(Sparkle {
+                x: s.x,
+                y: s.y,
+                age: 0.0,
+            });
+        }
 
         // --- bullets: fly right, spin, smash the first wall they touch ---
         for bi in 0..self.bullets.len() {
@@ -1093,6 +1277,28 @@ impl VoiceGame for Runner {
                 water.draw(&mut c3, camera.position, self.t, dist_u, self.voice_glow);
             }
 
+            // --- ledges (hero plane z 0), in meadow bricks -----------------
+            // Each lit by lamps round itself, like the obstacles.
+            for l in &self.ledges {
+                let model = gfx.ledge_models.as_ref().map(|(short, long)| match l.size {
+                    LedgeSize::Short => short,
+                    LedgeSize::Long => long,
+                });
+                match model {
+                    Some(model) => {
+                        let at =
+                            Matrix::translate(wx(l.x + l.w() / 2.0), wy(l.top) - model.max.y, 0.0);
+                        let lamps = world_box(model.min, model.max, at);
+                        model.draw(&mut c3, gfx.world_glass.as_mut(), at, lamps);
+                    }
+                    None => {
+                        let thick = props::LEDGE_LAYERS as f32 * props::GROUND_CELL * PPU;
+                        let (pos, size) = wrect((l.x, l.top, l.w(), thick), 0.0, 0.75);
+                        c3.draw_cube_v(pos, size, Color::GREEN);
+                    }
+                }
+            }
+
             // --- obstacles (hero plane z 0), in bricks ---------------------
             // Each stands on the ground at its x (or flies off, bumped), lit
             // by lamps round itself, so every one is lit alike.
@@ -1133,7 +1339,7 @@ impl VoiceGame for Runner {
                 let (hx, hy, hw, hh) = {
                     let h = if self.ducking { DUCK_H } else { HERO_H };
                     let top = if self.on_ground && self.ducking {
-                        GROUND_Y - DUCK_H
+                        self.hero_y + HERO_H - DUCK_H
                     } else {
                         self.hero_y
                     };
@@ -1192,7 +1398,7 @@ impl VoiceGame for Runner {
                         toonm.draw_cube(
                             Vector3::new(
                                 wx(hx + hw * 0.5) + side * 0.22,
-                                0.07 + p.max(0.0) * 0.07,
+                                wy(hy + hh) + 0.07 + p.max(0.0) * 0.07,
                                 0.12,
                             ),
                             0.2,
@@ -1200,6 +1406,29 @@ impl VoiceGame for Runner {
                             0.3,
                             SKY,
                         );
+                    }
+                }
+            }
+
+            // --- little suns over the ledges: the score sun, small ---------
+            // Turning slowly (each out of step) and bobbing a touch, through
+            // the sun's own glass.
+            if let Some(sun) = &gfx.sun {
+                if let Some(glass) = gfx.sun_glass.as_mut() {
+                    glass.begin_frame(camera.position, self.t);
+                }
+                let k = LITTLE_SUN_PX / PPU / sun.size.y.max(f32::EPSILON);
+                let c = sun.center;
+                for s in &self.little_suns {
+                    let spin = self.t * LITTLE_SUN_SPIN * std::f32::consts::TAU + s.phase;
+                    let bob = (self.t * 1.6 + s.phase).sin() * 0.03;
+                    let m = Matrix::translate(-c.x, -c.y, -c.z)
+                        * Matrix::scale(k, k, k)
+                        * Matrix::rotate_y(spin)
+                        * Matrix::translate(wx(s.x), wy(s.y) + bob, 0.0);
+                    match gfx.sun_glass.as_mut() {
+                        Some(glass) => glass.draw(&mut c3, sun, m),
+                        None => sun.draw_transformed(&mut c3, m),
                     }
                 }
             }
@@ -1560,6 +1789,152 @@ mod tests {
         assert!(first.is_some());
         assert!(!bumped, "the double jump should clear the wall");
         assert_eq!(r.stars, 0);
+    }
+
+    /// A runner with no spawns and one ledge (and its little suns).
+    fn on_a_ledge_course(x: f32, size: LedgeSize, height: f32) -> Runner {
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);
+        r.spawn_timer = 999.0;
+        r.add_ledge(x, size, height);
+        r
+    }
+
+    fn feet(r: &Runner) -> f32 {
+        r.hero_y + HERO_H
+    }
+
+    #[test]
+    fn ledge_heights_fit_the_hero_and_the_jumps() {
+        let single_apex = JUMP_V * JUMP_V / (2.0 * GRAVITY);
+        let thick = props::LEDGE_LAYERS as f32 * props::GROUND_CELL * PPU;
+        assert!(
+            LEDGE_LOW - thick > HERO_H,
+            "the hero runs under a low ledge"
+        );
+        assert!(
+            single_apex > LEDGE_LOW + 40.0,
+            "a single jump lands on a low ledge"
+        );
+        assert!(
+            single_apex < LEDGE_HIGH,
+            "a high ledge needs the double jump"
+        );
+        assert!(
+            LEDGE_LOW + single_apex > LEDGE_HIGH + 40.0,
+            "a low ledge is a step up to a high one"
+        );
+    }
+
+    #[test]
+    fn a_jump_lands_on_a_low_ledge_collects_its_suns_and_drops_off_the_end() {
+        let mut r = on_a_ledge_course(HERO_X + 150.0, LedgeSize::Long, LEDGE_LOW);
+        let top = GROUND_Y - LEDGE_LOW;
+        let mut stood = false;
+        let bumped = play(&mut r, 240, |f, r| {
+            stood |= r.on_ground && (feet(r) - top).abs() < 0.01;
+            if f == 0 {
+                input(Some(0), Some(0))
+            } else {
+                input(None, None)
+            }
+        });
+        assert!(!bumped);
+        assert!(stood, "never stood on the ledge");
+        // Ridden off the end and back on the ground.
+        assert!(r.on_ground && feet(&r) == GROUND_Y);
+        // Its four little suns were collected, and didn't speed the game up.
+        assert_eq!(r.stars, 4);
+        assert_eq!(r.speed, 260.0);
+        assert!(r.little_suns.is_empty());
+    }
+
+    #[test]
+    fn a_jump_goes_up_through_a_ledge_and_lands_on_it() {
+        // The ledge is right overhead: jumping, the hero rises through it.
+        let mut r = on_a_ledge_course(HERO_X - 100.0, LedgeSize::Long, LEDGE_LOW);
+        let top = GROUND_Y - LEDGE_LOW;
+        r.update(&input(Some(0), Some(0)), 1.0 / 60.0);
+        let mut rose_through = false;
+        let mut landed = false;
+        for _ in 0..60 {
+            r.update(&input(None, None), 1.0 / 60.0);
+            rose_through |= r.vy < 0.0 && feet(&r) < top;
+            landed |= r.on_ground && (feet(&r) - top).abs() < 0.01;
+        }
+        assert!(rose_through && landed);
+    }
+
+    #[test]
+    fn a_high_ledge_needs_the_double_jump() {
+        let top = GROUND_Y - LEDGE_HIGH;
+        let stood_on = |double_at: Option<u32>| {
+            let mut r = on_a_ledge_course(HERO_X + 100.0, LedgeSize::Long, LEDGE_HIGH);
+            let mut stood = false;
+            for f in 0..120 {
+                let jump = f == 0 || double_at == Some(f);
+                let i = if jump {
+                    input(Some(0), Some(0))
+                } else {
+                    input(None, None)
+                };
+                r.update(&i, 1.0 / 60.0);
+                stood |= r.on_ground && (feet(&r) - top).abs() < 0.01;
+            }
+            stood
+        };
+        assert!(!stood_on(None), "a single jump can't reach it");
+        assert!(stood_on(Some(22)), "a double jump can");
+    }
+
+    #[test]
+    fn ducking_on_a_ledge_stays_on_it() {
+        let mut r = on_a_ledge_course(HERO_X - 100.0, LedgeSize::Long, LEDGE_LOW);
+        let top = GROUND_Y - LEDGE_LOW;
+        r.hero_y = top - HERO_H; // standing on it
+        r.update(&input(Some(1), None), 1.0 / 60.0);
+        assert!(r.ducking && r.on_ground);
+        let (_, y, _, h) = r.hero_rect();
+        assert!((y + h - top).abs() < 0.01, "ducked down to the ground");
+    }
+
+    #[test]
+    fn running_under_a_low_ledge_touches_nothing() {
+        let mut r = on_a_ledge_course(HERO_X + 100.0, LedgeSize::Long, LEDGE_LOW);
+        let mut always_down = true;
+        let bumped = play(&mut r, 180, |_, r| {
+            always_down &= r.on_ground && feet(r) == GROUND_Y;
+            input(None, None)
+        });
+        assert!(!bumped && always_down);
+        assert_eq!(r.stars, 0, "the suns float out of reach overhead");
+    }
+
+    #[test]
+    fn ledges_and_obstacles_never_share_a_stretch() {
+        // A long run with every obstacle kind: whenever a ledge is on the
+        // course, no obstacle overlaps it along x.
+        let mut r = Runner::new(
+            0,
+            1,
+            2,
+            vec![Kind::Jump, Kind::Duck, Kind::Wall, Kind::High],
+        );
+        let mut ledges_seen = 0;
+        for _ in 0..60 * 120 {
+            r.update(&input(None, None), 1.0 / 60.0);
+            ledges_seen = ledges_seen.max(r.ledges.len());
+            for l in &r.ledges {
+                for o in r.obstacles.iter().filter(|o| !o.bounced) {
+                    let (ox, _, ow, _) = obstacle_rect(o);
+                    assert!(
+                        ox + ow < l.x || ox > l.x + l.w(),
+                        "a {:?} under a ledge",
+                        o.kind
+                    );
+                }
+            }
+        }
+        assert!(ledges_seen > 0, "no ledges in two minutes");
     }
 
     #[test]

@@ -130,6 +130,45 @@ pub fn ground() -> Grid {
     g
 }
 
+// ---- the ledges -------------------------------------------------------------
+
+/// Ledge lengths, in meadow bricks (25 logical px each).
+pub const LEDGE_SHORT: usize = 12;
+pub const LEDGE_LONG: usize = 16;
+/// A ledge's thickness, in meadow bricks: the grass and one row of earth.
+pub const LEDGE_LAYERS: usize = 2;
+
+/// A ledge to jump onto: a floating strip of meadow `len` bricks long and 3
+/// deep (the hero's lane), its grass top over a row of earth that stops a
+/// brick short of each end, with grass hanging over the front edge. Same
+/// bricks and colours as the meadow, so it reads as a piece of it, lifted.
+pub fn ledge(len: usize) -> Grid {
+    let d = 3;
+    let mut g = Grid::new(len, LEDGE_LAYERS, d);
+    for z in 0..d {
+        for x in 0..len {
+            let r = |salt| hash(x, len, z, salt);
+            let grass = match r(21) {
+                v if v < 0.6 => GRASS,
+                v if v < 0.82 => GRASS_LIGHT,
+                _ => GRASS_DEEP,
+            };
+            g.set(x, 1, z, grass);
+            if x == 0 || x == len - 1 {
+                continue;
+            }
+            let earth = match r(22) {
+                _ if z == d - 1 && r(23) < 0.4 => GRASS_DEEP, // hanging over
+                v if v < 0.06 => STONE,
+                v if v < 0.45 => EARTH_LIGHT,
+                _ => EARTH,
+            };
+            g.set(x, 0, z, earth);
+        }
+    }
+    g
+}
+
 // ---- the obstacles ----------------------------------------------------------
 
 /// One obstacle brick, world units: half a meadow brick.
@@ -360,6 +399,20 @@ mod tests {
         ] {
             let n = vertex_count(&g, Build::default());
             assert!(n <= u16::MAX as usize + 1, "{name}: {n} vertices");
+        }
+    }
+
+    #[test]
+    fn a_ledge_is_its_length_and_two_bricks_thick() {
+        for len in [LEDGE_SHORT, LEDGE_LONG] {
+            let [w, h, _] = size(&ledge(len), GROUND_CELL);
+            assert_eq!(w, len as f32 * GROUND_CELL);
+            assert_eq!(h, LEDGE_LAYERS as f32 * GROUND_CELL);
+            // The whole top is grass to stand on.
+            let g = ledge(len);
+            for x in 0..len as isize {
+                assert_ne!(g.get(x, 1, 1), 0);
+            }
         }
     }
 
