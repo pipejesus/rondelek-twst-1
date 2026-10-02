@@ -212,12 +212,28 @@ const SCORE_MAX_W: f32 = 0.95;
 const SCORE_LIGHT: Color = Color::new(255, 250, 232, 255);
 const SCORE_INK: Color = Color::new(110, 52, 24, 255);
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
     Jump, // low block: jump over
     Duck, // high bar: duck under
     Wall, // tall wall: shoot a star to destroy
     High, // tall pillar: needs the ninja double-jump
+}
+
+impl Kind {
+    /// Whether getting past this obstacle without a bump earns a star. Only
+    /// the move it asks for counts, so no vowel can be skipped: a bar is for
+    /// ducking under (leaping over it doesn't count), and a wall is for
+    /// shooting — its star comes from the bullet, so leaping over it with the
+    /// double jump doesn't count either. A wrong-way pass costs nothing; it
+    /// just earns nothing.
+    fn earns_a_star(self, leapt: bool, ducked: bool) -> bool {
+        match self {
+            Kind::Jump | Kind::High => leapt,
+            Kind::Duck => ducked,
+            Kind::Wall => false,
+        }
+    }
 }
 
 struct Obstacle {
@@ -227,9 +243,29 @@ struct Obstacle {
     /// hero failing.
     bounced: bool,
     counted: bool,
+    /// How the hero went past, while the two overlapped along x: in the air
+    /// at some moment, or ducking at some moment (see [`Kind::earns_a_star`]).
+    leapt: bool,
+    ducked: bool,
     fly_y: f32,
     fly_vy: f32,
     rot: f32,
+}
+
+impl Obstacle {
+    fn new(x: f32, kind: Kind) -> Self {
+        Self {
+            x,
+            kind,
+            bounced: false,
+            counted: false,
+            leapt: false,
+            ducked: false,
+            fly_y: 0.0,
+            fly_vy: 0.0,
+            rot: 0.0,
+        }
+    }
 }
 
 /// A spinning star fired by the shoot vowel — destroys walls.
@@ -687,20 +723,13 @@ impl VoiceGame for Runner {
         if self.spawn_timer <= 0.0 {
             let pick = (self.rand() * self.kinds.len() as f32) as usize;
             let kind = self.kinds[pick.min(self.kinds.len() - 1)];
-            self.obstacles.push(Obstacle {
-                x: LW + 120.0,
-                kind,
-                bounced: false,
-                counted: false,
-                fly_y: 0.0,
-                fly_vy: 0.0,
-                rot: 0.0,
-            });
+            self.obstacles.push(Obstacle::new(LW + 120.0, kind));
             // Faster game = slightly denser spawns, always with breathing room.
             self.spawn_timer = 2.6 - (self.speed - 260.0) / 240.0 * 0.8 + self.rand() * 0.6;
         }
 
         let hero = self.hero_rect();
+        let (airborne, ducking) = (!self.on_ground, self.ducking);
         let mut starred = false;
         for o in &mut self.obstacles {
             o.x -= self.speed * dt;
@@ -710,6 +739,11 @@ impl VoiceGame for Runner {
                 o.rot += 360.0 * dt;
                 continue;
             }
+            let (ox, _, ow, _) = obstacle_rect(o);
+            if hero.0 < ox + ow && ox < hero.0 + hero.2 {
+                o.leapt |= airborne;
+                o.ducked |= ducking;
+            }
             if overlaps(hero, obstacle_rect(o), 0.2) {
                 // No punishment: the obstacle is the one that gets launched.
                 o.bounced = true;
@@ -717,6 +751,9 @@ impl VoiceGame for Runner {
                 self.squash = 0.35;
             } else if o.x < HERO_X - 90.0 && !o.counted {
                 o.counted = true;
+                if !o.kind.earns_a_star(o.leapt, o.ducked) {
+                    continue;
+                }
                 self.stars += 1;
                 self.coin.earn();
                 starred = true;
@@ -1381,15 +1418,7 @@ mod tests {
         let mut r = Runner::new(0, 1, 2, vec![Kind::Jump, Kind::Duck]);
         // Plant a low block just right of the hero, ducked out of spawn flow.
         r.spawn_timer = 999.0;
-        r.obstacles.push(Obstacle {
-            x: HERO_X + 200.0,
-            kind: Kind::Jump,
-            bounced: false,
-            counted: false,
-            fly_y: 0.0,
-            fly_vy: 0.0,
-            rot: 0.0,
-        });
+        r.obstacles.push(Obstacle::new(HERO_X + 200.0, Kind::Jump));
         // Jump when the block gets close, like a real player would.
         let mut jumped = false;
         for _ in 0..240 {
@@ -1408,15 +1437,7 @@ mod tests {
         // Same again but without jumping: collision bounces it, no star.
         let mut r = Runner::new(0, 1, 2, vec![Kind::Jump, Kind::Duck]);
         r.spawn_timer = 999.0;
-        r.obstacles.push(Obstacle {
-            x: HERO_X + 200.0,
-            kind: Kind::Jump,
-            bounced: false,
-            counted: false,
-            fly_y: 0.0,
-            fly_vy: 0.0,
-            rot: 0.0,
-        });
+        r.obstacles.push(Obstacle::new(HERO_X + 200.0, Kind::Jump));
         for _ in 0..240 {
             r.update(&input(None, None), 1.0 / 60.0);
         }
@@ -1428,15 +1449,7 @@ mod tests {
     fn shooting_a_wall_destroys_it_for_a_star() {
         let mut r = Runner::new(0, 1, 2, vec![Kind::Wall]);
         r.spawn_timer = 999.0;
-        r.obstacles.push(Obstacle {
-            x: HERO_X + 320.0,
-            kind: Kind::Wall,
-            bounced: false,
-            counted: false,
-            fly_y: 0.0,
-            fly_vy: 0.0,
-            rot: 0.0,
-        });
+        r.obstacles.push(Obstacle::new(HERO_X + 320.0, Kind::Wall));
         // Fire on the shoot vowel's onset.
         r.update(&input(None, Some(2)), 1.0 / 60.0);
         assert_eq!(r.bullets.len(), 1);
@@ -1452,19 +1465,86 @@ mod tests {
     fn an_unshot_wall_bumps_without_a_star() {
         let mut r = Runner::new(0, 1, 2, vec![Kind::Wall]);
         r.spawn_timer = 999.0;
-        r.obstacles.push(Obstacle {
-            x: HERO_X + 200.0,
-            kind: Kind::Wall,
-            bounced: false,
-            counted: false,
-            fly_y: 0.0,
-            fly_vy: 0.0,
-            rot: 0.0,
-        });
+        r.obstacles.push(Obstacle::new(HERO_X + 200.0, Kind::Wall));
         // Never shoot: the wall reaches the hero and bounces, no star.
         for _ in 0..240 {
             r.update(&input(None, None), 1.0 / 60.0);
         }
+        assert_eq!(r.stars, 0);
+    }
+
+    /// Run `r` for `frames` frames, feeding `pick(frame, runner)` as input;
+    /// whether the hero bumped into anything on the way.
+    fn play(r: &mut Runner, frames: u32, mut pick: impl FnMut(u32, &Runner) -> VoiceInput) -> bool {
+        let mut bumped = false;
+        for f in 0..frames {
+            let i = pick(f, r);
+            r.update(&i, 1.0 / 60.0);
+            bumped |= r.squash > 0.0;
+        }
+        bumped
+    }
+
+    #[test]
+    fn only_the_asked_move_earns_a_star() {
+        use Kind::*;
+        // (kind, leapt, ducked) → star?
+        assert!(Jump.earns_a_star(true, false));
+        assert!(High.earns_a_star(true, false));
+        assert!(Duck.earns_a_star(false, true));
+        assert!(!Duck.earns_a_star(true, false), "leaping over a bar");
+        assert!(!Wall.earns_a_star(true, false), "leaping over a wall");
+        assert!(!Wall.earns_a_star(false, false));
+    }
+
+    #[test]
+    fn ducking_under_a_bar_earns_a_star_leaping_over_it_does_not() {
+        // Hold the duck vowel all the way: under it, untouched, one star.
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Duck]);
+        r.spawn_timer = 999.0;
+        r.obstacles.push(Obstacle::new(HERO_X + 200.0, Kind::Duck));
+        let bumped = play(&mut r, 240, |_, _| input(Some(1), None));
+        assert!(!bumped);
+        assert_eq!(r.stars, 1);
+
+        // Jump as it comes: over it, untouched, but no star.
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Duck]);
+        r.spawn_timer = 999.0;
+        r.obstacles.push(Obstacle::new(HERO_X + 200.0, Kind::Duck));
+        let mut jumped = false;
+        let bumped = play(&mut r, 240, |_, r| {
+            if !jumped && r.obstacles.first().is_some_and(|o| o.x < HERO_X + 125.0) {
+                jumped = true;
+                input(Some(0), Some(0))
+            } else {
+                input(None, None)
+            }
+        });
+        assert!(jumped);
+        assert!(!bumped, "the jump should clear the bar");
+        assert_eq!(r.stars, 0);
+    }
+
+    #[test]
+    fn leaping_over_a_wall_earns_no_star() {
+        // The double jump climbs over a wall, but a wall is for shooting.
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Wall]);
+        r.spawn_timer = 999.0;
+        r.obstacles.push(Obstacle::new(HERO_X + 260.0, Kind::Wall));
+        let mut first = None;
+        let bumped = play(&mut r, 240, |f, r| {
+            let close = r.obstacles.first().is_some_and(|o| o.x < HERO_X + 185.0);
+            match first {
+                None if close => {
+                    first = Some(f);
+                    input(Some(0), Some(0))
+                }
+                Some(f0) if f == f0 + 22 => input(Some(0), Some(0)), // the double jump
+                _ => input(None, None),
+            }
+        });
+        assert!(first.is_some());
+        assert!(!bumped, "the double jump should clear the wall");
         assert_eq!(r.stars, 0);
     }
 
@@ -1610,15 +1690,7 @@ mod tests {
     fn earning_a_star_kicks_the_sun() {
         let mut r = Runner::new(0, 1, 2, vec![Kind::Wall]);
         r.spawn_timer = 999.0;
-        r.obstacles.push(Obstacle {
-            x: HERO_X + 320.0,
-            kind: Kind::Wall,
-            bounced: false,
-            counted: false,
-            fly_y: 0.0,
-            fly_vy: 0.0,
-            rot: 0.0,
-        });
+        r.obstacles.push(Obstacle::new(HERO_X + 320.0, Kind::Wall));
         r.update(&input(None, Some(2)), 1.0 / 60.0);
         for _ in 0..120 {
             r.update(&input(None, None), 1.0 / 60.0);

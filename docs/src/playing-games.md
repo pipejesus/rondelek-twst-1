@@ -21,8 +21,10 @@ jump. Your child says one vowel to **jump** (say it again in mid-air for a
 flying double jump), another to **duck**, and a third to **throw a star**.
 
 A miss is no drama: the hero just bounces off and keeps running. Every
-obstacle cleared earns a point, and the golden sun at the top spins round like
-a coin to show the new score.
+obstacle cleared the way it asks earns a point, and the golden sun at the top
+spins round like a coin to show the new score. (Leaping over a bar or a wall
+gets past it, but only ducking under the bar or knocking the wall down with a
+star counts, so every vowel gets its turn.)
 
 When a sound comes out, the sea along the front gets playful too: its waves
 dance while the child makes noise. The scenery itself stays calm and slow on

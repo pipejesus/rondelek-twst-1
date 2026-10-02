@@ -100,6 +100,13 @@ block (jump it), a bar (duck under it), a wall (shoot it) and a tall pillar
 (double jump it). **Nothing ever fails**: an obstacle you bump into just bounces
 away, and every obstacle you clear earns a point.
 
+A point needs the move the obstacle asks for, so no vowel can be skipped
+(`Kind::earns_a_star`). Leaping over a bar instead of ducking, or
+double-jumping over a wall instead of shooting it, gets the hero past
+untouched but earns nothing. While an obstacle and the hero overlap along x,
+the obstacle notes whether the hero was ever in the air or ever ducking, and
+that decides it when it has gone by.
+
 Gameplay runs in a 1280×720 logical space (`update`), and drawing maps that to
 world units (100 logical px = 1 unit).
 
