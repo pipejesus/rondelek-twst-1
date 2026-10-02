@@ -5,12 +5,13 @@
 //!
 //! Rendering: a fixed perspective camera slightly above and beside the action,
 //! everything built from chunky 3D bricks ("pixels became big and 3-D").
-//! Parallax layers scroll by hand-tuned factors of the travelled distance:
-//! clouds 0.10, mountains 0.25 (fog shader), bushes 0.55, ground 1.0. Clouds
-//! and bushes are hand-drawn flat-draw props (GLB, see `models.rs`); the clouds
-//! go through flat-draw's own Lam::pula glass shader (`lampula.rs`) and float,
-//! bob and breathe. Mountains, ground and obstacles are still procedural
-//! bricks. In front of the meadow's bank lies playful water that scrolls with
+//! Parallax planes scroll by hand-tuned factors of the travelled distance,
+//! 90s style: clouds 0.10, mountains 0.16, jungle 0.36, ground 1.0, each
+//! farther plane hazed toward the sky and the mountains and jungle rising out
+//! of valley mist. The clouds are a hand-drawn flat-draw prop (GLB, see
+//! `models.rs`) through flat-draw's own Lam::pula glass shader (`lampula.rs`),
+//! floating, bobbing and breathing; the mountains, jungle, meadow and
+//! obstacles are bricks built in code (`props.rs`) through the same glass. In front of the meadow's bank lies playful water that scrolls with
 //! the ground and dances to the child's voice: little glass bricks in the
 //! clouds' Lam::pula (`brick_water.rs`), or the first, smooth toon water
 //! (`water.rs`, kept: `RONDELEK_WATER_STYLE=toon`). The hero placeholder brick
@@ -100,9 +101,6 @@ const PPU: f32 = 100.0;
 // instead of melting into a pastel wash.
 const SKY_TOP: Color = Color::new(84, 176, 240, 255);
 const SKY_LOW: Color = Color::new(184, 228, 255, 255);
-// Far hills: meadow green, pushed back by the fog toward the horizon blue.
-const MOUNT_A: Color = Color::new(96, 178, 120, 255);
-const MOUNT_B: Color = Color::new(74, 154, 104, 255);
 // flat-draw props: world height (plus its per-lane variation) and the lane
 // spacing. Each drawing's own aspect decides the width; the height covers the
 // *whole* drawing, rain drops and all.
@@ -118,12 +116,25 @@ const CLOUD_BOB: f32 = 0.07;
 const CLOUD_BOB_RATE: f32 = 0.35;
 const CLOUD_BREATH: f32 = 0.015;
 const CLOUD_BREATH_RATE: f32 = 0.5;
-// Atmospheric haze over the cloud layer: how far the clouds are pulled toward
-// the sky behind them (0 = not at all, 1 = gone). See the haze pass in draw().
+// The far planes, 90s style: each at its own depth and scroll rate (a
+// fraction of the ground's), each built in bricks (`props.rs`).
+const MOUNTAIN_Z: f32 = -12.0;
+const MOUNTAIN_SCROLL: f32 = 0.16;
+const JUNGLE_Z: f32 = -6.0;
+const JUNGLE_SCROLL: f32 = 0.36;
+// Atmospheric haze: how far each plane ends up pulled toward the sky behind
+// it (0 = not at all, 1 = gone) — the farther, the more. The clouds' is what
+// it was before the planes came, so they look as they did. See `haze_step`.
 const CLOUD_HAZE: f32 = 0.45;
-const BUSH_H: f32 = 0.85;
-const BUSH_H_VARY: f32 = 0.5;
-const BUSH_PERIOD: f32 = 2.8;
+const MOUNTAIN_HAZE: f32 = 0.3;
+const JUNGLE_HAZE: f32 = 0.16;
+// Valley mist: a white band rising from a plane's foot, clear `fade` units up
+// and `alpha` thick at the foot (and below). It ties the planes together: the
+// mountains stand in it, the jungle rises out of it, the meadow comes out of
+// it in front.
+const MIST: Color = Color::new(236, 244, 250, 255);
+const MOUNTAIN_MIST: (f32, f32, f32) = (0.6, 2.2, 0.8); // (foot y, fade, alpha)
+const JUNGLE_MIST: (f32, f32, f32) = (0.3, 1.3, 0.4);
 
 // The water in front of the meadow: its resting surface sits a little below
 // the grass, so a strip of the bank's earth shows above it; it runs from the
@@ -414,11 +425,9 @@ impl SunCoin {
 struct Gfx {
     camera: Camera3D,
     toon: Shader,
-    fog: Shader,
     /// The kid's own drawings (flat-draw GLB). `None` only if loading failed —
     /// that layer then stays empty rather than the game dying.
     cloud: Option<FlatModel>,
-    bush: Option<FlatModel>,
     /// The score icon. `None` → the HUD falls back to a plain gold disc.
     sun: Option<FlatModel>,
     /// Front-lit banded shading for the sun, turning with it (sun.vs/fs) —
@@ -433,6 +442,11 @@ struct Gfx {
     water: Option<Sea>,
     /// Lam::pula for the meadow and the obstacles. `None` → they draw unlit.
     world_glass: Option<Lampula>,
+    /// Lam::pula for the far planes: calmer, no glints. `None` → unlit.
+    backdrop_glass: Option<Lampula>,
+    /// One tile each of the far planes (`props::mountains`, `props::jungle`).
+    mountains: Option<BrickModel>,
+    jungle: Option<BrickModel>,
     /// One tile of the meadow (`props::ground`), laid end to end.
     ground: Option<BrickModel>,
     /// The four obstacles in bricks. `None` → plain boxes, so the game
@@ -813,6 +827,49 @@ fn world_glass() -> LampulaParams {
     }
 }
 
+/// Lam::pula as the far planes wear it: the meadow's glass without the corner
+/// glints and highlights. Far things don't sparkle, and nothing out there
+/// should pull the eye from the hero.
+fn backdrop_glass() -> LampulaParams {
+    LampulaParams {
+        spark_on: false,
+        spec_on: false,
+        ..world_glass()
+    }
+}
+
+/// The see-through sky pass drawn just in front of a plane hazed `far`, so
+/// that after the passes in front of it (which add up to `near`) it ends up
+/// hazed `far` in all: passes multiply what shows through, (1 − a)(1 − near)
+/// = 1 − far.
+fn haze_step(far: f32, near: f32) -> f32 {
+    1.0 - (1.0 - far) / (1.0 - near)
+}
+
+/// Lay a plane's tile end to end across the view at depth `z`, scrolled by
+/// `off` world units, its bottom at `base_y`; each tile one draw call, all
+/// lit by lamps fixed in the world (`lamps`), so the plane slides under them.
+#[allow(clippy::too_many_arguments)]
+fn lay_tiles(
+    d: &mut impl RaylibDraw3D,
+    model: &BrickModel,
+    glass: Option<&mut Lampula>,
+    tile: f32,
+    base_y: f32,
+    z: f32,
+    off: f32,
+    lamps: (Vector3, Vector3),
+) {
+    let span = half_span(z);
+    let k0 = ((off - span) / tile - 0.5).floor() as i64;
+    let k1 = ((off + span) / tile + 0.5).ceil() as i64;
+    let mut glass = glass;
+    for k in k0..=k1 {
+        let t = Matrix::translate(k as f32 * tile - off, base_y, z);
+        model.draw(d, glass.as_deref_mut(), t, lamps);
+    }
+}
+
 /// The env var naming a tuning file for [`world_glass`] (any Lam::pula key).
 const PROPS_ENV: &str = "RONDELEK_PROPS";
 
@@ -863,23 +920,11 @@ impl VoiceGame for Runner {
             Some(include_str!("../../assets/shaders/base.vs")),
             Some(include_str!("../../assets/shaders/toon.fs")),
         );
-        let mut fog = rl.load_shader_from_memory(
-            thread,
-            None,
-            Some(include_str!("../../assets/shaders/fog.fs")),
-        );
         let sun_shader = rl.load_shader_from_memory(
             thread,
             Some(include_str!("../../assets/shaders/sun.vs")),
             Some(include_str!("../../assets/shaders/sun.fs")),
         );
-        let loc_color = fog.get_shader_location("fogColor");
-        let loc_amount = fog.get_shader_location("fogAmount");
-        // Fog toward the horizon blue (SKY_LOW); constant per layer, so set once.
-        let horizon = [SKY_LOW.r, SKY_LOW.g, SKY_LOW.b].map(|c| c as f32 / 255.0);
-        fog.set_shader_value(loc_color, [horizon[0], horizon[1], horizon[2], 1.0f32]);
-        fog.set_shader_value(loc_amount, 0.3f32);
-
         // Scenery drawn in flat-draw and exported as GLB; each drawing's parts
         // are merged into one mesh, so every prop on screen is one draw call.
         let cloud = load_prop(
@@ -887,12 +932,6 @@ impl VoiceGame for Runner {
             thread,
             "cloud",
             include_bytes!("../../assets/models/cloud.glb"),
-        );
-        let bush = load_prop(
-            rl,
-            thread,
-            "bush",
-            include_bytes!("../../assets/models/bush.glb"),
         );
         let sun = load_prop(
             rl,
@@ -909,9 +948,7 @@ impl VoiceGame for Runner {
                 45.0,
             ),
             toon,
-            fog,
             cloud,
-            bush,
             sun,
             sun_shader,
             lampula: Lampula::load(rl, thread, cloud_glass()),
@@ -930,6 +967,29 @@ impl VoiceGame for Runner {
                 },
             ),
             obstacle_models: ObstacleModels::build(thread),
+            backdrop_glass: Lampula::load_exact(rl, thread, backdrop_glass()),
+            mountains: BrickModel::build(
+                thread,
+                "mountains",
+                &props::mountains(),
+                &props::MOUNTAIN_PALETTE,
+                props::MOUNTAIN_CELL,
+                Build {
+                    wrap_x: true,
+                    open_below_and_behind: true,
+                },
+            ),
+            jungle: BrickModel::build(
+                thread,
+                "jungle",
+                &props::jungle(),
+                &props::JUNGLE_PALETTE,
+                props::JUNGLE_CELL,
+                Build {
+                    wrap_x: true,
+                    open_below_and_behind: true,
+                },
+            ),
             ledge_models: {
                 let ledge = |size: LedgeSize| {
                     BrickModel::build(
@@ -1231,14 +1291,71 @@ impl VoiceGame for Runner {
             }
         }
 
-        // --- haze: the clouds are far away, so they take on the sky -------
-        // The sky's own gradient once more, see-through. Over bare sky it is
-        // the same colour, so it vanishes; over a cloud it pulls the colours
-        // toward the sky behind — how a painter pushes things into the
-        // distance. The clouds stay a soft backdrop rather than something to
-        // look at, and the Lam::pula shader itself is left as it is.
-        let haze = |c: Color| Color::new(c.r, c.g, c.b, (255.0 * CLOUD_HAZE) as u8);
-        d.draw_rectangle_gradient_v(0, 0, w, h, haze(SKY_TOP), haze(SKY_LOW));
+        // --- haze and mist: the far planes, painter's distance -----------
+        // The sky's own gradient once more, see-through: over bare sky it is
+        // the same colour, so it vanishes; over a plane it pulls the colours
+        // toward the sky behind, the more the farther the plane (how a
+        // painter pushes things into the distance). One pass in front of each
+        // plane; a plane behind gets every pass in front of it as well.
+        let haze = |d: &mut RaylibDrawHandle, a: f32| {
+            let k = |c: Color| Color::new(c.r, c.g, c.b, (255.0 * a) as u8);
+            d.draw_rectangle_gradient_v(0, 0, w, h, k(SKY_TOP), k(SKY_LOW));
+        };
+        // Valley mist rising from a plane's foot (see MOUNTAIN_MIST).
+        let mist = |d: &mut RaylibDrawHandle, z: f32, (foot, fade, alpha): (f32, f32, f32)| {
+            let at = |y: f32| d.get_world_to_screen(Vector3::new(0.0, y, z), camera).y as i32;
+            let (clear_y, thick_y) = (at(foot + fade), at(foot));
+            let thick = Color::new(MIST.r, MIST.g, MIST.b, (255.0 * alpha) as u8);
+            let clear = Color::new(MIST.r, MIST.g, MIST.b, 0);
+            d.draw_rectangle_gradient_v(0, clear_y, w, thick_y - clear_y, clear, thick);
+            d.draw_rectangle(0, thick_y, w, h - thick_y, thick);
+        };
+        haze(d, haze_step(CLOUD_HAZE, MOUNTAIN_HAZE));
+
+        // --- mountains (z -12, factor 0.16): in front of the clouds --------
+        // Their tallest peaks rise into the clouds' band, so now and then one
+        // stands in front of a cloud (the depth test does it).
+        if let Some(mountains) = &gfx.mountains {
+            let mut c3 = d.begin_mode3D(camera);
+            if let Some(glass) = gfx.backdrop_glass.as_mut() {
+                glass.begin_frame(camera.position, self.t);
+            }
+            lay_tiles(
+                &mut c3,
+                mountains,
+                gfx.backdrop_glass.as_mut(),
+                props::MOUNTAIN_TILE as f32 * props::MOUNTAIN_CELL,
+                props::MOUNTAIN_BASE,
+                MOUNTAIN_Z,
+                dist_u * MOUNTAIN_SCROLL,
+                (
+                    Vector3::new(0.0, 2.0, MOUNTAIN_Z),
+                    Vector3::new(24.0, 4.0, 0.6),
+                ),
+            );
+        }
+        haze(d, haze_step(MOUNTAIN_HAZE, JUNGLE_HAZE));
+        mist(d, MOUNTAIN_Z, MOUNTAIN_MIST);
+
+        // --- jungle (z -6, factor 0.36): rising out of the mist -----------
+        if let Some(jungle) = &gfx.jungle {
+            let mut c3 = d.begin_mode3D(camera);
+            lay_tiles(
+                &mut c3,
+                jungle,
+                gfx.backdrop_glass.as_mut(),
+                props::JUNGLE_TILE as f32 * props::JUNGLE_CELL,
+                props::JUNGLE_BASE,
+                JUNGLE_Z,
+                dist_u * JUNGLE_SCROLL,
+                (
+                    Vector3::new(0.0, 1.0, JUNGLE_Z),
+                    Vector3::new(16.0, 2.0, 0.25),
+                ),
+            );
+        }
+        haze(d, JUNGLE_HAZE);
+        mist(d, JUNGLE_Z, JUNGLE_MIST);
 
         {
             let mut c3 = d.begin_mode3D(camera);
@@ -1247,71 +1364,20 @@ impl VoiceGame for Runner {
                 glass.begin_frame(camera.position, self.t);
             }
 
-            // --- mountains (z -9, factor 0.25): stepped pyramids in fog ----
-            {
-                let mut fogm = c3.begin_shader_mode(&mut gfx.fog);
-                let z = -9.0;
-                let period = 5.2;
-                let off = dist_u * 0.25;
-                let span = half_span(z);
-                let k0 = ((off - span) / period).floor() as i64;
-                let k1 = ((off + span) / period).ceil() as i64;
-                for k in k0..=k1 {
-                    let cx = k as f32 * period - off + (hash01(k, 21) - 0.5) * 2.0;
-                    let tiers = 2 + (hash01(k, 22) * 3.0) as i32;
-                    let base_w = 3.0 + hash01(k, 23) * 2.2;
-                    let tier_h = 0.85;
-                    let col = if hash01(k, 24) > 0.5 {
-                        MOUNT_A
-                    } else {
-                        MOUNT_B
-                    };
-                    for i in 0..tiers {
-                        let tw = base_w * (1.0 - i as f32 / tiers as f32).max(0.25);
-                        fogm.draw_cube(
-                            Vector3::new(cx, tier_h * (i as f32 + 0.5), z),
-                            tw,
-                            tier_h,
-                            1.6,
-                            col,
-                        );
-                    }
-                }
-            }
-
-            // --- bushes (z -4, factor 0.55): the kid's own drawing ----------
-            // Same deal as the clouds: one instance per lane, one draw call
-            // each, standing on the ground plane (y = 0).
-            if let Some(bush) = &gfx.bush {
-                let z = -4.0;
-                let off = dist_u * 0.55;
-                let span = half_span(z);
-                let k0 = ((off - span) / BUSH_PERIOD).floor() as i64;
-                let k1 = ((off + span) / BUSH_PERIOD).ceil() as i64;
-                for k in k0..=k1 {
-                    if hash01(k, 31) < 0.25 {
-                        continue; // gaps between bushes
-                    }
-                    let cx = k as f32 * BUSH_PERIOD - off + (hash01(k, 32) - 0.5) * 1.2;
-                    let scale = bush.scale_for_height(BUSH_H + hash01(k, 33) * BUSH_H_VARY);
-                    bush.draw(&mut c3, Vector3::new(cx, 0.0, z), scale);
-                }
-            }
-
             // --- ground (factor 1.0): the meadow, in bricks ----------------
             // Tile after tile of the same meadow (each one draw call), its
             // grass top on y = 0 and its front, the bank, at z = 1.5.
             if let Some(ground) = &gfx.ground {
-                let tile = props::GROUND_TILE as f32 * props::GROUND_CELL;
-                let drop = props::GROUND_LAYERS as f32 * props::GROUND_CELL;
-                let off = dist_u;
-                let span = half_span(1.5);
-                let k0 = ((off - span) / tile - 0.5).floor() as i64;
-                let k1 = ((off + span) / tile + 0.5).ceil() as i64;
-                for k in k0..=k1 {
-                    let t = Matrix::translate(k as f32 * tile - off, -drop, 0.0);
-                    ground.draw(&mut c3, gfx.world_glass.as_mut(), t, ground_lamps());
-                }
+                lay_tiles(
+                    &mut c3,
+                    ground,
+                    gfx.world_glass.as_mut(),
+                    props::GROUND_TILE as f32 * props::GROUND_CELL,
+                    -(props::GROUND_LAYERS as f32) * props::GROUND_CELL,
+                    0.0,
+                    dist_u,
+                    ground_lamps(),
+                );
             }
 
             // --- water, in front of the bank ------------------------------
@@ -2170,6 +2236,22 @@ mod tests {
         }
         assert_eq!(r.stars, 1);
         assert_eq!(r.coin.target, 360.0);
+    }
+
+    #[test]
+    fn each_plane_ends_up_hazed_as_set() {
+        // The passes drawn in front of each plane multiply what shows through.
+        let (c, m, j) = (
+            haze_step(CLOUD_HAZE, MOUNTAIN_HAZE),
+            haze_step(MOUNTAIN_HAZE, JUNGLE_HAZE),
+            JUNGLE_HAZE,
+        );
+        let through = |passes: &[f32]| 1.0 - passes.iter().map(|a| 1.0 - a).product::<f32>();
+        assert!((through(&[c, m, j]) - CLOUD_HAZE).abs() < 1e-5);
+        assert!((through(&[m, j]) - MOUNTAIN_HAZE).abs() < 1e-5);
+        assert!((through(&[j]) - JUNGLE_HAZE).abs() < 1e-5);
+        // The farther, the hazier: every pass is a real (non-negative) one.
+        assert!(c >= 0.0 && m >= 0.0 && j >= 0.0);
     }
 
     #[test]

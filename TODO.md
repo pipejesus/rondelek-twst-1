@@ -36,7 +36,7 @@ Tracked items intentionally left for later batches.
   verbatim copy of flat-draw's). Tune through `cloud_glass()` / `sun_glass()` or
   `RONDELEK_LAMPULA` first.
 - **Idea: grey out what's still placeholder.** Greg floated drawing every
-  not-yet-replaced placeholder (mountains, obstacles, ground…) in greyscale so
+  not-yet-replaced placeholder (the hero, …) in greyscale so
   the real art stands out. Undecided; if done, as a dev toggle, and the brick
   hero stays in colour (it is permanent).
 - **Kid avatars in the arcade picker**: kept as they are for now; maybe make
@@ -53,10 +53,15 @@ Tracked items intentionally left for later batches.
   one file is fine) **and a wooden plate** for them to sit on (instead of the
   placeholder slab). Also decide upper vs lower case to match the vowel meter
   and pre-game screen.
-- **Hero, fish and greenery come as Greg's flat-draw art** (via `greg/`): the
-  hero model (the brick hero stays, a drawn one would join it as a choice),
-  the fish, the bushes and hills. The meadow and the obstacles stay code-built
-  bricks (`props.rs`, 2026-10-02), Greg's call.
+- **Hero, fish and the near planes come as Greg's flat-draw art** (via
+  `greg/`): the hero model (the brick hero stays, a drawn one would join it as
+  a choice), the fish, and the planes nearer the player (birds flying by and
+  the like). The meadow, the obstacles and the far planes (mountains, jungle;
+  2026-10-03) stay code-built bricks (`props.rs`), Greg's call.
+- **The far planes are a first draft** (2026-10-03), to be tuned together:
+  shapes in `props::mountains` / `props::jungle`, haze and mist in the
+  `MOUNTAIN_*` / `JUNGLE_*` constants of `runner.rs`. The sky may want a
+  touch of tuning around them.
 - `cloud9_rain.glb` is unused (kept for a possible rain variant).
 - **Re-measure the game's GPU/CPU cost on real hardware.** The brick water
   (Lam::pula over ~3,600 brick columns, the lower third of the screen) and the

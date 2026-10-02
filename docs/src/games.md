@@ -150,9 +150,11 @@ glide past while the camera stays put.
 |-------|-------|----------------|
 | Sky | behind everything | 2D gradient `SKY_TOP` → `SKY_LOW` (a clear blue day) |
 | Clouds | z −14, parallax 0.10 | `cloud.glb` (flat-draw) through **Lam::pula** glass, gently floating and breathing |
-| Haze | — | the sky gradient again at `CLOUD_HAZE` opacity, so the clouds sink into the sky |
-| Hills | z −9, parallax 0.25 | stepped green cubes under the fog shader (fog colour = horizon blue) |
-| Bushes | z −4, parallax 0.55 | `bush.glb` (flat-draw), plain |
+| Haze | — | the sky gradient again, see-through, in front of each far plane (see below) |
+| **Mountains** | z −12, parallax 0.16 | code-built **bricks** (`props::mountains`): a blue-violet range with snowy peaks, some rising in front of the clouds |
+| Valley mist | — | a white band rising from the mountains' feet |
+| **Jungle** | z −6, parallax 0.36 | code-built **bricks** (`props::jungle`): a canopy of round treetops with palms |
+| Valley mist | — | a thinner band at the jungle's feet, out of which the meadow comes |
 | Meadow & bank | z 0, parallax 1.0 | code-built **bricks** (`props::ground`): a grass top over layered earth, tile after tile, through Lam::pula |
 | **Water** | z 1.5 → 8.5 | little glass bricks rising and falling on a swell, through **Lam::pula** like the clouds; scrolls with the ground |
 | Obstacles | z 0 | code-built **bricks** (`props.rs`): a toy brick, a bridge, a brick wall, a candy pillar, through Lam::pula |
@@ -172,9 +174,10 @@ there to be pleasant and then get out of the way. So:
   and it made heads spin and the glass glints flicker. The water was slowed and
   softened for the same reason, and its bricks only rise and fall: they slide
   along with the ground, and no brick ever tilts.
-- **Scenery recedes.** The haze pass is atmospheric perspective: distant things
-  take on the sky's colour. It's simply the sky gradient drawn a second time,
-  see-through, so it's invisible over bare sky and softening over a cloud.
+- **Scenery recedes.** The haze passes are atmospheric perspective: distant
+  things take on the sky's colour. Each is simply the sky gradient drawn once
+  more, see-through, so it's invisible over bare sky and softening over
+  everything drawn before it.
 - **Reward, don't punish.** Points spin the sun; bumps just bounce the obstacle
   away.
 - **Voice is welcome in any form.** The hero's mouth opens with any sound, and
@@ -229,15 +232,16 @@ Two raylib details that are easy to trip over:
   raylib when the model unloads, which would be a double free with our own
   `Shader`.
 
-The current models are `cloud.glb` (a faceless cloud), `bush.glb`, `sun.glb`,
-and `cloud9_rain.glb` (unused, but kept).
+The current models are `cloud.glb` (a faceless cloud) and `sun.glb`.
+`bush.glb` (unused since the jungle plane took the bushes' place) and
+`cloud9_rain.glb` (unused, kept for a possible rain variant) stay in
+`assets/models/`.
 
 ## Shaders
 
 | File | Used for |
 |------|----------|
 | `base.vs` + `toon.fs` | the hero: banded comic shading |
-| `fog.fs` | the far hills, fogged toward the horizon blue |
 | `flatdraw_model.vs` + `lampula.fs` | **Lam::pula**, copied 1:1 from flat-draw: clouds and the sun |
 | `brick_water.vs` + `lampula.fs` | the brick water: our vertex stage in front of Lam::pula, unchanged |
 | `sun.vs` + `sun.fs` | the sun's fallback if Lam::pula won't compile |
@@ -325,6 +329,42 @@ depth steps (turquoise → blue), a slowly shifting Voronoi web of light-lines,
 crest bands, wobbly foam and a row of bubbles at the shore, "+" twinkles, and
 goldfish gliding underneath. Its defaults were calmed down on 2026-09-27, and
 each changed row in `WaterParams` notes its previous value.
+
+### The far planes: mountains and jungle
+
+Behind the meadow lie two far planes, 90s style: continuous bands, each at its
+own depth and scrolled at its own rate, each hazed toward the sky by how far
+away it is. Both are code-built bricks (`props::mountains`, `props::jungle`),
+pixel-art silhouettes extruded a couple of bricks deep the way flat-draw turns
+a drawing into a prop, laid tile after tile like the meadow (`lay_tiles`), and
+lit by `backdrop_glass()`: the meadow's glass without glints or highlights, so
+nothing out there pulls the eye.
+
+- **The mountains** (0.4-unit bricks, z −12): a paler back range with four big
+  snowy peaks and smaller shoulders, behind a darker ridge of rolling foothills,
+  each slope shaded on the side away from the sun. The slopes step two bricks
+  along for one up, never steeper: sheer columns of bricks read as a city. The
+  big peaks rise into the clouds' band, and the depth test puts them in front
+  of a cloud now and then.
+- **The jungle** (0.25-unit bricks, z −6): a bumpy canopy of round treetops, lit
+  on the left and shaded below, over dark undergrowth, with palms standing up
+  out of it.
+
+Both start below the meadow's sightline (`MOUNTAIN_BASE`, `JUNGLE_BASE`), so
+no floor ever shows under them. The draw order does the rest:
+
+1. the sky, then the clouds;
+2. a haze pass, then the mountains;
+3. a haze pass, then **valley mist** at the mountains' feet (`MOUNTAIN_MIST`: a
+   white band, clear a little way up and thick at the foot);
+4. the jungle, then a last haze pass and a thinner mist at the jungle's feet
+   (`JUNGLE_MIST`), out of which the meadow comes.
+
+The hazes are set as how far each plane ends up pulled toward the sky
+(`CLOUD_HAZE`, `MOUNTAIN_HAZE`, `JUNGLE_HAZE`), and `haze_step` works out the
+pass in front of each plane from them, since a plane behind also gets every
+pass in front of it. The clouds' figure is the one they had before the planes
+came, so they look just as they did.
 
 ### The meadow and the obstacles: bricks built in code
 

@@ -169,6 +169,225 @@ pub fn ledge(len: usize) -> Grid {
     g
 }
 
+// ---- the backdrops: 90s-style parallax planes --------------------------------
+//
+// Two far planes, each one tile of bricks laid end to end and scrolled at its
+// own rate (runner.rs): a mountain range at the back, a jungle in front of
+// it. Both are pixel-art silhouettes extruded a couple of bricks deep — the
+// way flat-draw turns a drawing into a prop — and both start below the
+// meadow's sightline, so no floor ever shows under them.
+
+/// Signed distance from `a` to `b` along a loop `n` long (the shorter way
+/// round), so a tile's last column meets its first without a seam.
+fn loop_dx(a: f32, b: f32, n: f32) -> f32 {
+    let d = (a - b).rem_euclid(n);
+    if d > n / 2.0 { d - n } else { d }
+}
+
+/// One mountain brick, world units: big, because it is far — on screen about
+/// a cloud brick.
+pub const MOUNTAIN_CELL: f32 = 0.4;
+/// Bricks along one tile (64 units).
+pub const MOUNTAIN_TILE: usize = 160;
+/// Bricks from the bottom of the range to the sky.
+pub const MOUNTAIN_LAYERS: usize = 26;
+/// World y of the range's bottom.
+pub const MOUNTAIN_BASE: f32 = -2.0;
+
+// The range's colours: a paler back range with snowy peaks, a darker front
+// ridge, each slope in shadow on the side away from the sun (the left).
+const PEAK_ROCK: u8 = 1;
+const PEAK_SHADE: u8 = 2;
+const PEAK_SNOW: u8 = 3;
+const RIDGE_ROCK: u8 = 4;
+const RIDGE_SHADE: u8 = 5;
+const RIDGE_SNOW: u8 = 6;
+const SNOW_SHADE: u8 = 7;
+pub const MOUNTAIN_PALETTE: [[u8; 3]; 7] = [
+    [118, 132, 214], // back range rock: a 90s blue-violet
+    [92, 104, 186],  // back range, shadow side
+    [250, 252, 255], // back range snow
+    [84, 112, 190],  // front ridge rock
+    [66, 90, 166],   // front ridge, shadow side
+    [236, 242, 252], // front ridge snow
+    [192, 206, 240], // snow in shadow
+];
+
+/// A peak: where, how high (bricks) and how steeply its slopes fall (bricks
+/// down per brick along).
+struct Peak {
+    x: f32,
+    top: f32,
+    slope: f32,
+}
+
+/// `n` peaks spread round a loop `w` bricks long.
+fn peaks(n: usize, w: usize, tops: (f32, f32), slopes: (f32, f32), salt: u64) -> Vec<Peak> {
+    (0..n)
+        .map(|i| Peak {
+            x: (i as f32 + 0.2 + 0.6 * hash(i, 0, 0, salt)) * w as f32 / n as f32,
+            top: tops.0 + (tops.1 - tops.0) * hash(i, 1, 0, salt),
+            slope: slopes.0 + (slopes.1 - slopes.0) * hash(i, 2, 0, salt),
+        })
+        .collect()
+}
+
+/// A ridge's height over column `x` (bricks), and which way from its
+/// highest peak the column lies (negative: the sunny left slope).
+fn ridge(peaks: &[Peak], x: usize, w: usize) -> (f32, f32) {
+    peaks
+        .iter()
+        .map(|p| {
+            let dx = loop_dx(x as f32 + 0.5, p.x, w as f32);
+            (p.top - p.slope * dx.abs(), dx)
+        })
+        .fold((0.0, 0.0), |best, r| if r.0 > best.0 { r } else { best })
+}
+
+/// One tile of mountains: a paler back range — four big snowy peaks with
+/// smaller shoulders round them — behind a darker, lower ridge of rolling
+/// foothills. The slopes step two bricks along for one up, never steeper:
+/// sheer columns of bricks read as towers, and this is no city. The big
+/// peaks rise into the clouds' band, so now and then one stands in front of
+/// a cloud.
+pub fn mountains() -> Grid {
+    let (w, h) = (MOUNTAIN_TILE, MOUNTAIN_LAYERS);
+    let mut g = Grid::new(w, h, 3);
+    let mut back = peaks(4, w, (19.0, 25.0), (0.42, 0.58), 31);
+    back.extend(peaks(7, w, (11.0, 17.0), (0.45, 0.6), 33));
+    let front = peaks(6, w, (7.0, 12.0), (0.32, 0.5), 37);
+    // (peaks, z rows, rock, shade, snow, snowline in bricks, salt)
+    let ranges = [
+        (&back, 0..1, PEAK_ROCK, PEAK_SHADE, PEAK_SNOW, 18.0, 41),
+        (&front, 1..3, RIDGE_ROCK, RIDGE_SHADE, RIDGE_SNOW, 13.0, 43),
+    ];
+    for x in 0..w {
+        for (peaks, zs, rock, shade, snow, snowline, salt) in ranges.iter().cloned() {
+            let (top, dx) = ridge(peaks, x, w);
+            let top = top.clamp(0.0, h as f32) as usize;
+            let snow_depth = 2 + (hash(x, 1, 0, salt) * 2.0) as usize;
+            let sunny = dx < 0.0;
+            for y in 0..top {
+                let c = if top as f32 >= snowline && y + snow_depth >= top {
+                    if sunny { snow } else { SNOW_SHADE }
+                } else if sunny {
+                    rock
+                } else {
+                    shade
+                };
+                for z in zs.clone() {
+                    g.set(x, y, z, c);
+                }
+            }
+        }
+    }
+    g
+}
+
+/// One jungle brick, world units.
+pub const JUNGLE_CELL: f32 = 0.25;
+/// Bricks along one tile (48 units).
+pub const JUNGLE_TILE: usize = 192;
+/// Bricks from the bottom of the jungle to the tallest palm.
+pub const JUNGLE_LAYERS: usize = 17;
+/// World y of the jungle's bottom.
+pub const JUNGLE_BASE: f32 = -1.0;
+
+const LEAF_SUN: u8 = 1;
+const LEAF: u8 = 2;
+const LEAF_DEEP: u8 = 3;
+const UNDERGROWTH: u8 = 4;
+const TRUNK: u8 = 5;
+const FROND: u8 = 6;
+const FROND_SUN: u8 = 7;
+pub const JUNGLE_PALETTE: [[u8; 3]; 7] = [
+    [132, 204, 96], // leaves in the sun
+    [76, 162, 78],  // leaves
+    [46, 124, 72],  // leaves in shade
+    [30, 92, 64],   // undergrowth
+    [138, 102, 70], // a palm trunk
+    [70, 160, 82],  // palm fronds
+    [118, 196, 96], // palm fronds in the sun
+];
+
+/// A palm's fronds round the top of its trunk: (dx, dy) in bricks, the first
+/// in the sun.
+const FRONDS: [(isize, isize); 13] = [
+    (0, 1),
+    (-1, 1),
+    (1, 1),
+    (-1, 0),
+    (1, 0),
+    (-2, 0),
+    (2, 0),
+    (-3, 0),
+    (3, 0),
+    (-4, -1),
+    (4, -1),
+    (-5, -2),
+    (5, -2),
+];
+
+/// One tile of jungle: a bumpy canopy of round treetops (lit on the left,
+/// shaded below) over dark undergrowth, with palms standing up out of it.
+pub fn jungle() -> Grid {
+    let (w, h) = (JUNGLE_TILE, JUNGLE_LAYERS);
+    let mut g = Grid::new(w, h, 2);
+    let n = w / 7;
+    let crowns: Vec<(f32, f32, f32)> = (0..n)
+        .map(|i| {
+            let x = (i as f32 + hash(i, 0, 0, 51)) * w as f32 / n as f32;
+            let r = 3.0 + 3.0 * hash(i, 1, 0, 51);
+            let c = 6.0 + 3.0 * hash(i, 2, 0, 51);
+            (x, r, c)
+        })
+        .collect();
+    let mut tops = vec![0usize; w];
+    for (x, column_top) in tops.iter_mut().enumerate() {
+        // The tallest crown over this column, and which side of it we're on.
+        let (top, dx) = crowns
+            .iter()
+            .filter_map(|&(cx, r, c)| {
+                let dx = loop_dx(x as f32 + 0.5, cx, w as f32);
+                (dx.abs() <= r).then(|| (c + (r * r - dx * dx).sqrt(), dx))
+            })
+            .fold((6.0, 0.0), |best, t| if t.0 > best.0 { t } else { best });
+        let top = (top as usize).min(h);
+        *column_top = top;
+        let sunny = dx < 0.0;
+        for y in 0..top {
+            let below = top - y;
+            let c = if y < 3 {
+                UNDERGROWTH
+            } else if below <= 2 && sunny {
+                LEAF_SUN
+            } else if below <= 3 {
+                LEAF
+            } else {
+                LEAF_DEEP
+            };
+            g.set(x, y, 0, c);
+            g.set(x, y, 1, c);
+        }
+    }
+    // Palms, in the front row, their trunks showing above the canopy.
+    for i in 0..7 {
+        let px = ((i as f32 + hash(i, 3, 0, 53)) * w as f32 / 7.0) as usize % w;
+        let crown = 13 + (hash(i, 4, 0, 53) * 3.0) as usize;
+        for y in tops[px].saturating_sub(1)..crown {
+            g.set(px, y, 1, TRUNK);
+        }
+        for (k, &(dx, dy)) in FRONDS.iter().enumerate() {
+            let x = (px as isize + dx).rem_euclid(w as isize) as usize;
+            let y = crown as isize + dy;
+            if y >= 0 {
+                g.set(x, y as usize, 1, if k == 0 { FROND_SUN } else { FROND });
+            }
+        }
+    }
+    g
+}
+
 // ---- the obstacles ----------------------------------------------------------
 
 /// One obstacle brick, world units: half a meadow brick.
@@ -414,6 +633,56 @@ mod tests {
                 assert_ne!(g.get(x, 1, 1), 0);
             }
         }
+    }
+
+    /// The highest filled brick's top over each column, in bricks.
+    fn skyline(g: &Grid) -> Vec<usize> {
+        (0..g.w as isize)
+            .map(|x| {
+                (0..g.h as isize)
+                    .rev()
+                    .find(|&y| (0..g.d as isize).any(|z| g.get(x, y, z) != 0))
+                    .map_or(0, |y| y as usize + 1)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn some_mountains_rise_into_the_clouds() {
+        // The clouds' band runs from about 3.3 units up to 9 (runner.rs):
+        // the big peaks rise into it but stay well under its top, so the
+        // clouds still float above them, and the valleys between dip below
+        // it, so the range is no wall.
+        let tops: Vec<f32> = skyline(&mountains())
+            .iter()
+            .map(|&b| MOUNTAIN_BASE + b as f32 * MOUNTAIN_CELL)
+            .collect();
+        let tallest = tops.iter().cloned().fold(0.0, f32::max);
+        assert!((5.0..=8.0).contains(&tallest), "tallest peak {tallest}");
+        assert!(tops.iter().any(|&t| t < 3.3), "no valley under the clouds");
+    }
+
+    #[test]
+    fn the_backdrops_have_no_gaps_and_fit_raylibs_indices() {
+        use crate::bricks::{Build, vertex_count};
+        let how = Build {
+            wrap_x: true,
+            open_below_and_behind: true,
+        };
+        for (name, g) in [("mountains", mountains()), ("jungle", jungle())] {
+            assert!(skyline(&g).iter().all(|&t| t > 0), "{name} has a gap");
+            let n = vertex_count(&g, how);
+            assert!(n <= u16::MAX as usize + 1, "{name}: {n} vertices");
+        }
+    }
+
+    #[test]
+    fn palms_stand_up_out_of_the_jungle() {
+        let g = jungle();
+        let trunks = (0..g.w as isize)
+            .filter(|&x| (0..g.h as isize).any(|y| g.get(x, y, 1) == TRUNK))
+            .count();
+        assert_eq!(trunks, 7);
     }
 
     #[test]
