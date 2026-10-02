@@ -56,9 +56,16 @@ Tracked items intentionally left for later batches.
 - Obstacles are still procedural pastel blocks; replace with flat-draw art as
   it arrives in `greg/`.
 - `cloud9_rain.glb` is unused (kept for a possible rain variant).
-- **Re-measure the game's GPU/CPU cost on real hardware.** The water (Voronoi
-  web, fish) and Lam::pula passes are new since `docs/PERF.md`'s ~10% figure;
+- **Re-measure the game's GPU/CPU cost on real hardware.** The brick water
+  (Lam::pula over ~3,600 brick columns, the lower third of the screen) and the
+  clouds' and sun's Lam::pula are new since `docs/PERF.md`'s ~10% figure;
   headless Xvfb runs use software GL, so their numbers don't count.
+- **Brick water (2026-10-02), on trial like the clouds' glass.** The goldfish
+  and "+" twinkles of the toon water didn't come along (Lam::pula's corner
+  glints stand in for the twinkles); the toon water is kept whole
+  (`RONDELEK_WATER_STYLE=toon`). The README's gameplay GIF and still still show
+  the toon water: re-record them (`docs/images/arcade/record-runner.sh`) once
+  the bricks are a keeper.
 - Upstream: report raylib-rs 6's `rl_mult_matrixf` passing the matrix
   transposed (it casts the row-ordered `Matrix` struct to the column-major
   `float[16]` rlgl expects). We work around it with `transpose()`.

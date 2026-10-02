@@ -29,6 +29,7 @@
 //! screen for free.
 
 pub mod arcade;
+pub mod brick_water;
 pub mod lampula;
 pub mod models;
 pub mod profile_picker;

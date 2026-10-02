@@ -118,7 +118,7 @@ glide past while the camera stays put.
 | Hills | z −9, parallax 0.25 | stepped green cubes under the fog shader (fog colour = horizon blue) |
 | Bushes | z −4, parallax 0.55 | `bush.glb` (flat-draw), plain |
 | Meadow & bank | z 0, parallax 1.0 | grass caps over a strip of earth |
-| **Water** | z 1.5 → 12 | a grid mesh through `water.vs`/`water.fs`, scrolling with the ground |
+| **Water** | z 1.5 → 8.5 | little glass bricks rising and falling on a swell, through **Lam::pula** like the clouds; scrolls with the ground |
 | Obstacles, stars | z 0 | procedural cubes |
 | Hero | z 0 | the blocky brick hero under the toon shader (**permanent by design**) |
 | Score sun | 3 units in front of the camera | `sun.glb` through its own Lam::pula, the count on its face |
@@ -132,14 +132,15 @@ there to be pleasant and then get out of the way. So:
 - **Scenery stays calm.** Background motion is small and slow. The clouds float
   by a few pixels and breathe by 1.5%, and they don't tilt: a sway was tried,
   and it made heads spin and the glass glints flicker. The water was slowed and
-  softened for the same reason.
+  softened for the same reason, and its bricks only rise and fall: they slide
+  along with the ground, and no brick ever tilts.
 - **Scenery recedes.** The haze pass is atmospheric perspective: distant things
   take on the sky's colour. It's simply the sky gradient drawn a second time,
   see-through, so it's invisible over bare sky and softening over a cloud.
 - **Reward, don't punish.** Points spin the sun; bumps just bounce the obstacle
   away.
 - **Voice is welcome in any form.** The hero's mouth opens with any sound, and
-  the water swells and twinkles more while the child is making sound (a
+  the water swells and sparkles more while the child is making sound (a
   smoothed level, `voice_glow`: quick up, slow down). Babbling counts.
 
 ### The score sun and its count
@@ -200,8 +201,9 @@ and `cloud9_rain.glb` (unused, but kept).
 | `base.vs` + `toon.fs` | the hero: banded comic shading |
 | `fog.fs` | the far hills, fogged toward the horizon blue |
 | `flatdraw_model.vs` + `lampula.fs` | **Lam::pula**, copied 1:1 from flat-draw: clouds and the sun |
+| `brick_water.vs` + `lampula.fs` | the brick water: our vertex stage in front of Lam::pula, unchanged |
 | `sun.vs` + `sun.fs` | the sun's fallback if Lam::pula won't compile |
-| `water.vs` + `water.fs` | the sea |
+| `water.vs` + `water.fs` | the toon water (kept, see below) |
 
 ### Lam::pula, 1:1 from flat-draw
 
@@ -219,26 +221,69 @@ parameters instead.
 does: the eye, the clock, the instance's bounding box (the lamps stand round
 it) and `uBrick`, the world → pixel-lattice map. `Lampula::draw` takes any
 `FlatModel` under any transform, so anything drawn in flat-draw can go through
-the glass. Each use gets its own instance and look:
+the glass. `Lampula::draw_mesh` takes any other mesh, given its brick lattice
+and box, and `Lampula::load_with_vs` puts a vertex stage of your own in front
+of the unchanged `lampula.fs` (the brick water does both). Each use gets its
+own instance and look:
 
 - `cloud_glass()`: flat-draw's defaults, except the "room below" is the horizon
   blue (flat-draw's dark floor made the clouds muddy).
 - `sun_glass()`: the same for now, kept separate so the sun can be tuned on its
   own.
+- `water_glass()`: the clouds' glass with only the light changed. Gold lamps
+  turned the blue water murky green and white ones washed it pale, so its
+  lamps are a clear sky blue; the room it reflects is the sky above and a deep
+  sea below.
 
 ### The water
 
-This one is our own shader. A `GenMeshPlane` grid lies in front of the bank, and
-`water.vs` lifts it with a swell rolling toward the bank, so the water laps at
-the earth. `water.fs` then draws toon depth steps (turquoise → blue), a slowly
-shifting Voronoi web of light-lines, crest bands, wobbly foam and a row of
-bubbles at the shore, "+" twinkles, and goldfish gliding underneath.
+The water is made of little glass bricks, like the clouds above it
+(`game/src/brick_water.rs`). One mesh holds a column of bricks for every
+`WATER_CELL` (0.25 units, about a cloud brick on screen) from the bank's face
+to just past the bottom of the screen: about 3,600 columns, one draw call.
+Only the faces that can ever be seen are built (tops, fronts, sides), and each
+column runs four bricks deep, so a swell never lifts its bottom into view.
+
+`brick_water.vs` lifts every column on a gentle swell rolling toward the bank
+(the toon water's swell, unchanged), so a column a little higher than the one
+in front shows its side, and the waves read as steps of bricks. It also picks
+each brick's colour: toon steps from shallow at the bank to deep further out,
+a little jitter per brick so the steps come out dithered like pixel art, and
+white foam bricks lapping at the bank and riding the crests. The colours sit
+in a 2×2 palette texture (shallow, deep / foam, foam) that the vertex stage
+points into, since the texture is the only colour `lampula.fs` reads.
+
+The light is **Lam::pula's**, through the very same `lampula.fs`. Two tricks
+make a shader written for still drawings work on moving water:
+
+- `fragWorld` is each brick's *resting* place. Lam::pula finds the brick edges
+  and corners by mapping `fragWorld` onto the lattice, so a brick that has
+  bobbed up keeps its own edges and corner glints. (The light hardly notices:
+  the swell moves a brick by a few hundredths of a unit.)
+- The bricks slide along with the ground by less than one brick, then hop back
+  by exactly one as the pattern moves on by one. The hop can't be seen, and
+  the lattice (`uBrick`) moves with the mesh, so it never leaves the bricks.
+
+While the child makes sound, the swell grows (`voiceSwell`) and the corner
+glints get brighter (`voiceSpark` scales Lam::pula's `sparkGain`).
 
 It scrolls with the ground, and **every x-frequency is a whole number of turns
 per `PERIOD`**, the distance the scroll wraps on. That way the surface never
-jumps at the wrap (a test parses every `kx(n)` to make sure). The defaults were
-calmed down on 2026-09-27, and each changed row in `WaterParams` notes its
-previous value.
+jumps at the wrap (a test parses every `kx(n)` to make sure), and `WATER_CELL`
+must fit `PERIOD` a whole number of times (tested too).
+
+#### The toon water, kept
+
+The first water, a smooth cartoon sea, is kept whole and tested
+(`game/src/water.rs`, `water.vs` + `water.fs`). Launch the game with
+`RONDELEK_WATER_STYLE=toon` to bring it back, or set `WATER_STYLE` in
+`runner.rs` to make it the default again.
+
+It's a `GenMeshPlane` grid with the same swell, and `water.fs` draws toon
+depth steps (turquoise → blue), a slowly shifting Voronoi web of light-lines,
+crest bands, wobbly foam and a row of bubbles at the shore, "+" twinkles, and
+goldfish gliding underneath. Its defaults were calmed down on 2026-09-27, and
+each changed row in `WaterParams` notes its previous value.
 
 ### Tuning: tables, not constants
 
@@ -264,7 +309,13 @@ two options:
     flat-draw's Shaders pane carries straight over. So does a
     `saved-ideas/lampula-*.json` snapshot, or a plain
     `{ "exposure": 2.4, "lamp1On": 0, "ground": "#9FD4FF" }`.
-  - `RONDELEK_WATER=<file.json>`: e.g. `{ "cellSpeed": 0.9, "fishOn": 0 }`.
+  - `RONDELEK_WATER=<file.json>` tunes whichever water is showing. The brick
+    water takes keys of `BrickWaterParams` and of its glass (any Lam::pula
+    key), e.g. `{ "swellAmp": 0.1, "deep": "#1E5AC8", "lamp0": "#FFFFFF" }`;
+    the toon water takes `WaterParams`, e.g. `{ "cellSpeed": 0.9, "fishOn": 0 }`.
+    The water ignores `RONDELEK_LAMPULA`, so retuning the clouds' glass leaves
+    its lamps alone.
+  - `RONDELEK_WATER_STYLE=toon` (or `bricks`) picks the water.
 
 Unknown keys and bad values are reported on stderr and skipped. A typo costs you
 one value, never the whole game.

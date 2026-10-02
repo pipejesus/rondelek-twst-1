@@ -178,8 +178,9 @@ game/src/
   voice.rs       mic + vowel detector → per-frame game input
   models.rs      embedded flat-draw GLB props (scenery, the score sun)
   shader_params.rs  shader tuning tables + JSON overrides
-  lampula.rs     flat-draw's Lam::pula glass shader, 1:1 (the clouds)
-  water.rs       the voice-reactive water along the front
+  lampula.rs     flat-draw's Lam::pula glass shader, 1:1 (clouds, sun, water)
+  brick_water.rs the voice-reactive water along the front: glass bricks
+  water.rs       the first, smooth toon water (kept: RONDELEK_WATER_STYLE=toon)
 ```
 
 Curious what each dependency is for? Pop over to [Libraries](libraries.md).

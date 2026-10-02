@@ -133,6 +133,7 @@ screenshot on the way. They're great for testing, demos and pictures:
 | `RONDELEK_SHOT=<file.png>` | draw a few frames, save a screenshot, and quit |
 | `RONDELEK_GAME_SCREEN=profiles` \| `select` | *(game)* open the who's-playing picker or the setup screen |
 | `RONDELEK_GAME_FRAMES=<n>` / `RONDELEK_GAME_SHOT=<png>` | *(game)* quit after *n* frames / save a screenshot |
+| `RONDELEK_WATER_STYLE=toon` \| `bricks` | *(game)* Vowel Runner's water: the first, smooth toon water, or the brick water (the default) |
 
 For example, to capture the sound board and quit:
 

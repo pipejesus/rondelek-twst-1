@@ -1,4 +1,7 @@
-//! Vowel Runner's water — the playful sea along the front of the world.
+//! Vowel Runner's toon water — the first playful sea along the front of the
+//! world. Since 2026-10-02 the brick water ([`crate::brick_water`]) lies there
+//! instead; this one is kept whole, and `RONDELEK_WATER_STYLE=toon` brings it
+//! back.
 //!
 //! A flat grid mesh laid in front of the meadow's bank, from the bank's face to
 //! past the bottom of the screen, drawn through `water.vs`/`water.fs`: a gentle

@@ -10,8 +10,10 @@
 //! and bushes are hand-drawn flat-draw props (GLB, see `models.rs`); the clouds
 //! go through flat-draw's own Lam::pula glass shader (`lampula.rs`) and float,
 //! bob and breathe. Mountains, ground and obstacles are still procedural
-//! bricks. In front of the meadow's bank lies playful water (`water.rs`) that
-//! scrolls with the ground and dances to the child's voice. The hero placeholder brick
+//! bricks. In front of the meadow's bank lies playful water that scrolls with
+//! the ground and dances to the child's voice: little glass bricks in the
+//! clouds' Lam::pula (`brick_water.rs`), or the first, smooth toon water
+//! (`water.rs`, kept: `RONDELEK_WATER_STYLE=toon`). The hero placeholder brick
 //! is drawn under a comic-style toon shader — the same slot the dragon GLB model
 //! will use later. HUD (letter signs, meter, score) stays crisp 2D, projected
 //! over the scene — except the score, a hand-drawn pixel sun (GLB) in
@@ -23,6 +25,7 @@
 //! same 1280x720 logical space (100 logical px = 1 world unit at draw time),
 //! so physics, collisions and their tests are identical.
 
+use super::brick_water::BrickWater;
 use super::lampula::{Lampula, LampulaParams};
 use super::models::FlatModel;
 use super::water::{self, Water};
@@ -115,6 +118,76 @@ const WATER: water::Placement = water::Placement {
     far_z: 12.0,
     width: 40.0,
 };
+// The brick water needs less: every brick is geometry, so it stops just past
+// the bottom of the screen (z ≈ 7.7 on the highest crest) and a little past
+// the sides of a very wide window.
+pub(crate) const BRICK_WATER: water::Placement = water::Placement {
+    far_z: 8.5,
+    width: 30.0,
+    ..WATER
+};
+/// One water brick's size, world units: about a cloud brick on screen. A
+/// whole number of them must fit the water's PERIOD (a test checks).
+pub(crate) const WATER_CELL: f32 = 0.25;
+
+/// Which water lies in front of the bank. The brick water is the one we play
+/// with; the toon water (the first, smooth one) is kept whole and tested so
+/// it can come back: change this, or launch with `RONDELEK_WATER_STYLE=toon`.
+const WATER_STYLE: WaterStyle = WaterStyle::Bricks;
+const WATER_STYLE_ENV: &str = "RONDELEK_WATER_STYLE";
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum WaterStyle {
+    Bricks,
+    Toon,
+}
+
+impl WaterStyle {
+    /// `bricks` or `toon` (any case); anything else is `None`.
+    fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "bricks" | "brick" => Some(Self::Bricks),
+            "toon" => Some(Self::Toon),
+            _ => None,
+        }
+    }
+
+    /// [`WATER_STYLE`], unless `RONDELEK_WATER_STYLE` says otherwise.
+    fn from_env() -> Self {
+        match std::env::var(WATER_STYLE_ENV) {
+            Ok(s) => Self::parse(&s).unwrap_or_else(|| {
+                eprintln!("{WATER_STYLE_ENV}={s}? (bricks or toon); using {WATER_STYLE:?}");
+                WATER_STYLE
+            }),
+            Err(_) => WATER_STYLE,
+        }
+    }
+}
+
+/// The sea along the front, in whichever style was chosen.
+enum Sea {
+    Bricks(Box<BrickWater>),
+    Toon(Box<Water>),
+}
+
+impl Sea {
+    fn load(rl: &mut RaylibHandle, thread: &RaylibThread, style: WaterStyle) -> Option<Self> {
+        match style {
+            WaterStyle::Bricks => {
+                BrickWater::load(rl, thread, BRICK_WATER, WATER_CELL, water_glass())
+                    .map(|w| Sea::Bricks(Box::new(w)))
+            }
+            WaterStyle::Toon => Water::load(rl, thread, WATER).map(|w| Sea::Toon(Box::new(w))),
+        }
+    }
+
+    fn draw(&mut self, d: &mut impl RaylibDraw3D, eye: Vector3, t: f32, scroll: f32, voice: f32) {
+        match self {
+            Sea::Bricks(w) => w.draw(d, eye, t, scroll, voice),
+            Sea::Toon(w) => w.draw(d, eye, t, scroll, voice),
+        }
+    }
+}
 
 // Score sun (the HUD's point icon). Its on-screen height in logical px, and how
 // far in front of the camera it floats — near enough that nothing in the scene
@@ -254,7 +327,7 @@ struct Gfx {
     /// flat-draw's glass shader, for the clouds. `None` → they draw plain.
     lampula: Option<Lampula>,
     /// The sea along the front. `None` → the bank's earth shows instead.
-    water: Option<Water>,
+    water: Option<Sea>,
 }
 
 /// Load a flat-draw prop, or complain and carry on without it.
@@ -455,6 +528,22 @@ fn sun_glass() -> LampulaParams {
     }
 }
 
+/// Lam::pula as the water wears it: the clouds' glass, with only the light
+/// changed. The clouds' warm gold lamps turned the blue murky green and white
+/// ones washed it pale, so the lamps are a clear sky blue; the room it
+/// reflects is our sky above and a deep sea below.
+fn water_glass() -> LampulaParams {
+    const LAMP: [u8; 3] = [140, 196, 255];
+    LampulaParams {
+        lamp0: LAMP,
+        lamp1: LAMP,
+        lamp2: LAMP,
+        sky: [SKY_LOW.r, SKY_LOW.g, SKY_LOW.b],
+        ground: [38, 96, 170],
+        ..cloud_glass()
+    }
+}
+
 /// A cloud's model matrix: standing at `base` (its pivot, bottom-centre),
 /// `s` times its drawn size, gently floating and breathing about its own
 /// middle, each cloud (lane `k`) out of step with the others.
@@ -535,7 +624,7 @@ impl VoiceGame for Runner {
             sun_shader,
             lampula: Lampula::load(rl, thread, cloud_glass()),
             sun_glass: Lampula::load(rl, thread, sun_glass()),
-            water: Water::load(rl, thread, WATER),
+            water: Sea::load(rl, thread, WaterStyle::from_env()),
         });
     }
 
@@ -1536,6 +1625,16 @@ mod tests {
         }
         assert_eq!(r.stars, 1);
         assert_eq!(r.coin.target, 360.0);
+    }
+
+    #[test]
+    fn water_style_reads_both_names() {
+        assert_eq!(WaterStyle::parse("toon"), Some(WaterStyle::Toon));
+        assert_eq!(WaterStyle::parse(" Bricks\n"), Some(WaterStyle::Bricks));
+        assert_eq!(WaterStyle::parse("brick"), Some(WaterStyle::Bricks));
+        assert_eq!(WaterStyle::parse("lava"), None);
+        // The default stays the bricks: the toon water is the one kept aside.
+        assert_eq!(WATER_STYLE, WaterStyle::Bricks);
     }
 
     #[test]

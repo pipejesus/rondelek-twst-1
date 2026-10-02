@@ -24,7 +24,7 @@
 //! a plain `{ "exposure": 2.4, "lamp1On": 0, "sky": "#88CCFF" }`. So a look
 //! tuned live in flat-draw's Shaders pane carries straight over.
 
-use super::models::FlatModel;
+use super::models::{FlatModel, draw_mesh_with};
 use super::shader_params::{self, Uniform, shader_params};
 use raylib::prelude::*;
 
@@ -136,7 +136,21 @@ impl Lampula {
     /// if it didn't compile — the caller then draws its props plain, as
     /// flat-draw falls back to its flat shader.
     pub fn load(rl: &mut RaylibHandle, thread: &RaylibThread, look: LampulaParams) -> Option<Self> {
-        let shader = rl.load_shader_from_memory(thread, Some(VS), Some(FS));
+        Self::load_with_vs(rl, thread, VS, look.with_env())
+    }
+
+    /// Lam::pula behind a vertex stage of your own, with `look` exactly as
+    /// given (no `RONDELEK_LAMPULA`: whoever brings the stage brings its own
+    /// tuning). The fragment stage is still flat-draw's, unchanged, so `vs` must
+    /// hand it what `flatdraw_model.vs` does: `fragTexCoord`, `fragNormal` and
+    /// `fragWorld`. The brick water's `brick_water.vs` is the one user.
+    pub fn load_with_vs(
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        vs: &str,
+        look: LampulaParams,
+    ) -> Option<Self> {
+        let shader = rl.load_shader_from_memory(thread, Some(vs), Some(FS));
         // raylib quietly substitutes its default shader for one that failed to
         // compile, so ask for a uniform only ours has (and reads — an unread
         // one is stripped and would answer -1 on a good compile too).
@@ -157,8 +171,14 @@ impl Lampula {
             loc_brick,
             loc_params,
             shader,
-            params: look.with_env(),
+            params: look,
         })
+    }
+
+    /// The compiled shader, for the extra uniforms a vertex stage of one's own
+    /// declares (see [`Lampula::load_with_vs`]).
+    pub fn shader_mut(&mut self) -> &mut Shader {
+        &mut self.shader
     }
 
     /// Once per frame, before any [`Lampula::draw`]: where the eye is, the clock
@@ -182,14 +202,36 @@ impl Lampula {
     /// stand round *this instance's* bounding box, so a big cloud and a small
     /// one are lit alike.
     pub fn draw(&mut self, d: &mut impl RaylibDraw3D, model: &FlatModel, transform: Matrix) {
-        let (centre, radius) = world_box(model.min, model.max, transform);
+        self.place(transform, model.lattice(), (model.min, model.max));
+        model.draw_shaded(d, transform, &self.shader);
+    }
+
+    /// Draw any mesh as glass, given what [`Lampula::draw`] reads off a
+    /// drawing: `lattice` maps model space to the brick lattice (the bricks'
+    /// corners on whole numbers, as [`FlatModel::lattice`] does) and `bounds`
+    /// is the model-space box the lamps stand round.
+    pub fn draw_mesh(
+        &mut self,
+        d: &mut impl RaylibDraw3D,
+        mesh: &Mesh,
+        material: &WeakMaterial,
+        transform: Matrix,
+        lattice: Matrix,
+        bounds: (Vector3, Vector3),
+    ) {
+        self.place(transform, lattice, bounds);
+        draw_mesh_with(d, mesh, material, &self.shader, transform);
+    }
+
+    /// The per-instance uniforms: where the lamps stand, and the brick lattice.
+    fn place(&mut self, transform: Matrix, lattice: Matrix, (min, max): (Vector3, Vector3)) {
+        let (centre, radius) = world_box(min, max, transform);
         self.shader.set_shader_value(self.loc_centre, centre);
         self.shader.set_shader_value(self.loc_radius, radius);
         // World → the drawing's pixel lattice: undo this instance's transform,
         // then model → lattice (flat-draw: MatrixInvert(m) · brickMatrix).
         self.shader
-            .set_shader_value_matrix(self.loc_brick, transform.invert() * model.lattice());
-        model.draw_shaded(d, transform, &self.shader);
+            .set_shader_value_matrix(self.loc_brick, transform.invert() * lattice);
     }
 }
 
