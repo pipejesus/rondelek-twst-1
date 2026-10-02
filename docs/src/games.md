@@ -25,7 +25,10 @@ Every game sits inside the same frame. Here's what it gives you:
   control screen (`select_controls`), where a grown-up assigns a vowel to each
   move, toggles obstacle kinds on and off, sets the turtle↔rabbit reaction
   slider and presses ▶. Then a 60 fps loop polls the voice and hands the game a
-  `VoiceInput` every frame.
+  `VoiceInput` every frame. The control screen listens only once the press
+  that opened it is let go (`InputGate`): a screen returns mid-frame, before
+  raylib polls input again, so the picker's Enter or click would otherwise
+  land on the control screen too, starting the game before anyone saw it.
 - **`VoiceGame`** is the trait a game implements: `init` (GPU resources, given
   the raylib handle), `update(&VoiceInput, dt)` (the gameplay, kept
   **raylib-free** so it can be unit-tested headless) and `draw`.
@@ -99,6 +102,13 @@ ducks, and a third shoots a spinning star. There are four obstacle kinds: a low
 block (jump it), a bar (duck under it), a wall (shoot it) and a tall pillar
 (double jump it). **Nothing ever fails**: an obstacle you bump into just bounces
 away, and every obstacle you clear earns a point.
+
+The kinds are dealt from a shuffled bag (`next_kind`): each round holds every
+kind the grown-up switched on once, in a fresh order, and a new round never
+starts with the kind just dealt. So every vowel gets its turn often and evenly;
+a plain random pick once left the first wall 18 obstacles in. Each game seeds
+its generator from the clock, so no two games run the same course (the tests
+keep a fixed seed).
 
 A point needs the move the obstacle asks for, so no vowel can be skipped
 (`Kind::earns_a_star`). Leaping over a bar instead of ducking, or

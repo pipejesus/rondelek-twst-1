@@ -538,6 +538,9 @@ pub struct Runner {
     little_suns: Vec<LittleSun>,
     /// The last spawn was a ledge pattern (the next one is an obstacle).
     last_ledges: bool,
+    /// The obstacle kinds still to come this round (see `next_kind`).
+    bag: Vec<Kind>,
+    last_kind: Option<Kind>,
     gfx: Option<Gfx>,
 }
 
@@ -577,6 +580,8 @@ impl Runner {
             ledges: Vec::new(),
             little_suns: Vec::new(),
             last_ledges: false,
+            bag: Vec::new(),
+            last_kind: None,
             gfx: None,
         }
     }
@@ -611,6 +616,28 @@ impl Runner {
             .filter(|l| hx < l.x + l.w() && l.x < hx + hw && l.top >= bottom - 0.5)
             .map(|l| l.top)
             .fold(GROUND_Y, f32::min)
+    }
+
+    /// The next obstacle kind, dealt from a shuffled bag that holds each
+    /// allowed kind once and is refilled when empty: every kind (every vowel)
+    /// comes round once a round, so none waits long and none crowds the
+    /// others out, and a refill never repeats the kind just dealt.
+    fn next_kind(&mut self) -> Kind {
+        if self.bag.is_empty() {
+            self.bag = self.kinds.clone();
+            for i in (1..self.bag.len()).rev() {
+                let j = ((self.rand() * (i + 1) as f32) as usize).min(i);
+                self.bag.swap(i, j);
+            }
+            let n = self.bag.len();
+            if n > 1 && self.bag.last() == self.last_kind.as_ref() {
+                self.bag.swap(0, n - 1);
+            }
+        }
+        // `kinds` is never empty (see `new`), so neither is a fresh bag.
+        let kind = self.bag.pop().unwrap_or(Kind::Jump);
+        self.last_kind = Some(kind);
+        kind
     }
 
     /// Add a ledge whose left edge is at `x` and top `height` above the
@@ -706,6 +733,18 @@ fn wrect(r: (f32, f32, f32, f32), z: f32, depth: f32) -> (Vector3, Vector3) {
 }
 
 /// Deterministic per-tile hash in 0..1 (world-stable procedural content).
+/// A non-zero seed from the clock, for the obstacle generator.
+fn clock_seed() -> u64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
+    // splitmix64: spread the clock's low-entropy bits over the whole word.
+    let mut z = nanos.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    (z ^ (z >> 31)) | 1
+}
+
 fn hash01(k: i64, salt: u64) -> f32 {
     let mut h = (k as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt;
     h ^= h >> 33;
@@ -815,6 +854,10 @@ fn half_span(z: f32) -> f32 {
 
 impl VoiceGame for Runner {
     fn init(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
+        // Every game its own order of obstacles and ledges (the unit tests,
+        // which never init, keep `new`'s fixed seed).
+        self.rng = clock_seed();
+
         let toon = rl.load_shader_from_memory(
             thread,
             Some(include_str!("../../assets/shaders/base.vs")),
@@ -977,8 +1020,7 @@ impl VoiceGame for Runner {
                 self.spawn_timer = gap + reach / self.speed;
                 self.last_ledges = true;
             } else {
-                let pick = (self.rand() * self.kinds.len() as f32) as usize;
-                let kind = self.kinds[pick.min(self.kinds.len() - 1)];
+                let kind = self.next_kind();
                 self.obstacles.push(Obstacle::new(LW + 120.0, kind));
                 self.spawn_timer = gap;
                 self.last_ledges = false;
@@ -1907,6 +1949,48 @@ mod tests {
         });
         assert!(!bumped && always_down);
         assert_eq!(r.stars, 0, "the suns float out of reach overhead");
+    }
+
+    #[test]
+    fn every_kind_comes_round_once_a_round() {
+        let all = vec![Kind::Jump, Kind::Duck, Kind::Wall, Kind::High];
+        let mut r = Runner::new(0, 1, 2, all.clone());
+        let dealt: Vec<Kind> = (0..40).map(|_| r.next_kind()).collect();
+        for round in dealt.chunks(4) {
+            for k in &all {
+                assert!(round.contains(k), "{k:?} missing from a round: {round:?}");
+            }
+        }
+        for pair in dealt.windows(2) {
+            assert_ne!(pair[0], pair[1], "the same kind twice running");
+        }
+    }
+
+    #[test]
+    fn a_wall_comes_within_the_first_round() {
+        // The regression: with a fixed seed and a plain random pick, the
+        // first wall came 18th — a minute or more into every game.
+        let mut r = Runner::new(
+            0,
+            1,
+            2,
+            vec![Kind::Jump, Kind::Duck, Kind::Wall, Kind::High],
+        );
+        let mut kinds = Vec::new();
+        while kinds.len() < 4 {
+            let before = r.obstacles.len();
+            r.update(&input(None, None), 1.0 / 60.0);
+            if r.obstacles.len() > before {
+                kinds.push(r.obstacles.last().unwrap().kind);
+            }
+        }
+        assert!(kinds.contains(&Kind::Wall), "{kinds:?}");
+    }
+
+    #[test]
+    fn a_single_kind_still_deals() {
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Wall]);
+        assert!((0..5).all(|_| r.next_kind() == Kind::Wall));
     }
 
     #[test]

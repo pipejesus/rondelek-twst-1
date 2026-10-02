@@ -302,6 +302,47 @@ fn draw_obstacle_icon(
     }
 }
 
+/// Holds a screen's input back until the press that opened it is let go.
+///
+/// A screen returns the moment it sees a press, mid-frame, before raylib
+/// polls input again, so the next screen's first frame sees that very press
+/// (`is_key_pressed` is still true). Without this, Enter on the "who's
+/// playing?" picker would also start the game from the options screen before
+/// anyone saw it, and a click there would land on whatever sits under the
+/// cursor on the next screen. So a new screen listens only once Enter, Space
+/// and the mouse buttons are all up.
+#[derive(Default)]
+struct InputGate {
+    open: bool,
+}
+
+impl InputGate {
+    /// Whether this frame's input counts, given whether any of the gate's
+    /// keys and buttons is down. Once open, it stays open.
+    fn update(&mut self, held: bool) -> bool {
+        self.open |= !held;
+        self.open
+    }
+
+    /// [`InputGate::update`] from raylib's current state.
+    fn check(&mut self, rl: &RaylibHandle) -> bool {
+        let held = [
+            KeyboardKey::KEY_ENTER,
+            KeyboardKey::KEY_KP_ENTER,
+            KeyboardKey::KEY_SPACE,
+        ]
+        .iter()
+        .any(|&k| rl.is_key_down(k))
+            || [
+                MouseButton::MOUSE_BUTTON_LEFT,
+                MouseButton::MOUSE_BUTTON_RIGHT,
+            ]
+            .iter()
+            .any(|&b| rl.is_mouse_button_down(b));
+        self.update(held)
+    }
+}
+
 /// Let a grown-up assign a vowel to each of the three moves (jump ▲, duck ▼,
 /// shoot ★), toggle which obstacle kinds appear (difficulty), and set the
 /// Reaction slider. Returns `(jump, duck, shoot, reaction, [jump, duck, wall,
@@ -319,6 +360,8 @@ fn select_controls(
     let mut enabled = [true; 4]; // jump / duck / wall / high obstacles
     let mut reaction = initial_reaction.clamp(0.0, 1.0);
     let mut frame: u64 = 0;
+    // The picker's Enter or click must not carry over (see InputGate).
+    let mut gate = InputGate::default();
 
     while !rl.window_should_close() {
         let (w, h) = (rl.get_screen_width() as f32, rl.get_screen_height() as f32);
@@ -347,10 +390,11 @@ fn select_controls(
         let play = r(1280.0 / 2.0 - 110.0, 616.0, 220.0, 80.0);
 
         // --- input ---
+        let live = gate.check(rl);
         let mouse = rl.get_mouse_position();
-        let clicked = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
+        let clicked = live && rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
         // Reaction slider: drag anywhere on (or near) the track.
-        if rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
+        if live && rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
             let grab = Rectangle {
                 x: slider.x - 20.0,
                 y: slider.y - 24.0,
@@ -390,7 +434,10 @@ fn select_controls(
                 }
             }
         }
-        if rl.is_key_pressed(KeyboardKey::KEY_ENTER) || rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
+        if live
+            && (rl.is_key_pressed(KeyboardKey::KEY_ENTER)
+                || rl.is_key_pressed(KeyboardKey::KEY_SPACE))
+        {
             return Some((sel[0], sel[1], sel[2], reaction, enabled));
         }
 
@@ -580,4 +627,25 @@ fn select_controls(
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InputGate;
+
+    #[test]
+    fn the_gate_waits_for_the_press_that_opened_the_screen_to_end() {
+        let mut gate = InputGate::default();
+        // Enter is still down from the previous screen: nothing counts…
+        assert!(!gate.update(true));
+        assert!(!gate.update(true));
+        // …until it's let go; from then on, every press counts.
+        assert!(gate.update(false));
+        assert!(gate.update(true), "a new press, on this screen");
+    }
+
+    #[test]
+    fn a_screen_opened_with_nothing_held_listens_at_once() {
+        assert!(InputGate::default().update(false));
+    }
 }
