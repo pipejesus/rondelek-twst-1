@@ -180,6 +180,101 @@ impl FlatModel {
     }
 }
 
+/// raylib's MAX_MATERIAL_MAPS: how many maps `DrawMesh` reads off a material.
+const MAPS: usize = 12;
+
+/// A material whose one map is a small texture of colours, for meshes built
+/// in code whose texcoords point at a colour each (the brick water, the brick
+/// props). Lam::pula reads the colour from the texture as it would a
+/// drawing's atlas.
+///
+/// Weak where raylib would free things: the maps live in a box here and the
+/// texture is the [`Texture2D`] here, so nothing is freed twice. The material
+/// carries raylib's default shader; draw it through [`draw_mesh_with`], which
+/// supplies the real one.
+pub struct PaletteMaterial {
+    material: WeakMaterial,
+    _maps: Box<[ffi::MaterialMap; MAPS]>,
+    texture: Texture2D,
+}
+
+impl PaletteMaterial {
+    /// A `width`×`height` RGBA texture of `pixels`, read with `filter`.
+    /// `None` (logged) if it won't load.
+    pub fn new(
+        thread: &RaylibThread,
+        width: i32,
+        height: i32,
+        pixels: &[u8],
+        filter: TextureFilter,
+    ) -> Option<Self> {
+        if pixels.len() != (width * height * 4) as usize {
+            eprintln!("palette: {} bytes for {width}×{height}", pixels.len());
+            return None;
+        }
+        let mut pixels = pixels.to_vec();
+        let image = ffi::Image {
+            data: pixels.as_mut_ptr().cast(),
+            width,
+            height,
+            mipmaps: 1,
+            format: ffi::PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 as i32,
+        };
+        // SAFETY: LoadTextureFromImage only reads the pixels (copied to the
+        // GPU; `pixels` outlives the call). The texture is ours, and
+        // Texture2D unloads it once, on drop.
+        let raw = unsafe { ffi::LoadTextureFromImage(image) };
+        if raw.id == 0 {
+            eprintln!("palette texture did not load");
+            return None;
+        }
+        let texture = unsafe { Texture2D::from_raw(raw) };
+        texture.set_texture_filter(thread, filter);
+        texture.set_texture_wrap(thread, TextureWrap::TEXTURE_WRAP_CLAMP);
+
+        let none = ffi::MaterialMap {
+            texture: ffi::Texture::default(),
+            color: Color::BLANK,
+            value: 0.0,
+        };
+        let mut maps = Box::new([none; MAPS]);
+        maps[0] = ffi::MaterialMap {
+            texture: *texture.as_ref(),
+            color: Color::WHITE,
+            value: 0.0,
+        };
+        // SAFETY: a weak material over maps we own (boxed, so they never move)
+        // and a texture we own; nothing is ever unloaded through it. The
+        // default shader is raylib's own and outlives everything.
+        let material = unsafe {
+            WeakMaterial::from_raw(ffi::Material {
+                shader: ffi::Shader {
+                    id: ffi::rlGetShaderIdDefault(),
+                    locs: ffi::rlGetShaderLocsDefault(),
+                },
+                maps: maps.as_mut_ptr(),
+                params: [0.0; 4],
+            })
+        };
+        Some(Self {
+            material,
+            _maps: maps,
+            texture,
+        })
+    }
+
+    pub fn material(&self) -> &WeakMaterial {
+        &self.material
+    }
+
+    /// New colours, same size.
+    pub fn update(&mut self, pixels: &[u8]) {
+        if let Err(e) = self.texture.update_texture(pixels) {
+            eprintln!("palette: {e}");
+        }
+    }
+}
+
 /// Draw `mesh` through `shader` with `material`'s textures, leaving the material
 /// itself untouched — the shader stays the caller's. (Putting a shader *on* a
 /// model's material hands it to raylib, which frees it again when the model

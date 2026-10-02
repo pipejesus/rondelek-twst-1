@@ -26,15 +26,17 @@
 //! so physics, collisions and their tests are identical.
 
 use super::brick_water::BrickWater;
-use super::lampula::{Lampula, LampulaParams};
+use super::bricks::{BrickModel, Build};
+use super::lampula::{Lampula, LampulaParams, world_box};
 use super::models::FlatModel;
+use super::props;
 use super::water::{self, Water};
 use super::{VoiceGame, VoiceInput};
 use raylib::prelude::*;
 use raylib::rlgl::RaylibRlgl; // matrix stack for the salto flip
 use rondelek_core::audio::vowel::VOWELS;
 
-use super::{BUTTER, CHARCOAL, LILAC, MINT_DARK, PEACH, ROSE, SKY};
+use super::{BUTTER, CHARCOAL, SKY};
 
 // Logical canvas (gameplay space, matches the 2D version).
 const LW: f32 = 1280.0;
@@ -71,14 +73,12 @@ const HIGH_H: f32 = 360.0;
 // Logical px per world unit.
 const PPU: f32 = 100.0;
 
-// 2.5D palette: a clear, sunny-day world — saturated sky blue and meadow
-// green, so the kid's own drawings (white clouds, the gold score sun) and the
-// obstacles stand out against it instead of melting into a pastel wash.
+// 2.5D palette: a clear, sunny-day world — saturated sky blue (the meadow's
+// greens and earths are bricks now, in `props`), so the kid's own drawings
+// (white clouds, the gold score sun) and the obstacles stand out against it
+// instead of melting into a pastel wash.
 const SKY_TOP: Color = Color::new(84, 176, 240, 255);
 const SKY_LOW: Color = Color::new(184, 228, 255, 255);
-const GRASS: Color = Color::new(112, 202, 92, 255);
-const GRASS_DARK: Color = Color::new(78, 166, 68, 255);
-const DIRT: Color = Color::new(184, 122, 78, 255);
 // Far hills: meadow green, pushed back by the fog toward the horizon blue.
 const MOUNT_A: Color = Color::new(96, 178, 120, 255);
 const MOUNT_B: Color = Color::new(74, 154, 104, 255);
@@ -103,10 +103,6 @@ const CLOUD_HAZE: f32 = 0.45;
 const BUSH_H: f32 = 0.85;
 const BUSH_H_VARY: f32 = 0.5;
 const BUSH_PERIOD: f32 = 2.8;
-// Wall: solid stone, deliberately un-pastel so it reads as "impassable".
-const WALL_A: Color = Color::new(154, 136, 126, 255);
-const WALL_B: Color = Color::new(122, 106, 98, 255);
-const WALL_MORTAR: Color = Color::new(92, 80, 74, 255);
 
 // The water in front of the meadow: its resting surface sits a little below
 // the grass, so a strip of the bank's earth shows above it; it runs from the
@@ -364,6 +360,52 @@ struct Gfx {
     lampula: Option<Lampula>,
     /// The sea along the front. `None` → the bank's earth shows instead.
     water: Option<Sea>,
+    /// Lam::pula for the meadow and the obstacles. `None` → they draw unlit.
+    world_glass: Option<Lampula>,
+    /// One tile of the meadow (`props::ground`), laid end to end.
+    ground: Option<BrickModel>,
+    /// The four obstacles in bricks. `None` → plain boxes, so the game
+    /// still plays.
+    obstacle_models: Option<ObstacleModels>,
+}
+
+/// The obstacles, built in bricks once (`props.rs`) and drawn as many times
+/// as they come.
+struct ObstacleModels {
+    block: BrickModel,
+    bridge: BrickModel,
+    wall: BrickModel,
+    pillar: BrickModel,
+}
+
+impl ObstacleModels {
+    fn build(thread: &RaylibThread) -> Option<Self> {
+        let model = |name, grid| {
+            BrickModel::build(
+                thread,
+                name,
+                &grid,
+                &props::OBSTACLE_PALETTE,
+                props::OBSTACLE_CELL,
+                Build::default(),
+            )
+        };
+        Some(Self {
+            block: model("block", props::block())?,
+            bridge: model("bridge", props::bridge())?,
+            wall: model("wall", props::wall())?,
+            pillar: model("pillar", props::pillar())?,
+        })
+    }
+
+    fn of(&self, kind: Kind) -> &BrickModel {
+        match kind {
+            Kind::Jump => &self.block,
+            Kind::Duck => &self.bridge,
+            Kind::Wall => &self.wall,
+            Kind::High => &self.pillar,
+        }
+    }
 }
 
 /// Load a flat-draw prop, or complain and carry on without it.
@@ -580,6 +622,49 @@ fn water_glass() -> LampulaParams {
     }
 }
 
+/// Lam::pula as the meadow and the obstacles wear it: the clouds' glass, made
+/// solid (they are things to stand on and bump into, not to see through),
+/// under warm daylight lamps rather than the clouds' gold, and toned down.
+/// At the clouds' full strength coloured bricks went pastel: the grass is
+/// seen nearly edge-on, where the reflected room and the highlights are
+/// strongest, and the exposure curve flattened what was left. So less
+/// exposure, a faint room, softer highlights, and more vibrance to keep the
+/// colours bold.
+fn world_glass() -> LampulaParams {
+    const LAMP: [u8; 3] = [255, 238, 206];
+    LampulaParams {
+        lamp0: LAMP,
+        lamp1: LAMP,
+        lamp2: LAMP,
+        alpha: 1.0,
+        exposure: 1.1,
+        env_gain: 0.3,
+        vibrance: 0.7,
+        spec_gain: 0.6,
+        trans_gain: 1.5,
+        ..cloud_glass()
+    }
+}
+
+/// The env var naming a tuning file for [`world_glass`] (any Lam::pula key).
+const PROPS_ENV: &str = "RONDELEK_PROPS";
+
+/// [`world_glass`], plus whatever `RONDELEK_PROPS` points at.
+fn world_glass_from_env() -> LampulaParams {
+    let mut look = world_glass();
+    if let Some(path) = std::env::var_os(PROPS_ENV) {
+        crate::shader_params::apply_overrides(path.as_ref(), "props", &mut |k, v| look.set(k, v));
+    }
+    look
+}
+
+/// Where the meadow's lamps stand round (world centre, half-extent): the
+/// stretch of meadow on screen. Fixed, so the meadow slides under still
+/// lamps.
+fn ground_lamps() -> (Vector3, Vector3) {
+    (Vector3::new(0.0, -0.75, 0.0), Vector3::new(12.0, 0.75, 1.5))
+}
+
 /// A cloud's model matrix: standing at `base` (its pivot, bottom-centre),
 /// `s` times its drawn size, gently floating and breathing about its own
 /// middle, each cloud (lane `k`) out of step with the others.
@@ -661,6 +746,19 @@ impl VoiceGame for Runner {
             lampula: Lampula::load(rl, thread, cloud_glass()),
             sun_glass: Lampula::load(rl, thread, sun_glass()),
             water: Sea::load(rl, thread, WaterStyle::from_env()),
+            world_glass: Lampula::load_exact(rl, thread, world_glass_from_env()),
+            ground: BrickModel::build(
+                thread,
+                "ground",
+                &props::ground(),
+                &props::GROUND_PALETTE,
+                props::GROUND_CELL,
+                Build {
+                    wrap_x: true,
+                    open_below_and_behind: true,
+                },
+            ),
+            obstacle_models: ObstacleModels::build(thread),
         });
     }
 
@@ -919,6 +1017,10 @@ impl VoiceGame for Runner {
         {
             let mut c3 = d.begin_mode3D(camera);
 
+            if let Some(glass) = gfx.world_glass.as_mut() {
+                glass.begin_frame(camera.position, self.t);
+            }
+
             // --- mountains (z -9, factor 0.25): stepped pyramids in fog ----
             {
                 let mut fogm = c3.begin_shader_mode(&mut gfx.fog);
@@ -970,46 +1072,19 @@ impl VoiceGame for Runner {
                 }
             }
 
-            // --- ground (factor 1.0): grass caps + dirt cross-section ------
-            {
-                let period = 1.0;
+            // --- ground (factor 1.0): the meadow, in bricks ----------------
+            // Tile after tile of the same meadow (each one draw call), its
+            // grass top on y = 0 and its front, the bank, at z = 1.5.
+            if let Some(ground) = &gfx.ground {
+                let tile = props::GROUND_TILE as f32 * props::GROUND_CELL;
+                let drop = props::GROUND_LAYERS as f32 * props::GROUND_CELL;
                 let off = dist_u;
                 let span = half_span(1.5);
-                let k0 = ((off - span) / period).floor() as i64;
-                let k1 = ((off + span) / period).ceil() as i64;
+                let k0 = ((off - span) / tile - 0.5).floor() as i64;
+                let k1 = ((off + span) / tile + 0.5).ceil() as i64;
                 for k in k0..=k1 {
-                    let cx = k as f32 * period - off;
-                    let g = 1.0 + (hash01(k, 41) - 0.5) * 0.12;
-                    let grass = Color::new(
-                        (GRASS.r as f32 * g) as u8,
-                        (GRASS.g as f32 * g) as u8,
-                        (GRASS.b as f32 * g) as u8,
-                        255,
-                    );
-                    // Grass cap block.
-                    c3.draw_cube(Vector3::new(cx, -0.14, 0.0), period, 0.28, 3.0, grass);
-                    // Dirt body below (the Mario-style underground, its front
-                    // face is the visible cross-section).
-                    let dg = 1.0 + (hash01(k, 42) - 0.5) * 0.14;
-                    let dirt = Color::new(
-                        (DIRT.r as f32 * dg) as u8,
-                        (DIRT.g as f32 * dg) as u8,
-                        (DIRT.b as f32 * dg) as u8,
-                        255,
-                    );
-                    // The bank: a strip of earth above the water, running on
-                    // down beneath it (deep enough for the swell's troughs).
-                    c3.draw_cube(Vector3::new(cx, -0.88, 0.0), period, 1.2, 3.0, dirt);
-                    // Grass edge highlight on top, blocky dashes.
-                    if hash01(k, 47) > 0.6 {
-                        c3.draw_cube(
-                            Vector3::new(cx, 0.02, 1.3),
-                            period * 0.5,
-                            0.06,
-                            0.3,
-                            GRASS_DARK,
-                        );
-                    }
+                    let t = Matrix::translate(k as f32 * tile - off, -drop, 0.0);
+                    ground.draw(&mut c3, gfx.world_glass.as_mut(), t, ground_lamps());
                 }
             }
 
@@ -1018,81 +1093,20 @@ impl VoiceGame for Runner {
                 water.draw(&mut c3, camera.position, self.t, dist_u, self.voice_glow);
             }
 
-            // --- obstacles (hero plane z 0) --------------------------------
+            // --- obstacles (hero plane z 0), in bricks ---------------------
+            // Each stands on the ground at its x (or flies off, bumped), lit
+            // by lamps round itself, so every one is lit alike.
             for o in &self.obstacles {
-                let alpha = if o.bounced { 200 } else { 255 };
-                match o.kind {
-                    Kind::Jump => {
+                let at = Matrix::translate(wx(o.x), wy(GROUND_Y + o.fly_y), 0.0);
+                match &gfx.obstacle_models {
+                    Some(models) => {
+                        let model = models.of(o.kind);
+                        let lamps = world_box(model.min, model.max, at);
+                        model.draw(&mut c3, gfx.world_glass.as_mut(), at, lamps);
+                    }
+                    None => {
                         let (pos, size) = wrect(obstacle_rect(o), 0.0, 0.6);
-                        let c = Color::new(ROSE.r, ROSE.g, ROSE.b, alpha);
-                        c3.draw_cube_v(pos, size, c);
-                        c3.draw_cube_wires_v(pos, size, MINT_DARK);
-                    }
-                    Kind::Duck => {
-                        let (pos, size) = wrect(obstacle_rect(o), 0.0, 0.6);
-                        let c = Color::new(LILAC.r, LILAC.g, LILAC.b, alpha);
-                        c3.draw_cube_v(pos, size, c);
-                        c3.draw_cube_wires_v(pos, size, MINT_DARK);
-                        if !o.bounced {
-                            // Posts holding the bar.
-                            let (rx, ry, rw, rh) = obstacle_rect(o);
-                            for px in [rx + 8.0, rx + rw - 8.0] {
-                                let post_top = ry + rh;
-                                let post_h = GROUND_Y - post_top;
-                                c3.draw_cube(
-                                    Vector3::new(wx(px), wy(post_top + post_h / 2.0), 0.0),
-                                    0.1,
-                                    post_h / PPU,
-                                    0.1,
-                                    LILAC,
-                                );
-                            }
-                        }
-                    }
-                    Kind::Wall => {
-                        // A little masonry: staggered brick courses, mortar wires.
-                        let (rx, ry, rw, rh) = obstacle_rect(o);
-                        let (rows, cols) = (8i32, 2i32);
-                        let (bw, bh) = (rw / cols as f32, rh / rows as f32);
-                        for r in 0..rows {
-                            let stagger = if r % 2 == 0 { 0.0 } else { bw * 0.5 };
-                            for c in -1..=cols {
-                                let bx = rx + stagger + c as f32 * bw;
-                                let left = bx.max(rx);
-                                let right = (bx + bw).min(rx + rw);
-                                if right - left < 4.0 {
-                                    continue;
-                                }
-                                let base = if (r + c).rem_euclid(2) == 0 {
-                                    WALL_A
-                                } else {
-                                    WALL_B
-                                };
-                                let col = Color::new(base.r, base.g, base.b, alpha);
-                                let (pos, size) = wrect(
-                                    (left, ry + r as f32 * bh, right - left, bh - 3.0),
-                                    0.0,
-                                    0.7,
-                                );
-                                c3.draw_cube_v(pos, size, col);
-                                c3.draw_cube_wires_v(pos, size, WALL_MORTAR);
-                            }
-                        }
-                    }
-                    Kind::High => {
-                        // A slim rose totem: stacked blocks, jump-family colour.
-                        let (rx, ry, rw, rh) = obstacle_rect(o);
-                        let rows = 9i32;
-                        let bh = rh / rows as f32;
-                        for r in 0..rows {
-                            let dark = r % 2 == 0;
-                            let base = if dark { ROSE } else { PEACH };
-                            let col = Color::new(base.r, base.g, base.b, alpha);
-                            let (pos, size) =
-                                wrect((rx, ry + r as f32 * bh, rw, bh - 3.0), 0.0, 0.55);
-                            c3.draw_cube_v(pos, size, col);
-                            c3.draw_cube_wires_v(pos, size, MINT_DARK);
-                        }
+                        c3.draw_cube_v(pos, size, Color::GRAY);
                     }
                 }
             }
@@ -1285,7 +1299,7 @@ impl VoiceGame for Runner {
                 width: side,
                 height: side,
             };
-            d.draw_rectangle_rounded(sign, 0.3, 6, Color::new(255, 255, 255, 235));
+            d.draw_rectangle_rounded(sign, 0.3, 6, Color::WHITE);
             d.draw_rectangle_rounded_lines(sign, 0.3, 6, CHARCOAL);
             let fs = sl(64.0);
             let tw = d.measure_text(letter, fs);

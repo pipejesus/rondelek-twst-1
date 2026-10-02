@@ -216,6 +216,9 @@ game/src/                 rondelek-game: raylib voice games (child process)
   models.rs               embedded flat-draw GLB props (clouds, bushes, score sun)
   shader_params.rs        shader tuning tables (flat-draw's Param rows) + JSON overrides
   lampula.rs              flat-draw's Lam::pula glass shader, 1:1 (clouds, sun, water)
+  bricks.rs               brick models built in code (grid of colours → one mesh,
+                          lit by Lam::pula)
+  props.rs                Vowel Runner's meadow + obstacles, built in bricks
   brick_water.rs          the voice-reactive water along the front: little glass
                           bricks through Lam::pula (brick_water.vs + lampula.fs)
   water.rs                the first, smooth toon water (kept; RONDELEK_WATER_STYLE=toon)
@@ -305,8 +308,9 @@ packaging/appimage/       Linux AppImage: AppRun (app / --game), desktop entry,
   `RONDELEK_CALIB_VOWEL=<n>` (with `calibrate`: open vowel n), `RONDELEK_SIZE=WxH`,
   `RONDELEK_VIZ=<n>` (visualizer index), `RONDELEK_SHOT=<png>` (capture a few frames
   in and exit). Game: `RONDELEK_GAME_SCREEN=profiles|select`, `RONDELEK_GAME_FRAMES=<n>`,
-  `RONDELEK_GAME_SHOT=<png>`, `RONDELEK_LAMPULA=<json>` / `RONDELEK_WATER=<json>`
-  (shader tuning overrides, read at launch; `RONDELEK_LAMPULA` also takes flat-draw's
+  `RONDELEK_GAME_SHOT=<png>`, `RONDELEK_LAMPULA=<json>` / `RONDELEK_WATER=<json>` /
+  `RONDELEK_PROPS=<json>` (shader tuning overrides for the clouds and sun / the water /
+  the meadow and obstacles, read at launch; `RONDELEK_LAMPULA` also takes flat-draw's
   own `~/.config/flatty/config.json`), `RONDELEK_WATER_STYLE=toon|bricks` (the
   water: bricks by default, the first smooth toon water kept).
 - **Screenshots without real data (Linux):** the profile library and settings

@@ -53,8 +53,10 @@ Tracked items intentionally left for later batches.
   one file is fine) **and a wooden plate** for them to sit on (instead of the
   placeholder slab). Also decide upper vs lower case to match the vowel meter
   and pre-game screen.
-- Obstacles are still procedural pastel blocks; replace with flat-draw art as
-  it arrives in `greg/`.
+- **Hero, fish and greenery come as Greg's flat-draw art** (via `greg/`): the
+  hero model (the brick hero stays, a drawn one would join it as a choice),
+  the fish, the bushes and hills. The meadow and the obstacles stay code-built
+  bricks (`props.rs`, 2026-10-02), Greg's call.
 - `cloud9_rain.glb` is unused (kept for a possible rain variant).
 - **Re-measure the game's GPU/CPU cost on real hardware.** The brick water
   (Lam::pula over ~3,600 brick columns, the lower third of the screen) and the

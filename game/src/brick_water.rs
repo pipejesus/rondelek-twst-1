@@ -26,10 +26,10 @@
 //!
 //! [`look`]: BrickWater::look
 
-use super::lampula::{Lampula, LampulaParams};
+use super::lampula::{Lampula, LampulaParams, world_box};
+use super::models::PaletteMaterial;
 use super::shader_params::{self, Uniform, shader_params};
 use super::water::{OVERRIDES_ENV, PERIOD, Placement};
-use raylib::ffi;
 use raylib::prelude::*;
 
 shader_params! {
@@ -80,28 +80,22 @@ shader_params! {
 /// swell ever lifts a column's bottom above its neighbour's top.
 const DEPTH_BRICKS: f32 = 4.0;
 
-/// raylib's MAX_MATERIAL_MAPS: how many maps `DrawMesh` reads off a material.
-const MAPS: usize = 12;
-
 const VS: &str = include_str!("../../assets/shaders/brick_water.vs");
 
 pub struct BrickWater {
     glass: Lampula,
     mesh: Mesh,
-    /// Our own material, the palette as its diffuse map. Weak (it frees
-    /// nothing): its maps live in `_maps`, the palette in `palette`.
-    material: WeakMaterial,
-    _maps: Box<[ffi::MaterialMap; MAPS]>,
     /// 2×2: shallow, deep / foam, foam. The vertex stage blends across it.
-    palette: Texture2D,
+    palette: PaletteMaterial,
     /// The colours the palette holds now, to re-upload only on a change.
     palette_colours: [[u8; 3]; 3],
     at: Placement,
     cell: f32,
     /// Model space → the brick lattice (bricks' corners on whole numbers).
     lattice: Matrix,
-    /// The mesh's model-space box: where Lam::pula's lamps stand round.
-    bounds: (Vector3, Vector3),
+    /// Where Lam::pula's lamps stand round: the water at rest, in the world,
+    /// so the bricks slide under still lamps.
+    lamps: (Vector3, Vector3),
     loc_scroll: i32,
     loc_voice: i32,
     loc_cell: i32,
@@ -160,61 +154,27 @@ impl BrickWater {
         };
 
         let colours = palette_colours(&params);
-        let mut pixels = palette_pixels(colours);
-        let image = ffi::Image {
-            data: pixels.as_mut_ptr().cast(),
-            width: 2,
-            height: 2,
-            mipmaps: 1,
-            format: ffi::PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8A8 as i32,
-        };
-        // SAFETY: LoadTextureFromImage only reads the pixels (they are copied
-        // to the GPU, and `pixels` outlives the call); the texture is ours,
-        // and Texture2D unloads it once, on drop.
-        let raw = unsafe { ffi::LoadTextureFromImage(image) };
-        if raw.id == 0 {
-            eprintln!("brick water palette did not load; no water");
-            return None;
-        }
-        let palette = unsafe { Texture2D::from_raw(raw) };
         // Blended, not snapped: the vertex stage's coordinates between the
         // texel centres mix the colours.
-        palette.set_texture_filter(thread, TextureFilter::TEXTURE_FILTER_BILINEAR);
-        palette.set_texture_wrap(thread, TextureWrap::TEXTURE_WRAP_CLAMP);
-
-        let none = ffi::MaterialMap {
-            texture: ffi::Texture::default(),
-            color: Color::BLANK,
-            value: 0.0,
-        };
-        let mut maps = Box::new([none; MAPS]);
-        maps[0] = ffi::MaterialMap {
-            texture: *palette.as_ref(),
-            color: Color::WHITE,
-            value: 0.0,
-        };
-        // SAFETY: a weak material over maps we own (boxed, so they never move)
-        // and a texture we own; nothing is ever unloaded through it. The
-        // shader is filled in per draw by `draw_mesh_with`.
-        let material = unsafe {
-            WeakMaterial::from_raw(ffi::Material {
-                shader: *glass.shader_mut().as_ref(),
-                maps: maps.as_mut_ptr(),
-                params: [0.0; 4],
-            })
-        };
+        let palette = PaletteMaterial::new(
+            thread,
+            2,
+            2,
+            &palette_pixels(colours),
+            TextureFilter::TEXTURE_FILTER_BILINEAR,
+        )?;
+        let (min, max) = bricks.bounds;
+        let lamps = world_box(min, max, Matrix::translate(0.0, at.y, at.shore_z));
 
         Some(Self {
             glass,
             mesh,
-            material,
-            _maps: maps,
             palette,
             palette_colours: colours,
             at,
             cell,
             lattice: bricks.lattice,
-            bounds: bricks.bounds,
+            lamps,
             loc_scroll,
             loc_voice,
             loc_cell,
@@ -237,7 +197,7 @@ impl BrickWater {
         let voice = voice.clamp(0.0, 1.0);
         let colours = palette_colours(&self.params);
         if colours != self.palette_colours {
-            let _ = self.palette.update_texture(&palette_pixels(colours));
+            self.palette.update(&palette_pixels(colours));
             self.palette_colours = colours;
         }
 
@@ -267,10 +227,10 @@ impl BrickWater {
         self.glass.draw_mesh(
             d,
             &self.mesh,
-            &self.material,
+            self.palette.material(),
             transform,
             self.lattice,
-            self.bounds,
+            self.lamps,
         );
     }
 }

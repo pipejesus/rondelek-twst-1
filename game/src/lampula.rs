@@ -139,6 +139,17 @@ impl Lampula {
         Self::load_with_vs(rl, thread, VS, look.with_env())
     }
 
+    /// [`Lampula::load`] with `look` exactly as given, no `RONDELEK_LAMPULA`:
+    /// for a look of our own (the meadow's) that a flat-draw tuning file
+    /// shouldn't turn into see-through gold.
+    pub fn load_exact(
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        look: LampulaParams,
+    ) -> Option<Self> {
+        Self::load_with_vs(rl, thread, VS, look)
+    }
+
     /// Lam::pula behind a vertex stage of your own, with `look` exactly as
     /// given (no `RONDELEK_LAMPULA`: whoever brings the stage brings its own
     /// tuning). The fragment stage is still flat-draw's, unchanged, so `vs` must
@@ -202,14 +213,18 @@ impl Lampula {
     /// stand round *this instance's* bounding box, so a big cloud and a small
     /// one are lit alike.
     pub fn draw(&mut self, d: &mut impl RaylibDraw3D, model: &FlatModel, transform: Matrix) {
-        self.place(transform, model.lattice(), (model.min, model.max));
+        let lamps = world_box(model.min, model.max, transform);
+        self.place(transform, model.lattice(), lamps);
         model.draw_shaded(d, transform, &self.shader);
     }
 
     /// Draw any mesh as glass, given what [`Lampula::draw`] reads off a
     /// drawing: `lattice` maps model space to the brick lattice (the bricks'
-    /// corners on whole numbers, as [`FlatModel::lattice`] does) and `bounds`
-    /// is the model-space box the lamps stand round.
+    /// corners on whole numbers, as [`FlatModel::lattice`] does), and `lamps`
+    /// is the box the lamps stand round, in *world* space (centre,
+    /// half-extent; see [`world_box`]). Fixed in the world rather than taken
+    /// from the instance, so something scrolling (the water, the ground)
+    /// slides under still lamps instead of carrying them along.
     pub fn draw_mesh(
         &mut self,
         d: &mut impl RaylibDraw3D,
@@ -217,15 +232,14 @@ impl Lampula {
         material: &WeakMaterial,
         transform: Matrix,
         lattice: Matrix,
-        bounds: (Vector3, Vector3),
+        lamps: (Vector3, Vector3),
     ) {
-        self.place(transform, lattice, bounds);
+        self.place(transform, lattice, lamps);
         draw_mesh_with(d, mesh, material, &self.shader, transform);
     }
 
     /// The per-instance uniforms: where the lamps stand, and the brick lattice.
-    fn place(&mut self, transform: Matrix, lattice: Matrix, (min, max): (Vector3, Vector3)) {
-        let (centre, radius) = world_box(min, max, transform);
+    fn place(&mut self, transform: Matrix, lattice: Matrix, (centre, radius): (Vector3, Vector3)) {
         self.shader.set_shader_value(self.loc_centre, centre);
         self.shader.set_shader_value(self.loc_radius, radius);
         // World → the drawing's pixel lattice: undo this instance's transform,
@@ -236,7 +250,7 @@ impl Lampula {
 }
 
 /// A model-space box under `m`, as a world-space centre and half-extent.
-fn world_box(min: Vector3, max: Vector3, m: Matrix) -> (Vector3, Vector3) {
+pub fn world_box(min: Vector3, max: Vector3, m: Matrix) -> (Vector3, Vector3) {
     let mut lo = Vector3::new(f32::MAX, f32::MAX, f32::MAX);
     let mut hi = Vector3::new(f32::MIN, f32::MIN, f32::MIN);
     for i in 0..8 {

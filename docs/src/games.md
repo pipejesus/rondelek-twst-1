@@ -124,9 +124,10 @@ glide past while the camera stays put.
 | Haze | — | the sky gradient again at `CLOUD_HAZE` opacity, so the clouds sink into the sky |
 | Hills | z −9, parallax 0.25 | stepped green cubes under the fog shader (fog colour = horizon blue) |
 | Bushes | z −4, parallax 0.55 | `bush.glb` (flat-draw), plain |
-| Meadow & bank | z 0, parallax 1.0 | grass caps over a strip of earth |
+| Meadow & bank | z 0, parallax 1.0 | code-built **bricks** (`props::ground`): a grass top over layered earth, tile after tile, through Lam::pula |
 | **Water** | z 1.5 → 8.5 | little glass bricks rising and falling on a swell, through **Lam::pula** like the clouds; scrolls with the ground |
-| Obstacles, stars | z 0 | procedural cubes |
+| Obstacles | z 0 | code-built **bricks** (`props.rs`): a toy brick, a bridge, a brick wall, a candy pillar, through Lam::pula |
+| Stars (bullets) | z 0 | procedural cubes |
 | Hero | z 0 | the blocky brick hero under the toon shader (**permanent by design**) |
 | Score sun | 3 units in front of the camera | `sun.glb` through its own Lam::pula, the count on its face |
 | HUD | 2D | vowel signs over obstacles, point sparks, the vowel meter |
@@ -229,9 +230,10 @@ does: the eye, the clock, the instance's bounding box (the lamps stand round
 it) and `uBrick`, the world → pixel-lattice map. `Lampula::draw` takes any
 `FlatModel` under any transform, so anything drawn in flat-draw can go through
 the glass. `Lampula::draw_mesh` takes any other mesh, given its brick lattice
-and box, and `Lampula::load_with_vs` puts a vertex stage of your own in front
-of the unchanged `lampula.fs` (the brick water does both). Each use gets its
-own instance and look:
+and where its lamps stand (a box fixed in the world, so something that scrolls
+slides under still lamps), and `Lampula::load_with_vs` puts a vertex stage of
+your own in front of the unchanged `lampula.fs` (the brick water does both).
+Each use gets its own instance and look:
 
 - `cloud_glass()`: flat-draw's defaults, except the "room below" is the horizon
   blue (flat-draw's dark floor made the clouds muddy).
@@ -241,6 +243,8 @@ own instance and look:
   turned the blue water murky green and white ones washed it pale, so its
   lamps are a clear sky blue; the room it reflects is the sky above and a deep
   sea below.
+- `world_glass()`: the meadow and the obstacles, solid and toned down (see
+  below).
 
 ### The water
 
@@ -292,6 +296,46 @@ crest bands, wobbly foam and a row of bubbles at the shore, "+" twinkles, and
 goldfish gliding underneath. Its defaults were calmed down on 2026-09-27, and
 each changed row in `WaterParams` notes its previous value.
 
+### The meadow and the obstacles: bricks built in code
+
+The ground and the obstacles aren't drawings: they're generated, in the same
+brick style as the clouds and the water. `game/src/bricks.rs` is a small kit
+for it. A `Grid` holds a palette colour per brick (0 = empty), and
+`BrickModel::build` walls it in: one quad per brick face that borders an empty
+cell, its texcoords pointing at its colour in a one-row palette texture (a
+`PaletteMaterial`, shared with the brick water). That's the shape of a
+flat-draw export, so Lam::pula lights it the same way, finding the brick edges
+and corners through `BrickModel::lattice`.
+
+`game/src/props.rs` builds the runner's pieces from a hash of each brick's
+place, never a random generator, so they look the same every game:
+
+- **The meadow** (`ground`, 0.25-unit bricks, the water's size): a flat grass
+  top in three greens, flecked with tufts, buttercups and daisies off the
+  hero's lane, over layered earth with the odd stone, and grass hanging over
+  the bank's front edge. One tile is 32 units long. Its last column meets its
+  first (`Build::wrap_x`), so the runner lays it tile after tile without a
+  seam, and leaves out the bottoms and backs, which are never seen. The grass
+  is flat on purpose: bricks standing up out of it read as toys left lying
+  about and pulled the eye off the obstacles.
+- **The obstacles** (0.125-unit bricks, half the meadow's, for a little detail
+  at the hitboxes' size): a pink toy brick with studs (jump), a purple bridge
+  on two posts (duck), a red brick wall with its mortar sunk in, so each brick
+  catches the light (shoot), and a candy-striped pillar with a gold knob
+  (double jump). The colours keep the vowel families: pink for the jump
+  vowel's two, purple for the duck vowel, brick red for the shoot vowel. Tests
+  hold each one to its hitbox in `runner.rs`, and the bridge to leaving room
+  for a ducking hero.
+
+They all share one Lam::pula, `world_glass()`: the clouds' glass made solid,
+under warm daylight lamps, and toned down. At the clouds' full strength the
+coloured bricks went pastel: the grass is seen nearly edge-on, where the
+reflected room and the highlights are strongest, and the exposure curve
+flattened what was left. So it has less exposure, a faint room, softer
+highlights and more vibrance. The meadow's lamps stand round a fixed stretch
+of the world (`ground_lamps`), so it slides under still lamps; each obstacle
+is lit by lamps round itself, so every one is lit alike.
+
 ### Tuning: tables, not constants
 
 `game/src/shader_params.rs` borrows flat-draw's way of doing things: a shader's
@@ -323,6 +367,9 @@ two options:
     The water ignores `RONDELEK_LAMPULA`, so retuning the clouds' glass leaves
     its lamps alone.
   - `RONDELEK_WATER_STYLE=toon` (or `bricks`) picks the water.
+  - `RONDELEK_PROPS=<file.json>` tunes the meadow's and the obstacles' glass
+    (any Lam::pula key), e.g. `{ "exposure": 1.4, "lamp0": "#FFFFFF" }`. Like
+    the water, it ignores `RONDELEK_LAMPULA`.
 
 Unknown keys and bad values are reported on stderr and skipped. A typo costs you
 one value, never the whole game.
@@ -330,8 +377,10 @@ one value, never the whole game.
 ## Testing and recording
 
 - `cargo test -p rondelek-game` covers the gameplay (jumps, ducks, shooting,
-  the double jump's reach), the sun's spring and reveal, the voice glow, the
-  tuning tables and their shaders, and the pixel-lattice recovery.
+  the double jump's reach, which moves earn a star), the sun's spring and
+  reveal, the voice glow, the tuning tables and their shaders, the
+  pixel-lattice recovery, and the brick props (faces turned outward, corners
+  on the lattice, sizes against the hitboxes).
 - For headless runs, `RONDELEK_GAME_FRAMES=<n>` skips the pre-game screens and
   quits after n frames, `RONDELEK_GAME_SHOT=<png>` saves a screenshot, and
   `RONDELEK_GAME_SCREEN=profiles|select` shows those screens instead.

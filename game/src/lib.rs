@@ -30,9 +30,11 @@
 
 pub mod arcade;
 pub mod brick_water;
+pub mod bricks;
 pub mod lampula;
 pub mod models;
 pub mod profile_picker;
+pub mod props;
 pub mod runner;
 mod shader_params;
 pub mod voice;
@@ -46,12 +48,9 @@ use rondelek_core::config::Settings;
 use rondelek_core::profile::Profile;
 use voice::VoiceBridge;
 
-// The pastel colours Vowel Runner's obstacles, hero and HUD still use. (The
-// entrance screens moved to the vivid arcade palette in `arcade`.)
-pub(crate) const PEACH: Color = Color::new(246, 220, 198, 255);
-pub(crate) const MINT_DARK: Color = Color::new(154, 197, 172, 255);
-pub(crate) const ROSE: Color = Color::new(245, 169, 188, 255);
-pub(crate) const LILAC: Color = Color::new(201, 184, 232, 255);
+// The pastel colours Vowel Runner's hero and HUD still use. (The entrance
+// screens moved to the vivid arcade palette in `arcade`, the obstacles to
+// bricks in `props`.)
 pub(crate) const SKY: Color = Color::new(169, 212, 239, 255);
 pub(crate) const BUTTER: Color = Color::new(245, 226, 158, 255);
 pub(crate) const CHARCOAL: Color = Color::new(74, 68, 60, 255);
