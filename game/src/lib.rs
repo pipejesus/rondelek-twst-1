@@ -37,6 +37,7 @@ pub mod profile_picker;
 pub mod props;
 pub mod runner;
 mod shader_params;
+pub mod view;
 pub mod voice;
 pub mod water;
 

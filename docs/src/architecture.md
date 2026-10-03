@@ -176,6 +176,7 @@ game/src/
                  without --profile (double-clicked / standalone)
   runner.rs      Vowel Runner
   voice.rs       mic + vowel detector → per-frame game input
+  view.rs        what the camera sees: things come and go out of sight
   models.rs      embedded flat-draw GLB props (scenery, the score sun)
   shader_params.rs  shader tuning tables + JSON overrides
   lampula.rs     flat-draw's Lam::pula glass shader, 1:1 (clouds, sun, water)

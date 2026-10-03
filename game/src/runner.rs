@@ -3,8 +3,10 @@
 //! another to duck under high bars. Misses never kill — the obstacle just
 //! bounces away; every cleared obstacle earns a star.
 //!
-//! Rendering: a fixed perspective camera slightly above and beside the action,
-//! everything built from chunky 3D bricks ("pixels became big and 3-D").
+//! Rendering: a perspective camera slightly above and beside the action,
+//! following the hero up and down, gently (`CAM_FOLLOW`), everything built
+//! from chunky 3D bricks ("pixels became big and 3-D"). Things come into the
+//! picture and leave it out of sight, wherever its edges fall (`view.rs`).
 //! Parallax planes scroll by hand-tuned factors of the travelled distance,
 //! 90s style: clouds 0.10, mountains 0.16, palms 0.23, jungle 0.36,
 //! ground 1.0, each
@@ -34,6 +36,7 @@ use super::bricks::{BrickModel, Build};
 use super::lampula::{Lampula, LampulaParams, world_box};
 use super::models::FlatModel;
 use super::props;
+use super::view::{Bounds, Eye};
 use super::water::{self, Water};
 use super::{VoiceGame, VoiceInput};
 use raylib::prelude::*;
@@ -97,6 +100,28 @@ const LITTLE_SUN_SPIN: f32 = 0.35;
 
 // Logical px per world unit.
 const PPU: f32 = 100.0;
+
+// The camera, at rest: a little above and to the right of the action,
+// looking at (0, 1, 0). It follows the hero up and down, gently: it rises by
+// `CAM_FOLLOW` of how high the hero's feet are (never more than
+// `CAM_LIFT_MAX`), on a critically damped spring of rate `CAM_RATE`, so it
+// eases after a jump and eases back, never overshooting. The scene is truly
+// 3D, so rising shows it from a little higher — the near things slide down
+// further than the far planes: vertical parallax, for free.
+const CAMERA_AT: Vector3 = Vector3 {
+    x: 0.9,
+    y: 2.2,
+    z: 12.5,
+};
+const CAMERA_LOOKS_AT: Vector3 = Vector3 {
+    x: 0.0,
+    y: 1.0,
+    z: 0.0,
+};
+const CAMERA_FOVY: f32 = 45.0;
+const CAM_FOLLOW: f32 = 0.35;
+const CAM_LIFT_MAX: f32 = 1.2;
+const CAM_RATE: f32 = 3.0;
 
 // 2.5D palette: a clear, sunny-day world — saturated sky blue (the meadow's
 // greens and earths are bricks now, in `props`), so the kid's own drawings
@@ -463,7 +488,6 @@ impl SunCoin {
 
 /// GPU-side resources, loaded in `init` (absent in unit tests — no window).
 struct Gfx {
-    camera: Camera3D,
     toon: Shader,
     /// The kid's own drawings (flat-draw GLB). `None` only if loading failed —
     /// that layer then stays empty rather than the game dying.
@@ -613,6 +637,11 @@ pub struct Runner {
     t: f32,
     /// Distance travelled (logical px) — drives all parallax offsets.
     dist: f32,
+    /// The camera at rest, in the picture's latest shape (see `CAMERA_AT`).
+    eye: Eye,
+    /// How far the camera has risen after the hero, and how fast it moves.
+    cam_lift: f32,
+    cam_lift_v: f32,
     rng: u64,
     // Copied from the latest VoiceInput so draw() can show live feedback.
     last_scores: [f32; 6],
@@ -659,10 +688,20 @@ impl Runner {
             coin: SunCoin::default(),
             tablet_hop: [0.0; 3],
             speed: 260.0,
-            spawn_timer: 1.2,
+            // The first obstacle comes in at once: it enters out of sight, so it is
+            // still a few seconds off.
+            spawn_timer: 0.1,
             squash: 0.0,
             t: 0.0,
             dist: 0.0,
+            eye: Eye {
+                position: CAMERA_AT,
+                target: CAMERA_LOOKS_AT,
+                fovy: CAMERA_FOVY,
+                aspect: 16.0 / 9.0,
+            },
+            cam_lift: 0.0,
+            cam_lift_v: 0.0,
             rng: 0x2545_F491_4F6C_DD1D,
             last_scores: [0.0; 6],
             last_held: None,
@@ -687,6 +726,17 @@ impl Runner {
         self.rng ^= self.rng << 25;
         self.rng ^= self.rng >> 27;
         (self.rng.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    /// What the camera sees now: the eye at rest, risen after the hero.
+    fn view(&self) -> Eye {
+        self.eye.lifted(self.cam_lift)
+    }
+
+    /// Where to put a thing that takes up `shape` when it stands at logical
+    /// x `at`, so that it comes in just out of sight on the right.
+    fn entry_px(&self, shape: Bounds, at: f32) -> f32 {
+        lx(self.view().entry(shape.shifted(-wx(at))))
     }
 
     /// The vowel of each move, indexed by [`Kind::move_index`].
@@ -828,7 +878,13 @@ impl Runner {
     /// (double jump), or a staircase from a low one up to a high one. How far
     /// it reaches past the spawn point, logical px.
     fn spawn_ledges(&mut self) -> f32 {
-        let x = LW + 120.0;
+        // In just out of sight on the right, for the tallest pattern.
+        let probe = Ledge {
+            x: 0.0,
+            top: GROUND_Y - LEDGE_HIGH,
+            size: LedgeSize::Long,
+        };
+        let x = self.entry_px(ledge_bounds(&probe), probe.x);
         let end = match (self.rand() * 3.0) as u32 {
             0 => self.add_ledge(x, LedgeSize::Long, LEDGE_LOW),
             1 => self.add_ledge(x, LedgeSize::Short, LEDGE_HIGH),
@@ -888,6 +944,68 @@ fn tablet_lift(hop: f32) -> f32 {
     TABLET_HOP * (std::f32::consts::PI * (1.0 - hop)).sin()
 }
 
+// ---- what things take up in the world, for coming and going out of sight --
+
+/// How deep the obstacles stand, either side of the hero's lane: their brick
+/// grids are at most five bricks deep (a test holds them to it).
+const OBSTACLE_HALF_DEPTH: f32 = 2.5 * props::OBSTACLE_CELL;
+
+/// An obstacle, its tablet included (hopping and bobbing at its highest).
+fn obstacle_bounds(o: &Obstacle) -> Bounds {
+    let (rx, ry, rw, rh) = obstacle_rect(o);
+    let body = Bounds {
+        x: (wx(rx), wx(rx + rw)),
+        y: (wy(ry + rh), wy(ry)),
+        z: (-OBSTACLE_HALF_DEPTH, OBSTACLE_HALF_DEPTH),
+    };
+    let c = tablet_centre(o, OBSTACLE_HALF_DEPTH);
+    let half = |n: usize| n as f32 * props::TABLET_CELL / 2.0;
+    let (hw, hh, hd) = (
+        half(props::TABLET_W),
+        half(props::TABLET_H),
+        half(props::TABLET_D),
+    );
+    body.union(Bounds {
+        x: (c.x - hw, c.x + hw),
+        y: (c.y - hh - TABLET_BOB, c.y + hh + TABLET_BOB + TABLET_HOP),
+        z: (c.z - hd, c.z + hd),
+    })
+}
+
+/// A ledge, the little suns over it included.
+fn ledge_bounds(l: &Ledge) -> Bounds {
+    let thick = props::LEDGE_LAYERS as f32 * props::GROUND_CELL;
+    let half_depth = 1.5 * props::GROUND_CELL; // three meadow bricks deep
+    Bounds {
+        x: (wx(l.x), wx(l.x + l.w())),
+        y: (
+            wy(l.top) - thick,
+            wy(l.top - LITTLE_SUN_LIFT - LITTLE_SUN_PX),
+        ),
+        z: (-half_depth, half_depth),
+    }
+}
+
+/// A little sun, bobbing.
+fn little_sun_bounds(s: &LittleSun) -> Bounds {
+    let r = LITTLE_SUN_PX / PPU / 2.0 + 0.03;
+    Bounds {
+        x: (wx(s.x) - r, wx(s.x) + r),
+        y: (wy(s.y) - r, wy(s.y) + r),
+        z: (-r, r),
+    }
+}
+
+/// A star bullet: its core and the five cubes whirling round it.
+fn bullet_bounds(b: &Bullet) -> Bounds {
+    let r = 0.17 + 0.05;
+    Bounds {
+        x: (wx(b.x) - r, wx(b.x) + r),
+        y: (wy(b.y) - r, wy(b.y) + r),
+        z: (0.25, 0.35),
+    }
+}
+
 fn overlaps(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32), shrink: f32) -> bool {
     // Shrink both rects for forgiving hitboxes.
     let s = |(x, y, w, h): (f32, f32, f32, f32)| {
@@ -908,6 +1026,10 @@ fn overlaps(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32), shrink: f32) -> bo
 /// World x of a logical-pixel x (screen centre -> 0).
 fn wx(x_px: f32) -> f32 {
     (x_px - LW / 2.0) / PPU
+}
+/// Logical-pixel x of a world x (the other way round from [`wx`]).
+fn lx(x: f32) -> f32 {
+    x * PPU + LW / 2.0
 }
 /// World y of a logical-pixel y (ground top -> 0, up positive).
 fn wy(y_px: f32) -> f32 {
@@ -1060,12 +1182,14 @@ fn haze_step(far: f32, near: f32) -> f32 {
     1.0 - (1.0 - far) / (1.0 - near)
 }
 
-/// Lay a plane's tile end to end across the view at depth `z`, scrolled by
-/// `off` world units, its bottom at `base_y`; each tile one draw call, all
-/// lit by lamps fixed in the world (`lamps`), so the plane slides under them.
+/// Lay a plane's tile end to end across what `eye` sees at depth `z`,
+/// scrolled by `off` world units, its bottom at `base_y`; each tile one draw
+/// call, all lit by lamps fixed in the world (`lamps`), so the plane slides
+/// under them.
 #[allow(clippy::too_many_arguments)]
 fn lay_tiles(
     d: &mut impl RaylibDraw3D,
+    eye: &Eye,
     model: &BrickModel,
     glass: Option<&mut Lampula>,
     tile: f32,
@@ -1074,9 +1198,9 @@ fn lay_tiles(
     off: f32,
     lamps: (Vector3, Vector3),
 ) {
-    let span = half_span(z);
-    let k0 = ((off - span) / tile - 0.5).floor() as i64;
-    let k1 = ((off + span) / tile + 0.5).ceil() as i64;
+    let (l, r) = eye.span(z, (base_y, base_y + model.max.y));
+    let k0 = ((off + l) / tile - 0.5).floor() as i64;
+    let k1 = ((off + r) / tile + 0.5).ceil() as i64;
     let mut glass = glass;
     for k in k0..=k1 {
         let t = Matrix::translate(k as f32 * tile - off, base_y, z);
@@ -1116,13 +1240,6 @@ fn cloud_transform(cloud: &FlatModel, base: Vector3, s: f32, t: f32, k: i64) -> 
         * Matrix::translate(base.x + c.x * s, base.y + c.y * s + bob, base.z + c.z * s)
 }
 
-/// Visible half-width (world units) of a layer at depth `z` for our camera —
-/// used to know which procedural tiles are on screen.
-fn half_span(z: f32) -> f32 {
-    // camera z 12.5, fovy 45 deg, 16:9 -> half-width = (12.5 - z) * tan(22.5) * aspect
-    (12.5 - z) * 0.4142 * (16.0 / 9.0) + 2.0
-}
-
 impl VoiceGame for Runner {
     fn autoplay(&mut self) -> Option<VoiceInput> {
         Some(self.pilot())
@@ -1132,6 +1249,10 @@ impl VoiceGame for Runner {
         // Every game its own order of obstacles and ledges (the unit tests,
         // which never init, keep `new`'s fixed seed).
         self.rng = clock_seed();
+        let (w, h) = (rl.get_screen_width(), rl.get_screen_height());
+        if w > 0 && h > 0 {
+            self.eye.aspect = w as f32 / h as f32;
+        }
 
         let toon = rl.load_shader_from_memory(
             thread,
@@ -1159,12 +1280,6 @@ impl VoiceGame for Runner {
         );
 
         self.gfx = Some(Gfx {
-            camera: Camera3D::perspective(
-                Vector3::new(0.9, 2.2, 12.5),
-                Vector3::new(0.0, 1.0, 0.0),
-                Vector3::Y,
-                45.0,
-            ),
             toon,
             cloud,
             sun,
@@ -1299,6 +1414,19 @@ impl VoiceGame for Runner {
             }
         }
 
+        // --- camera: up and down after the hero, gently ---
+        let feet_up = ((GROUND_Y - (self.hero_y + HERO_H)) / PPU).max(0.0);
+        let goal = (feet_up * CAM_FOLLOW).min(CAM_LIFT_MAX);
+        // Semi-implicit Euler in small substeps: stable even if a frame hitches.
+        let n = (dt * 240.0).ceil().max(1.0);
+        let h = dt / n;
+        for _ in 0..n as u32 {
+            let pull = CAM_RATE * CAM_RATE * (goal - self.cam_lift);
+            self.cam_lift_v += (pull - 2.0 * CAM_RATE * self.cam_lift_v) * h;
+            self.cam_lift += self.cam_lift_v * h;
+        }
+        let view = self.view();
+
         // --- obstacles ---
         self.spawn_timer -= dt;
         if self.spawn_timer <= 0.0 {
@@ -1311,7 +1439,8 @@ impl VoiceGame for Runner {
                 self.last_ledges = true;
             } else {
                 let kind = self.next_kind();
-                let mut o = Obstacle::new(LW + 120.0, kind);
+                let mut o = Obstacle::new(0.0, kind);
+                o.x = self.entry_px(obstacle_bounds(&o), o.x);
                 o.phase = hash01(self.dist as i64, 14) * std::f32::consts::TAU;
                 self.obstacles.push(o);
                 self.spawn_timer = gap;
@@ -1358,13 +1487,16 @@ impl VoiceGame for Runner {
         if starred {
             self.speed = (self.speed + 8.0).min(500.0);
         }
-        self.obstacles.retain(|o| o.x > -200.0 && o.fly_y < 720.0);
+        // Gone once all of it is out past the left edge (or, bumped, fallen
+        // far below the picture).
+        self.obstacles
+            .retain(|o| !view.gone_left(obstacle_bounds(o)) && o.fly_y < 720.0);
 
         // --- ledges and their little suns ---
         for l in &mut self.ledges {
             l.x -= self.speed * dt;
         }
-        self.ledges.retain(|l| l.x + l.w() > -200.0);
+        self.ledges.retain(|l| !view.gone_left(ledge_bounds(l)));
         for s in &mut self.little_suns {
             s.x -= self.speed * dt;
         }
@@ -1374,7 +1506,10 @@ impl VoiceGame for Runner {
         let (taken, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.little_suns)
             .into_iter()
             .partition(|s| overlaps(hero, little_sun_rect(s), 0.0));
-        self.little_suns = kept.into_iter().filter(|s| s.x > -200.0).collect();
+        self.little_suns = kept
+            .into_iter()
+            .filter(|s| !view.gone_left(little_sun_bounds(s)))
+            .collect();
         for s in taken {
             self.stars += 1;
             self.coin.earn();
@@ -1390,7 +1525,7 @@ impl VoiceGame for Runner {
             self.bullets[bi].x += BULLET_VX * dt;
             self.bullets[bi].rot += 720.0 * dt;
             let (bx, by) = (self.bullets[bi].x, self.bullets[bi].y);
-            if bx > LW + 200.0 {
+            if view.gone_right(bullet_bounds(&self.bullets[bi])) {
                 self.bullets[bi].dead = true;
                 continue;
             }
@@ -1432,10 +1567,14 @@ impl VoiceGame for Runner {
     }
 
     fn draw(&mut self, d: &mut RaylibDrawHandle, w: i32, h: i32) {
+        if w > 0 && h > 0 {
+            self.eye.aspect = w as f32 / h as f32;
+        }
+        let eye = self.view();
         let Some(gfx) = &mut self.gfx else {
             return; // headless (unit tests) — nothing to draw with
         };
-        let camera = gfx.camera;
+        let camera = eye.camera();
 
         // Sky behind everything: deep blue overhead, paler toward the horizon.
         d.clear_background(SKY_LOW);
@@ -1506,9 +1645,13 @@ impl VoiceGame for Runner {
                 }
                 let z = -14.0;
                 let off = dist_u * 0.10 + self.t * 0.12;
-                let span = half_span(z);
-                let k0 = ((off - span) / CLOUD_PERIOD).floor() as i64;
-                let k1 = ((off + span) / CLOUD_PERIOD).ceil() as i64;
+                // Every lane whose cloud reaches into the picture, at its
+                // biggest and highest.
+                let tallest = CLOUD_H + CLOUD_H_VARY;
+                let (l, r) = eye.span(z, (3.3, 3.3 + 2.2 + tallest));
+                let reach = cloud.size.x * cloud.scale_for_height(tallest) * 0.55;
+                let k0 = ((off + l - reach) / CLOUD_PERIOD).floor() as i64;
+                let k1 = ((off + r + reach) / CLOUD_PERIOD).ceil() as i64;
                 for k in k0..=k1 {
                     let cx = k as f32 * CLOUD_PERIOD - off;
                     // Vary size and altitude per lane so the repeat is invisible.
@@ -1554,6 +1697,7 @@ impl VoiceGame for Runner {
             }
             lay_tiles(
                 &mut c3,
+                &eye,
                 mountains,
                 gfx.backdrop_glass.as_mut(),
                 props::MOUNTAIN_TILE as f32 * props::MOUNTAIN_CELL,
@@ -1577,6 +1721,7 @@ impl VoiceGame for Runner {
             let mut c3 = d.begin_mode3D(camera);
             lay_tiles(
                 &mut c3,
+                &eye,
                 model,
                 gfx.backdrop_glass.as_mut(),
                 grove.tile as f32 * grove.cell,
@@ -1595,6 +1740,7 @@ impl VoiceGame for Runner {
             let mut c3 = d.begin_mode3D(camera);
             lay_tiles(
                 &mut c3,
+                &eye,
                 jungle,
                 gfx.backdrop_glass.as_mut(),
                 props::JUNGLE_TILE as f32 * props::JUNGLE_CELL,
@@ -1627,6 +1773,7 @@ impl VoiceGame for Runner {
             if let Some(ground) = &gfx.ground {
                 lay_tiles(
                     &mut c3,
+                    &eye,
                     ground,
                     gfx.world_glass.as_mut(),
                     props::GROUND_TILE as f32 * props::GROUND_CELL,
@@ -1699,7 +1846,7 @@ impl VoiceGame for Runner {
                     let front = gfx
                         .obstacle_models
                         .as_ref()
-                        .map_or(0.3, |models| models.of(o.kind).max.z);
+                        .map_or(OBSTACLE_HALF_DEPTH, |models| models.of(o.kind).max.z);
                     let c = tablet_centre(o, front);
                     let floats = c.z == TABLET_FLOAT_Z && !o.bounced;
                     let bob = if floats {
@@ -2052,6 +2199,107 @@ mod tests {
         }
         assert!(r.on_ground);
         assert_eq!(r.hero_y, GROUND_Y - HERO_H);
+    }
+
+    /// Every way the picture can be shaped that a family's screen might have.
+    const ASPECTS: [f32; 4] = [4.0 / 3.0, 16.0 / 10.0, 16.0 / 9.0, 21.0 / 9.0];
+
+    #[test]
+    fn everything_comes_in_out_of_sight() {
+        for aspect in ASPECTS {
+            let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);
+            r.eye.aspect = aspect;
+            let view = r.view();
+            let unseen = |b: Bounds| b.x.0 > view.right_edge(b.y, b.z);
+            // Each obstacle kind, as the spawner places it.
+            for kind in [Kind::Jump, Kind::Duck, Kind::Wall, Kind::High] {
+                let mut o = Obstacle::new(0.0, kind);
+                o.x = r.entry_px(obstacle_bounds(&o), o.x);
+                assert!(unseen(obstacle_bounds(&o)), "{kind:?} at {aspect}");
+            }
+            // Each ledge pattern, little suns and all.
+            for _ in 0..12 {
+                r.ledges.clear();
+                r.little_suns.clear();
+                r.spawn_ledges();
+                assert!(r.ledges.iter().all(|l| unseen(ledge_bounds(l))));
+                assert!(r.little_suns.iter().all(|s| unseen(little_sun_bounds(s))));
+            }
+        }
+    }
+
+    #[test]
+    fn things_stay_while_any_of_them_shows() {
+        for aspect in ASPECTS {
+            let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);
+            r.eye.aspect = aspect;
+            r.spawn_timer = 999.0;
+            let view = r.view();
+            // A wall whose right side just pokes into the picture on the
+            // left: it stays. Once all of it is past the edge, it goes.
+            let mut o = Obstacle::new(0.0, Kind::Wall);
+            let b = obstacle_bounds(&o);
+            let edge = view.left_edge(b.y, b.z);
+            o.x = lx(edge - (b.x.1 - wx(o.x)) + 0.05);
+            r.obstacles.push(o);
+            r.update(&input(None, None), 1e-4);
+            assert_eq!(r.obstacles.len(), 1, "dropped in sight at {aspect}");
+            for _ in 0..120 {
+                r.update(&input(None, None), 1.0 / 60.0);
+            }
+            assert!(r.obstacles.is_empty(), "never dropped at {aspect}");
+        }
+    }
+
+    #[test]
+    fn the_obstacles_fit_their_half_depth() {
+        for g in [
+            props::block(),
+            props::bridge(),
+            props::wall(),
+            props::pillar(),
+        ] {
+            assert!(g.d as f32 * props::OBSTACLE_CELL / 2.0 <= OBSTACLE_HALF_DEPTH);
+        }
+    }
+
+    #[test]
+    fn the_camera_follows_a_jump_gently_and_comes_back() {
+        let dt = 1.0 / 60.0;
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);
+        r.spawn_timer = 999.0;
+        r.update(&input(Some(0), Some(0)), dt);
+        let (mut highest, mut prev, mut steepest) = (0.0f32, 0.0f32, 0.0f32);
+        for _ in 0..90 {
+            r.update(&input(None, None), dt);
+            highest = highest.max(r.cam_lift);
+            steepest = steepest.max((r.cam_lift - prev).abs());
+            prev = r.cam_lift;
+        }
+        // Visibly up, but not all the way: it lags, softly.
+        assert!(highest > 0.25, "rose {highest}");
+        assert!(highest < CAM_FOLLOW * 2.4, "rose {highest}");
+        assert!(steepest < 0.03, "a jolt of {steepest} in a frame");
+        // And back down, without dipping below the ground's view.
+        let mut lowest = f32::MAX;
+        for _ in 0..240 {
+            r.update(&input(None, None), dt);
+            lowest = lowest.min(r.cam_lift);
+        }
+        assert!(r.cam_lift.abs() < 0.01, "still {}", r.cam_lift);
+        assert!(lowest > -0.01, "dipped to {lowest}");
+
+        // A double jump takes it higher, but never past the cap.
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);
+        r.spawn_timer = 999.0;
+        r.update(&input(Some(0), Some(0)), dt);
+        let mut double = 0.0f32;
+        for i in 0..150 {
+            let again = if i == 20 { Some(0) } else { None };
+            r.update(&input(again, again), dt);
+            double = double.max(r.cam_lift);
+        }
+        assert!(double > highest && double <= CAM_LIFT_MAX, "{double}");
     }
 
     #[test]

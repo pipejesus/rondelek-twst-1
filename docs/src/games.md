@@ -141,10 +141,38 @@ world units (100 logical px = 1 unit).
 
 ### The scene, back to front
 
-The camera is fixed in perspective at `(0.9, 2.2, 12.5)`, looking at
-`(0, 1, 0)`, with a fovy of 45°. It never moves. Instead, each layer scrolls by
-its own hand-tuned fraction of the distance travelled, so the world seems to
-glide past while the camera stays put.
+The camera rests in perspective at `(0.9, 2.2, 12.5)` (`CAMERA_AT`), looking
+at `(0, 1, 0)`, with a fovy of 45°. It never moves sideways. Instead, each layer
+scrolls by its own hand-tuned fraction of the distance travelled, so the world
+seems to glide past while the camera stays put.
+
+It does follow the hero up and down, gently. It rises by `CAM_FOLLOW` (about a
+third) of how high the hero's feet are, never more than `CAM_LIFT_MAX`, on a
+critically damped spring (`CAM_RATE`), so it eases up after a jump and eases
+back without ever overshooting. Both where it stands and where it looks move
+together, so nothing tilts. The scene is truly 3D, so rising shows it from a
+little higher, and the near things slide down further than the far planes:
+vertical parallax, for free. A test keeps it soft (no jolt in a frame) and
+keeps it coming back to rest.
+
+### Coming and going out of sight
+
+Nothing pops up or vanishes on screen. `game/src/view.rs` describes the camera
+as plain geometry (`Eye`): where the picture's left and right edges fall at a
+given depth and height (they lean a little, since the camera looks down and in
+from the side), for whatever shape the window has and wherever the camera has
+risen to. Everything the runner adds takes up a box in the world (`Bounds`),
+with all it carries: an obstacle's tablet (hopping and bobbing at its highest),
+the little suns over a ledge, a bullet's whirling cubes (`obstacle_bounds`,
+`ledge_bounds`, …). A new thing is placed with all of its box just past the
+right edge (`Eye::entry`, plus `view::MARGIN`); it's dropped only once all of
+it is past the left edge (`Eye::gone_left`), and a bullet once it's past the
+right (`Eye::gone_right`). The far planes' tiles and the cloud lanes are laid
+across the same edges (`Eye::span`), so a wide window never sees their ends.
+(Things used to come in at a fixed logical x, 1400, which a 16:9 picture
+already shows: tests now hold every kind of thing to entering out of sight at
+4:3 to 21:9.) A new game gets this by giving its things boxes and asking its
+`Eye`.
 
 | Layer | Where | How it's drawn |
 |-------|-------|----------------|

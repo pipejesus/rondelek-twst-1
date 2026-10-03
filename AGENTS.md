@@ -213,6 +213,8 @@ game/src/                 rondelek-game: raylib voice games (child process)
   profile_picker.rs       reusable "who's playing?" screen (standalone launches)
   runner.rs               "Vowel Runner" 2.5D game
   voice.rs                mic + vowel detector → per-frame game input
+  view.rs                 what the camera sees, as geometry: where the picture's
+                          edges fall, so things come and go out of sight
   models.rs               embedded flat-draw GLB props (clouds, score sun)
   shader_params.rs        shader tuning tables (flat-draw's Param rows) + JSON overrides
   lampula.rs              flat-draw's Lam::pula glass shader, 1:1 (clouds, sun, water)
