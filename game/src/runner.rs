@@ -36,6 +36,7 @@ use super::bricks::{BrickModel, Build};
 use super::lampula::{Lampula, LampulaParams, world_box};
 use super::models::FlatModel;
 use super::props;
+use super::twinkle::Twinkles;
 use super::view::{Bounds, Eye};
 use super::water::{self, Water};
 use super::{VoiceGame, VoiceInput};
@@ -165,6 +166,9 @@ const JUNGLE_Z: f32 = -5.0;
 const JUNGLE_SCROLL: f32 = 0.36;
 /// World y of the jungle's middle, top to bottom: where its lamps centre.
 const JUNGLE_MID: f32 = props::JUNGLE_BASE + props::JUNGLE_LAYERS as f32 * props::JUNGLE_CELL / 2.0;
+/// The jungle's lowest layer that twinkles (see `twinkle.rs`): the first
+/// one clear of the meadow and the thick of the mist, half a unit up.
+const JUNGLE_TWINKLES_FROM: usize = ((0.5 - props::JUNGLE_BASE) / props::JUNGLE_CELL) as usize;
 // Atmospheric haze: how far each plane ends up pulled toward the sky behind
 // it (0 = not at all, 1 = gone) — the farther, the more. The clouds' is what
 // it was before the planes came, so they look as they did. See `haze_step`.
@@ -651,6 +655,8 @@ pub struct Runner {
     cam_lift: f32,
     cam_lift_v: f32,
     rng: u64,
+    /// Now and then a glint on the jungle (none until `init` has built it).
+    twinkles: Twinkles,
     // Copied from the latest VoiceInput so draw() can show live feedback.
     last_scores: [f32; 6],
     last_held: Option<usize>,
@@ -711,6 +717,7 @@ impl Runner {
             cam_lift: 0.0,
             cam_lift_v: 0.0,
             rng: 0x2545_F491_4F6C_DD1D,
+            twinkles: Twinkles::default(),
             last_scores: [0.0; 6],
             last_held: None,
             last_level: 0.0,
@@ -729,11 +736,7 @@ impl Runner {
     }
 
     fn rand(&mut self) -> f32 {
-        // xorshift64* — plenty for obstacle variety.
-        self.rng ^= self.rng >> 12;
-        self.rng ^= self.rng << 25;
-        self.rng ^= self.rng >> 27;
-        (self.rng.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
+        next_rand(&mut self.rng)
     }
 
     /// What the camera sees now: the eye at rest, risen after the hero.
@@ -1065,6 +1068,15 @@ fn clock_seed() -> u64 {
     (z ^ (z >> 31)) | 1
 }
 
+/// The next of the runner's random numbers, 0..1, from its state `rng`:
+/// xorshift64* — plenty for obstacle variety.
+fn next_rand(rng: &mut u64) -> f32 {
+    *rng ^= *rng >> 12;
+    *rng ^= *rng << 25;
+    *rng ^= *rng >> 27;
+    (rng.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
+}
+
 fn hash01(k: i64, salt: u64) -> f32 {
     let mut h = (k as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt;
     h ^= h >> 33;
@@ -1296,6 +1308,9 @@ impl VoiceGame for Runner {
             "cloud",
             include_bytes!("../../assets/models/cloud.glb"),
         );
+        // Built once: the jungle's tile, and the bricks on it that twinkle.
+        let jungle = props::jungle();
+        self.twinkles = Twinkles::on(&jungle, props::JUNGLE_CELL, JUNGLE_TWINKLES_FROM);
         let sun = load_prop(
             rl,
             thread,
@@ -1344,7 +1359,7 @@ impl VoiceGame for Runner {
             jungle: BrickModel::build(
                 thread,
                 "jungle",
-                &props::jungle(),
+                &jungle,
                 &props::JUNGLE_PALETTE,
                 props::JUNGLE_CELL,
                 props::JUNGLE_BUILD,
@@ -1603,6 +1618,15 @@ impl VoiceGame for Runner {
             s.y -= 60.0 * dt;
         }
         self.sparkles.retain(|s| s.age < 1.0);
+
+        // Twinkles on the jungle, started well inside what the camera sees
+        // of it (a fifth in from either side), on its own scrolled track.
+        let (l, r) = self.view().span(JUNGLE_Z, (JUNGLE_MID, JUNGLE_MID));
+        let (l, r) = (l + (r - l) / 5.0, r - (r - l) / 5.0);
+        let off = self.dist / PPU * JUNGLE_SCROLL;
+        let rng = &mut self.rng;
+        self.twinkles
+            .step(dt, (l + off, r + off), &mut || next_rand(rng));
     }
 
     fn draw(&mut self, d: &mut RaylibDrawHandle, w: i32, h: i32) {
@@ -1794,6 +1818,13 @@ impl VoiceGame for Runner {
                         props::JUNGLE_DEPTH as f32 * props::JUNGLE_CELL / 2.0,
                     ),
                 ),
+            );
+            self.twinkles.draw(
+                &mut c3,
+                camera.position,
+                dist_u * JUNGLE_SCROLL,
+                props::JUNGLE_BASE,
+                JUNGLE_Z,
             );
         }
         haze(d, JUNGLE_HAZE);
