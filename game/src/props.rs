@@ -27,6 +27,51 @@ fn hash(x: usize, y: usize, z: usize, salt: u64) -> f32 {
     (h & 0xFFFF) as f32 / 65535.0
 }
 
+/// Perlin's gradient noise at `p` (in lattice steps), about −1..1: smooth
+/// rises and dips a lattice step or so across, the same for the same place
+/// every time. It repeats every `period` steps along x, so a tile laid end to
+/// end meets itself without a seam. For `p` at or above 0.
+fn gradient_noise(p: [f32; 3], period: usize, salt: u64) -> f32 {
+    // The twelve directions from a cube's centre to the middles of its edges.
+    const DIRS: [[f32; 3]; 12] = [
+        [1.0, 1.0, 0.0],
+        [-1.0, 1.0, 0.0],
+        [1.0, -1.0, 0.0],
+        [-1.0, -1.0, 0.0],
+        [1.0, 0.0, 1.0],
+        [-1.0, 0.0, 1.0],
+        [1.0, 0.0, -1.0],
+        [-1.0, 0.0, -1.0],
+        [0.0, 1.0, 1.0],
+        [0.0, -1.0, 1.0],
+        [0.0, 1.0, -1.0],
+        [0.0, -1.0, -1.0],
+    ];
+    let low = p.map(|v| v.floor() as usize);
+    let f = [0, 1, 2].map(|k| p[k] - low[k] as f32);
+    // A lattice corner's slope: rising along its own direction, through 0
+    // at the corner itself.
+    let corner = |c: [usize; 3]| {
+        let g = DIRS[(hash((low[0] + c[0]) % period, low[1] + c[1], low[2] + c[2], salt) * 12.0)
+            as usize
+            % 12];
+        (0..3).map(|k| g[k] * (f[k] - c[k] as f32)).sum::<f32>()
+    };
+    // Blended with Perlin's quintic, smooth to the second derivative: no
+    // crease shows where the lattice steps.
+    let u = f.map(|t| t * t * t * (t * (t * 6.0 - 15.0) + 10.0));
+    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+    let along_x = |y, z| lerp(corner([0, y, z]), corner([1, y, z]), u[0]);
+    let along_y = |z| lerp(along_x(0, z), along_x(1, z), u[1]);
+    lerp(along_y(0), along_y(1), u[2])
+}
+
+/// 0 below `a`, 1 above `b`, and an S-curve between.
+fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 // ---- the meadow -------------------------------------------------------------
 
 /// One meadow brick, world units: the water's brick, so the two meet as one.
@@ -770,10 +815,56 @@ fn shade_lobes(j: &mut Jungle, lobes: &[Lobe]) {
 /// pale-trunked trees with buttress roots, wide canopies and lianas, jungle
 /// palms among them, bushes between, and big-leaved plants and ferns
 /// crowding the floor — each at its own depth, the near ones hiding the far
-/// ones' feet (see [`jungle_plants`]). The palm grove stands in a plane of
-/// its own behind it (`palm_grove`).
+/// ones' feet (see [`jungle_plants`]); its nearer bricks glassy (see
+/// [`veil`]). The palm grove stands in a plane of its own behind it
+/// (`palm_grove`).
 pub fn jungle() -> Grid {
-    jungle_plants().g
+    let mut g = jungle_plants().g;
+    veil(&mut g);
+    g
+}
+
+/// How far back the jungle's veil reaches: 0 is the jungle's back, 1 its
+/// front. Halfway: the palms, the big leaves and the ferns, the jungle's
+/// front plane; the trees and the dark heart behind stay solid.
+const VEIL_FROM: f32 = 0.5;
+/// The most a veiled brick lets through: at the very front, in the thick of
+/// a drift.
+const VEIL_MOST: f32 = 0.75;
+/// A drift's size: the noise's lattice step, in bricks. It divides
+/// [`JUNGLE_TILE`], so the drifts run on across the seam between two tiles.
+const VEIL_GRAIN: usize = 8;
+
+/// Make the jungle's nearer bricks see-through, as the score sun's glass is:
+/// the more the nearer they stand, and in drifts (a smooth noise) rather
+/// than brick by brick, so a clump of leaves goes glassy together while the
+/// next stays solid. Its back stays solid: the glass is seen against it.
+fn veil(g: &mut Grid) {
+    const SALT: u64 = 91;
+    let grain = VEIL_GRAIN as f32;
+    let period = g.w / VEIL_GRAIN;
+    for z in 0..g.d {
+        let depth = smoothstep(VEIL_FROM, 1.0, (z as f32 + 0.5) / g.d as f32);
+        if depth <= 0.0 {
+            continue;
+        }
+        for y in 0..g.h {
+            for x in 0..g.w {
+                if g.get(x as isize, y as isize, z as isize) == 0 {
+                    continue;
+                }
+                // Two octaves: broad drifts, ruffled at half their size.
+                let at = |k: f32| [x, y, z].map(|v| (v as f32 + 0.5) / grain * k);
+                let n = gradient_noise(at(1.0), period, SALT)
+                    + 0.5 * gradient_noise(at(2.0), 2 * period, SALT + 1);
+                let drift = smoothstep(-0.2, 0.3, n);
+                // In sixteenths: finer is never seen, and the barely veiled
+                // round back to solid (glass costs faces; see `Grid::covers`).
+                let opaque = ((1.0 - VEIL_MOST * depth * drift) * 16.0).round() / 16.0;
+                g.set_alpha(x, y, z, (255.0 * opaque).round() as u8);
+            }
+        }
+    }
 }
 
 /// A palm grove: one tile of palms, laid end to end in a plane of its own
@@ -1408,6 +1499,62 @@ mod tests {
         }
         assert!(depths.len() >= 6, "front depths {depths:?}");
         assert!(shades.len() >= 7, "front shades {shades:?}");
+    }
+
+    #[test]
+    fn the_jungle_is_glassy_in_front_and_solid_behind() {
+        use crate::bricks::SOLID;
+        let g = jungle();
+        // Per slice, back to front: its bricks, how many are see-through,
+        // and how many let more than half through.
+        let slices: Vec<(usize, usize, usize)> = (0..g.d as isize)
+            .map(|z| {
+                let mut s = (0, 0, 0);
+                for y in 0..g.h as isize {
+                    for x in 0..g.w as isize {
+                        if g.get(x, y, z) != 0 {
+                            let a = g.alpha(x, y, z);
+                            s.0 += 1;
+                            s.1 += usize::from(a < SOLID);
+                            s.2 += usize::from(a < 128);
+                        }
+                    }
+                }
+                s
+            })
+            .collect();
+        let share = |n: usize, of: usize| n as f32 / of.max(1) as f32;
+        // The back half is solid: the glass is seen against it.
+        assert!(slices[..g.d / 2].iter().all(|s| s.1 == 0), "{slices:?}");
+        // The front is glassy in drifts: much of it clear, much of it not.
+        let front = slices[g.d - 1];
+        assert!(share(front.2, front.0) > 0.25, "{front:?}");
+        assert!(share(front.1, front.0) < 0.8, "{front:?}");
+        // Nearer is glassier.
+        for p in slices.windows(2) {
+            assert!(share(p[1].2, p[1].0) >= share(p[0].2, p[0].0), "{slices:?}");
+        }
+    }
+
+    #[test]
+    fn the_noise_is_smooth_and_runs_on_round_the_tile() {
+        let period = 24;
+        for i in 0..200 {
+            let p = [
+                hash(i, 0, 0, 5) * period as f32,
+                hash(i, 1, 0, 5) * 4.0,
+                hash(i, 2, 0, 5) * 2.0,
+            ];
+            let n = gradient_noise(p, period, 7);
+            assert!(n.abs() <= 1.0, "{p:?} → {n}");
+            // A whole period along, the same; a hair along, nearly so.
+            let round = gradient_noise([p[0] + period as f32, p[1], p[2]], period, 7);
+            assert!((n - round).abs() < 1e-4, "{p:?}: {n} vs {round}");
+            let near = gradient_noise([p[0] + 0.01, p[1] + 0.01, p[2]], period, 7);
+            assert!((n - near).abs() < 0.05, "{p:?}: {n} vs {near}");
+        }
+        // Through 0 on every lattice corner.
+        assert_eq!(gradient_noise([3.0, 2.0, 1.0], period, 7), 0.0);
     }
 
     #[test]

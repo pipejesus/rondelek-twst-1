@@ -2,12 +2,14 @@
 //! mesh and lit by Lam::pula, so they sit in the same world as the kid's
 //! flat-draw drawings (the clouds, the sun) and the brick water.
 //!
-//! A [`Grid`] holds a palette colour per cell (0 = empty). [`BrickModel::build`]
-//! walls in every filled cell — one quad per face that borders an empty one —
-//! and points each quad's texcoords at its colour in a small palette texture,
-//! the way a flat-draw export points into its atlas. Lam::pula then does the
-//! rest: the glass light, the brick edges and the corner glints, found on the
-//! grid through [`BrickModel::lattice`].
+//! A [`Grid`] holds a palette colour per cell (0 = empty), and, if it wants,
+//! how see-through each brick is. [`BrickModel::build`] walls in every filled
+//! cell — one quad per face that borders an empty or see-through one — and
+//! points each quad's texcoords at its colour (and opacity) in a small palette
+//! texture, the way a flat-draw export points into its atlas, where a layer's
+//! opacity is baked in too. Lam::pula then does the rest: the glass light, the
+//! brick edges and the corner glints, found on the grid through
+//! [`BrickModel::lattice`].
 //!
 //! The runner's ground and obstacles are built from these (see `props.rs`).
 
@@ -23,7 +25,13 @@ pub struct Grid {
     pub h: usize,
     pub d: usize,
     cells: Vec<u8>,
+    /// Each cell's opacity, 0 (clear) to [`SOLID`]; `None` until a brick is
+    /// first made see-through, so a solid grid carries no second layer.
+    alpha: Option<Vec<u8>>,
 }
+
+/// A brick's opacity when nothing else is said: it hides what is behind it.
+pub const SOLID: u8 = 255;
 
 impl Grid {
     pub fn new(w: usize, h: usize, d: usize) -> Self {
@@ -32,6 +40,7 @@ impl Grid {
             h,
             d,
             cells: vec![0; w * h * d],
+            alpha: None,
         }
     }
 
@@ -64,6 +73,56 @@ impl Grid {
                 }
             }
         }
+    }
+
+    /// A cell's opacity; [`SOLID`] outside the grid and wherever none was set.
+    pub fn alpha(&self, x: isize, y: isize, z: isize) -> u8 {
+        if x < 0 || y < 0 || z < 0 {
+            return SOLID;
+        }
+        let i = self.index(x as usize, y as usize, z as usize);
+        self.alpha
+            .as_ref()
+            .zip(i)
+            .map_or(SOLID, |(alpha, i)| alpha[i])
+    }
+
+    /// Make one cell's brick see-through by `alpha` (0 clear, [`SOLID`] not at
+    /// all). Kept apart from its colour: refilling the cell leaves it be.
+    pub fn set_alpha(&mut self, x: usize, y: usize, z: usize, alpha: u8) {
+        let Some(i) = self.index(x, y, z) else {
+            return;
+        };
+        if alpha == SOLID && self.alpha.is_none() {
+            return;
+        }
+        let n = self.cells.len();
+        self.alpha.get_or_insert_with(|| vec![SOLID; n])[i] = alpha;
+    }
+
+    /// Whether the brick in a cell covers the face its neighbour (`alpha`
+    /// opaque) turns toward it, so that face is left out. A solid brick
+    /// covers any face. A see-through one covers another see-through one's:
+    /// touching glass bricks are one body, seen by its skin, not a stack of
+    /// panes (which would add up to solid again). Only a solid brick's face
+    /// shows through it.
+    fn covers(&self, x: isize, y: isize, z: isize, alpha: u8) -> bool {
+        self.get(x, y, z) != 0 && (self.alpha(x, y, z) == SOLID || alpha != SOLID)
+    }
+
+    /// Every opacity a brick of the grid has, in order: the palette
+    /// texture's rows. Just [`SOLID`] for a grid that hides all it covers.
+    fn alphas(&self) -> Vec<u8> {
+        let Some(alpha) = &self.alpha else {
+            return vec![SOLID];
+        };
+        let mut used = [false; 256];
+        for (&c, &a) in self.cells.iter().zip(alpha) {
+            if c != 0 {
+                used[a as usize] = true;
+            }
+        }
+        (0..=255u8).filter(|&a| used[a as usize]).collect()
     }
 }
 
@@ -103,19 +162,21 @@ struct Faces {
     /// Into `vertices`, all of them: [`Faces::meshes`] splits them into runs
     /// raylib's 16-bit indices can hold.
     indices: Vec<u32>,
+    /// The palette texture's rows: one opacity each (see [`Grid::alphas`]).
+    alphas: Vec<u8>,
 }
 
 impl Faces {
+    /// Every face that can be seen, back to front: the camera is always in
+    /// front, so drawn in this order a see-through brick blends over what
+    /// stands behind it, never the other way round.
     fn new(grid: &Grid, cell: f32, colours: usize, how: Build) -> Self {
-        let mut f = Self {
-            vertices: Vec::new(),
-            texcoords: Vec::new(),
-            normals: Vec::new(),
-            indices: Vec::new(),
-        };
+        let alphas = grid.alphas();
         let x0 = -(grid.w as f32) * cell / 2.0;
         let z0 = -(grid.d as f32) * cell / 2.0;
         let (w, h, d) = (grid.w as isize, grid.h as isize, grid.d as isize);
+        // Each face as (depth of its middle, low corner, normal, texcoords).
+        let mut seen = Vec::new();
         for z in 0..d {
             for y in 0..h {
                 for x in 0..w {
@@ -123,8 +184,13 @@ impl Faces {
                     if c == 0 {
                         continue;
                     }
-                    // Its colour's texel centre in the one-row palette.
-                    let uv = Vector2::new((c as f32 - 0.5) / colours.max(1) as f32, 0.5);
+                    // Its colour's texel centre, in the row of its opacity.
+                    let alpha = grid.alpha(x, y, z);
+                    let row = alphas.binary_search(&alpha).unwrap_or(0);
+                    let uv = Vector2::new(
+                        (c as f32 - 0.5) / colours.max(1) as f32,
+                        (row as f32 + 0.5) / alphas.len() as f32,
+                    );
                     let lo =
                         Vector3::new(x0 + x as f32 * cell, y as f32 * cell, z0 + z as f32 * cell);
                     for (k, step) in FACES.iter().enumerate() {
@@ -135,14 +201,28 @@ impl Faces {
                         if how.wrap_x {
                             nx = nx.rem_euclid(w);
                         }
-                        if grid.get(nx, y + step[1], z + step[2]) != 0 {
+                        if grid.covers(nx, y + step[1], z + step[2], alpha) {
                             continue; // covered by its neighbour
                         }
                         let n = Vector3::new(step[0] as f32, step[1] as f32, step[2] as f32);
-                        f.quad(lo, cell, n, uv);
+                        seen.push((lo.z + cell * (1.0 + n.z) / 2.0, lo, n, uv));
                     }
                 }
             }
+        }
+        // The grid was walked back to front already, slice by slice; this
+        // puts each slice's fronts after its tops and sides, and keeps the
+        // walk's order otherwise.
+        seen.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut f = Self {
+            vertices: Vec::with_capacity(seen.len() * 4),
+            texcoords: Vec::with_capacity(seen.len() * 4),
+            normals: Vec::with_capacity(seen.len() * 4),
+            indices: Vec::with_capacity(seen.len() * 6),
+            alphas,
+        };
+        for (_, lo, n, uv) in seen {
+            f.quad(lo, cell, n, uv);
         }
         f
     }
@@ -227,11 +307,12 @@ impl Faces {
     }
 }
 
-/// The one-row RGBA palette texture's pixels.
-fn palette_pixels(colours: &[[u8; 3]]) -> Vec<u8> {
-    colours
+/// The RGBA palette texture's pixels: the colours along, once per opacity
+/// (a solid grid's palette is one row).
+fn palette_pixels(colours: &[[u8; 3]], alphas: &[u8]) -> Vec<u8> {
+    alphas
         .iter()
-        .flat_map(|c| [c[0], c[1], c[2], 255])
+        .flat_map(|&a| colours.iter().flat_map(move |c| [c[0], c[1], c[2], a]))
         .collect()
 }
 
@@ -283,8 +364,8 @@ impl BrickModel {
         let palette = PaletteMaterial::new(
             thread,
             palette.len() as i32,
-            1,
-            &palette_pixels(palette),
+            faces.alphas.len() as i32,
+            &palette_pixels(palette, &faces.alphas),
             TextureFilter::TEXTURE_FILTER_POINT,
         )?;
         let (hw, hd) = (grid.w as f32 * cell / 2.0, grid.d as f32 * cell / 2.0);
@@ -448,5 +529,72 @@ mod tests {
         assert_eq!(g.get(-1, 0, 0), 0);
         assert_eq!(g.get(0, 2, 0), 0);
         assert_eq!(g.get(1, 1, 1), 1);
+        assert_eq!(g.alpha(-1, 0, 0), SOLID);
+        assert_eq!(g.alpha(1, 1, 1), SOLID);
+    }
+
+    #[test]
+    fn a_see_through_brick_shows_the_face_behind_it() {
+        let faces = |g: &Grid| Faces::new(g, 1.0, 1, Build::default()).indices.len() / 6;
+        // Two bricks, one behind the other: 10 faces between them.
+        let mut g = solid(1, 1, 2);
+        assert_eq!(faces(&g), 10);
+        // The front one see-through: the back one's front shows through it
+        // (its own back still hides against the solid one).
+        g.set_alpha(0, 0, 1, 128);
+        assert_eq!(faces(&g), 11);
+        // Both: one body of glass again, seen by its skin.
+        g.set_alpha(0, 0, 0, 200);
+        assert_eq!(faces(&g), 10);
+    }
+
+    #[test]
+    fn each_opacity_is_a_row_of_the_palette() {
+        let mut g = Grid::new(3, 1, 1);
+        g.set(0, 0, 0, 1);
+        g.set(1, 0, 0, 2);
+        g.set_alpha(1, 0, 0, 64);
+        // An empty cell's opacity is no brick's: it makes no row.
+        g.set_alpha(2, 0, 0, 7);
+        assert_eq!(g.alphas(), vec![64, SOLID]);
+        let f = Faces::new(&g, 1.0, 2, Build::default());
+        for (q, t) in f.vertices.chunks(4).zip(f.texcoords.chunks(4)) {
+            // Brick 1 (colour 2, see-through) in the first row; brick 0
+            // (colour 1, solid; x -1.5..-0.5) in the second.
+            let mid = q.iter().map(|v| v.x).sum::<f32>() / 4.0;
+            let want = if mid > -0.25 {
+                (0.75, 0.25)
+            } else {
+                (0.25, 0.75)
+            };
+            let t = t[0];
+            assert!(
+                (t.x - want.0).abs() < 1e-6 && (t.y - want.1).abs() < 1e-6,
+                "{q:?} {t:?}"
+            );
+        }
+        let px = palette_pixels(&[[1, 2, 3], [4, 5, 6]], &f.alphas);
+        assert_eq!(px, [1, 2, 3, 64, 4, 5, 6, 64, 1, 2, 3, 255, 4, 5, 6, 255]);
+        // A solid grid keeps its one-row palette.
+        assert_eq!(solid(2, 2, 2).alphas(), vec![SOLID]);
+    }
+
+    #[test]
+    fn faces_come_back_to_front() {
+        let mut g = Grid::new(6, 4, 6);
+        for z in 0..6 {
+            for y in 0..4 {
+                for x in 0..6 {
+                    if (x * 7 + y * 3 + z * 5) % 4 != 0 {
+                        g.set(x, y, z, 1);
+                    }
+                }
+            }
+        }
+        g.set_alpha(2, 1, 3, 100);
+        let f = Faces::new(&g, 1.0, 1, Build::default());
+        let mid = |q: &[Vector3]| q.iter().map(|v| v.z).sum::<f32>() / 4.0;
+        let depths: Vec<f32> = f.vertices.chunks(4).map(mid).collect();
+        assert!(depths.windows(2).all(|p| p[0] <= p[1]), "{depths:?}");
     }
 }

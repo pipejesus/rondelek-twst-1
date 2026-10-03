@@ -1210,10 +1210,26 @@ fn lay_tiles(
     let k0 = ((off + l) / tile - 0.5).floor() as i64;
     let k1 = ((off + r) / tile + 0.5).ceil() as i64;
     let mut glass = glass;
-    for k in k0..=k1 {
-        let t = Matrix::translate(k as f32 * tile - off, base_y, z);
+    for x in tiles_far_to_near(k0..=k1, tile, off, eye.position.x) {
+        let t = Matrix::translate(x, base_y, z);
         model.draw(d, glass.as_deref_mut(), t, lamps);
     }
+}
+
+/// Where tiles `ks` stand (each one's middle, world x), the one farthest to
+/// the side of the eye at `eye_x` first. Seen at a slant, a tile's back
+/// reaches past its seam, in behind the front of its neighbour nearer the
+/// eye; drawn first, it shows through that neighbour's see-through bricks
+/// rather than being cut out by them.
+fn tiles_far_to_near(
+    ks: std::ops::RangeInclusive<i64>,
+    tile: f32,
+    off: f32,
+    eye_x: f32,
+) -> impl Iterator<Item = f32> {
+    let mut xs: Vec<f32> = ks.map(|k| k as f32 * tile - off).collect();
+    xs.sort_by(|a, b| (b - eye_x).abs().total_cmp(&(a - eye_x).abs()));
+    xs.into_iter()
 }
 
 /// The env var naming a tuning file for [`world_glass`] (any Lam::pula key).
