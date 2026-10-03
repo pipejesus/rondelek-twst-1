@@ -199,7 +199,7 @@ already shows: tests now hold every kind of thing to entering out of sight at
 | **Vowel tablets** | z −0.75 (floating), or on a tall obstacle's front | code-built **bricks** (`props::tablet`): white stone with the vowel carved in, through their own white-lit Lam::pula |
 | Ledges, little suns | z 0 | floating strips of meadow bricks (`props::ledge`); `sun.glb`, small, through the sun's Lam::pula |
 | Stars (bullets) | z 0 | procedural cubes |
-| Hero | z 0 | the blocky brick hero under the toon shader (**permanent by design**) |
+| Hero | z 0 | the blocky brick hero under the toon shader |
 | Score sun | 3 units in front of the camera | `sun.glb` through its own Lam::pula, the count on its face |
 | HUD | 2D | point sparks, the vowel meter (and flat vowel signs, only if the tablets fail to build) |
 

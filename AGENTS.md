@@ -287,7 +287,7 @@ packaging/appimage/       Linux AppImage: AppRun (app / --game), desktop entry,
   (`~/zed-projects/flat-draw`) is precious: read it, never write to it.
 - **Game scenery must stay calm.** Background motion is tiny and slow (kids get
   dizzy), and scenery must not compete with the hero for attention (hence the
-  cloud haze, the calmed water). The blocky brick hero is permanent.
+  cloud haze, the calmed water).
 - **Skins.** One `skin.png` spritesheet (regions fixed by `config::atlas`) plus
   `skin.json` colours. The base skin is embedded; user skins are folders or zips
   in the skins dir.

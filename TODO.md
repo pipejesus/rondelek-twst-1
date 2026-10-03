@@ -37,8 +37,7 @@ Tracked items intentionally left for later batches.
   `RONDELEK_LAMPULA` first.
 - **Idea: grey out what's still placeholder.** Greg floated drawing every
   not-yet-replaced placeholder (the hero, …) in greyscale so
-  the real art stands out. Undecided; if done, as a dev toggle, and the brick
-  hero stays in colour (it is permanent).
+  the real art stands out. Undecided; if done, as a dev toggle.
 - **Kid avatars in the arcade picker**: kept as they are for now; maybe make
   their colours more vivid to match the arcade cards (Greg, 2026-09-27).
 - The arcade entrance is text-free. If it ever gets words ("PLAYER SELECT"),
@@ -53,8 +52,8 @@ Tracked items intentionally left for later batches.
   layers, so only the front "A" was whole: new letters would need exporting
   side by side.
 - **Hero, fish and the near planes come as Greg's flat-draw art** (via
-  `greg/`): the hero model (the brick hero stays, a drawn one would join it as
-  a choice), the fish, and the planes nearer the player (birds flying by and
+  `greg/`): the hero model (a character for the brick hero, or a drawn one in
+  its place), the fish, and the planes nearer the player (birds flying by and
   the like). The meadow, the obstacles and the far planes (mountains, palms,
   jungle; 2026-10-03) stay code-built bricks (`props.rs`), Greg's call.
 - **The far planes are tuned together, a hop at a time** (2026-10-03): the
