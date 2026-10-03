@@ -74,9 +74,6 @@ Tracked items intentionally left for later batches.
   under or among the bricks. (Lam::pula's corner glints stand in for the toon
   water's "+" twinkles. The toon water itself is kept whole:
   `RONDELEK_WATER_STYLE=toon`.)
-- **README gameplay GIF + still** still show the toon water. Re-record them
-  (`docs/images/arcade/record-runner.sh`) only when Greg says, after the
-  weekend's iterations, before the next release.
 - Upstream: report raylib-rs 6's `rl_mult_matrixf` passing the matrix
   transposed (it casts the row-ordered `Matrix` struct to the column-major
   `float[16]` rlgl expects). We work around it with `transpose()`.

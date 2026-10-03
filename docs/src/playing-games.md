@@ -5,7 +5,7 @@ controller. No buttons, no joystick: just say a vowel, and something happens
 on screen.
 
 <p align="center">
-  <img src="images/arcade-runner.png" alt="Vowel Runner: a little blue hero runs across a pixel meadow by a sparkling sea, towards brick walls marked with vowels, while a golden sun shows the score" width="560">
+  <img src="images/arcade-runner.png" alt="Vowel Runner: a little blue hero stands on a grassy ledge among little golden suns, below palms and snowy mountains in valley mist, by a sea of glass bricks, while the big golden sun shows the score" width="560">
 </p>
 
 The games need the [voice calibration](voice-calibration.md), so they know what
