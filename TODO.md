@@ -43,16 +43,15 @@ Tracked items intentionally left for later batches.
   their colours more vivid to match the arcade cards (Greg, 2026-09-27).
 - The arcade entrance is text-free. If it ever gets words ("PLAYER SELECT"),
   the game needs its own i18n first.
-- **3D carved vowel letters on the signs — postponed, code parked on branch
-  `feat/3d-vowel-letters` (pushed, not merged).** It already splits one GLB
-  into per-letter props by mesh name (`FlatModel::load_parts`, one draw call
-  each, one shared texture) and draws the signs in 3D: a tablet with the letter
-  on its face. Blocked on art: the first `letters.glb` stacked all six letters
-  in one spot, and the exporter culls faces between overlapping layers, so
-  only the front "A" was whole. Greg will draw new letters (side by side in
-  one file is fine) **and a wooden plate** for them to sit on (instead of the
-  placeholder slab). Also decide upper vs lower case to match the vowel meter
-  and pre-game screen.
+- **Drawn 3D vowel letters — parked on branch `feat/3d-vowel-letters`
+  (pushed, not merged).** Since 2026-10-03 the signs are code-built white
+  stone tablets with the pixel vowels carved in (`props::tablet`), so Greg's
+  drawn letters would be an alternative look, not a gap to fill. The branch
+  splits one GLB into per-letter props by mesh name (`FlatModel::load_parts`,
+  one draw call each, one shared texture). Its first `letters.glb` stacked all
+  six letters in one spot, and the exporter culls faces between overlapping
+  layers, so only the front "A" was whole: new letters would need exporting
+  side by side.
 - **Hero, fish and the near planes come as Greg's flat-draw art** (via
   `greg/`): the hero model (the brick hero stays, a drawn one would join it as
   a choice), the fish, and the planes nearer the player (birds flying by and

@@ -17,8 +17,10 @@
 //! clouds' Lam::pula (`brick_water.rs`), or the first, smooth toon water
 //! (`water.rs`, kept: `RONDELEK_WATER_STYLE=toon`). The hero placeholder brick
 //! is drawn under a comic-style toon shader — the same slot the dragon GLB model
-//! will use later. HUD (letter signs, meter, score) stays crisp 2D, projected
-//! over the scene — except the score, a hand-drawn pixel sun (GLB) in
+//! will use later. Each obstacle carries a white stone tablet with its vowel
+//! carved in (`props::tablet`), which hops when the vowel is said and lights
+//! up while it's held. HUD (meter, score) stays crisp 2D, projected over the
+//! scene — except the score, a hand-drawn pixel sun (GLB) in
 //! Lam::pula glass that floats just in front of the camera with the count
 //! printed on its face like a coin's value; it whirls round once per point and
 //! comes back showing the new number (see [`SunCoin`]).
@@ -249,6 +251,19 @@ const SCORE_MAX_W: f32 = 0.95;
 const SCORE_LIGHT: Color = Color::new(255, 250, 232, 255);
 const SCORE_INK: Color = Color::new(110, 52, 24, 255);
 
+// The vowel tablets (`props::tablet`): a stone with the vowel carved in it
+// over every obstacle. Over a low one (block, bridge) it floats a little
+// behind the hero's lane, so a jumping hero passes in front of it rather
+// than through it; a tall one (wall, pillar) wears it on its front, over its
+// upper part. The floating ones bob, slow and small, each out of step.
+const TABLET_FLOAT_Z: f32 = -0.75;
+const TABLET_BOB: f32 = 0.04;
+const TABLET_BOB_RATE: f32 = 1.3;
+// Say a tablet's vowel and it answers: a little hop (height, world units;
+// length, s), and its letter lights up while the vowel is held.
+const TABLET_HOP: f32 = 0.16;
+const TABLET_HOP_DUR: f32 = 0.4;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Kind {
     Jump, // low block: jump over
@@ -271,6 +286,16 @@ impl Kind {
             Kind::Wall => false,
         }
     }
+
+    /// The move that gets past it, and so the vowel on its tablet: 0 jump
+    /// (the block and the pillar), 1 duck, 2 shoot.
+    fn move_index(self) -> usize {
+        match self {
+            Kind::Jump | Kind::High => 0,
+            Kind::Duck => 1,
+            Kind::Wall => 2,
+        }
+    }
 }
 
 struct Obstacle {
@@ -287,6 +312,8 @@ struct Obstacle {
     fly_y: f32,
     fly_vy: f32,
     rot: f32,
+    /// Where in its bob the tablet starts, so two on screen don't bob in step.
+    phase: f32,
 }
 
 impl Obstacle {
@@ -300,6 +327,7 @@ impl Obstacle {
             ducked: false,
             fly_y: 0.0,
             fly_vy: 0.0,
+            phase: 0.0,
             rot: 0.0,
         }
     }
@@ -466,6 +494,41 @@ struct Gfx {
     obstacle_models: Option<ObstacleModels>,
     /// The two ledge lengths in bricks. `None` → plain boxes.
     ledge_models: Option<(BrickModel, BrickModel)>,
+    /// The vowel tablets in bricks. `None` → the old flat 2D signs.
+    tablets: Option<Tablets>,
+    /// Lam::pula for the tablets: white light. `None` → they draw unlit.
+    stone_glass: Option<Lampula>,
+}
+
+/// Each move's stone tablet (`props::tablet`), plain and lit up, built once
+/// the grown-up has picked the vowels.
+struct Tablets {
+    /// Indexed by [`Kind::move_index`]: (plain, lit).
+    by_move: Vec<(BrickModel, BrickModel)>,
+}
+
+impl Tablets {
+    fn build(thread: &RaylibThread, vowels: [usize; 3]) -> Option<Self> {
+        let by_move = vowels
+            .iter()
+            .zip(props::TABLET_PAINT.into_iter().zip(props::TABLET_LIT_PAINT))
+            .map(|(&v, (paint, lit))| {
+                let grid = props::tablet(VOWELS[v].label());
+                let model = |paint| {
+                    BrickModel::build(
+                        thread,
+                        "tablet",
+                        &grid,
+                        &props::tablet_palette(paint),
+                        props::TABLET_CELL,
+                        Build::default(),
+                    )
+                };
+                model(paint).zip(model(lit))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(Self { by_move })
+    }
 }
 
 /// The obstacles, built in bricks once (`props.rs`) and drawn as many times
@@ -538,6 +601,9 @@ pub struct Runner {
     stars: u32,
     /// The score icon's spin/pop, kicked by every point.
     coin: SunCoin,
+    /// Each move's tablets hopping (1 → 0 over `TABLET_HOP_DUR`), kicked
+    /// when its vowel is said. Indexed by [`Kind::move_index`].
+    tablet_hop: [f32; 3],
     speed: f32,
     spawn_timer: f32,
     /// Hero squash feedback after a bump (seconds remaining).
@@ -589,6 +655,7 @@ impl Runner {
             sparkles: Vec::new(),
             stars: 0,
             coin: SunCoin::default(),
+            tablet_hop: [0.0; 3],
             speed: 260.0,
             spawn_timer: 1.2,
             squash: 0.0,
@@ -618,6 +685,11 @@ impl Runner {
         self.rng ^= self.rng << 25;
         self.rng ^= self.rng >> 27;
         (self.rng.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
+    }
+
+    /// The vowel of each move, indexed by [`Kind::move_index`].
+    fn move_vowels(&self) -> [usize; 3] {
+        [self.jump_vowel, self.duck_vowel, self.shoot_vowel]
     }
 
     fn hero_rect(&self) -> (f32, f32, f32, f32) {
@@ -790,6 +862,30 @@ fn obstacle_rect(o: &Obstacle) -> (f32, f32, f32, f32) {
     }
 }
 
+/// The middle of an obstacle's tablet, world units, given how far the
+/// obstacle's front stands out (`front`, its model's half depth): over a low
+/// obstacle it floats behind the hero's lane, a fixed height above the top;
+/// on a tall one it hangs on the front, over the upper part (their tops are
+/// near or past the top of the screen). It flies off with a bumped obstacle.
+fn tablet_centre(o: &Obstacle, front: f32) -> Vector3 {
+    let (rx, ry, rw, _) = obstacle_rect(o);
+    let hung_z = front + props::TABLET_D as f32 * props::TABLET_CELL / 2.0;
+    let (y, z) = match o.kind {
+        Kind::Wall => (wy(ry + WALL_H * 0.35), hung_z),
+        Kind::High => (wy(ry + HIGH_H * 0.30), hung_z),
+        Kind::Jump | Kind::Duck => (wy(ry) + 1.15, TABLET_FLOAT_Z),
+    };
+    Vector3::new(wx(rx + rw / 2.0), y, z)
+}
+
+/// How high a hopping tablet is lifted, `hop` going 1 → 0: one quick arc.
+fn tablet_lift(hop: f32) -> f32 {
+    if hop <= 0.0 {
+        return 0.0;
+    }
+    TABLET_HOP * (std::f32::consts::PI * (1.0 - hop)).sin()
+}
+
 fn overlaps(a: (f32, f32, f32, f32), b: (f32, f32, f32, f32), shrink: f32) -> bool {
     // Shrink both rects for forgiving hitboxes.
     let s = |(x, y, w, h): (f32, f32, f32, f32)| {
@@ -902,6 +998,27 @@ fn world_glass() -> LampulaParams {
         spec_gain: 0.6,
         trans_gain: 1.5,
         ..cloud_glass()
+    }
+}
+
+/// Lam::pula as the vowel tablets wear it: the meadow's glass made chalk.
+/// White lamps, so the white stone stays white (the meadow's warm daylight
+/// turned it cream, the colour of the earth), and light all round — a high
+/// ambient, a soft wrap — with little sheen and almost none of the blue room
+/// at the edges, which together turned it silver. Bright as it is lit, the
+/// letters' paints are deep (`props::TABLET_PAINT`) to come out strong.
+fn stone_glass() -> LampulaParams {
+    const LAMP: [u8; 3] = [255, 255, 255];
+    LampulaParams {
+        lamp0: LAMP,
+        lamp1: LAMP,
+        lamp2: LAMP,
+        ambient: 1.0,
+        diffuse: 0.9,
+        wrap: 0.8,
+        spec_gain: 0.2,
+        env_gain: 0.05,
+        ..world_glass()
     }
 }
 
@@ -1105,6 +1222,8 @@ impl VoiceGame for Runner {
                 };
                 ledge(LedgeSize::Short).zip(ledge(LedgeSize::Long))
             },
+            tablets: Tablets::build(thread, self.move_vowels()),
+            stone_glass: Lampula::load_exact(rl, thread, stone_glass()),
         });
     }
 
@@ -1113,6 +1232,14 @@ impl VoiceGame for Runner {
         self.squash = (self.squash - dt).max(0.0);
         self.salto = (self.salto - dt).max(0.0);
         self.coin.step(dt);
+        let vowels = self.move_vowels();
+        for (hop, vowel) in self.tablet_hop.iter_mut().zip(vowels) {
+            *hop = if input.onset == Some(vowel) {
+                1.0
+            } else {
+                (*hop - dt / TABLET_HOP_DUR).max(0.0)
+            };
+        }
         self.last_scores = input.scores;
         self.last_held = input.held;
         self.last_level = input.level;
@@ -1183,7 +1310,9 @@ impl VoiceGame for Runner {
                 self.last_ledges = true;
             } else {
                 let kind = self.next_kind();
-                self.obstacles.push(Obstacle::new(LW + 120.0, kind));
+                let mut o = Obstacle::new(LW + 120.0, kind);
+                o.phase = hash01(self.dist as i64, 14) * std::f32::consts::TAU;
+                self.obstacles.push(o);
                 self.spawn_timer = gap;
                 self.last_ledges = false;
             }
@@ -1564,6 +1693,42 @@ impl VoiceGame for Runner {
                 }
             }
 
+            // --- vowel tablets: carved stone over (or on) each obstacle ----
+            // Alive: the floating ones bob, and every tablet hops when its
+            // vowel is said and lights up while it is held. A bumped
+            // obstacle carries its tablet off, still.
+            if let Some(tablets) = &gfx.tablets {
+                if let Some(glass) = gfx.stone_glass.as_mut() {
+                    glass.begin_frame(camera.position, self.t);
+                }
+                let vowels = [self.jump_vowel, self.duck_vowel, self.shoot_vowel];
+                for o in &self.obstacles {
+                    let m = o.kind.move_index();
+                    let lit = !o.bounced && self.last_held == Some(vowels[m]);
+                    let (plain, glowing) = &tablets.by_move[m];
+                    let model = if lit { glowing } else { plain };
+                    let front = gfx
+                        .obstacle_models
+                        .as_ref()
+                        .map_or(0.3, |models| models.of(o.kind).max.z);
+                    let c = tablet_centre(o, front);
+                    let floats = c.z == TABLET_FLOAT_Z && !o.bounced;
+                    let bob = if floats {
+                        (self.t * TABLET_BOB_RATE + o.phase).sin() * TABLET_BOB
+                    } else {
+                        0.0
+                    };
+                    let hop = if o.bounced {
+                        0.0
+                    } else {
+                        tablet_lift(self.tablet_hop[m])
+                    };
+                    let at = Matrix::translate(c.x, c.y - model.max.y / 2.0 + bob + hop, c.z);
+                    let lamps = world_box(model.min, model.max, at);
+                    model.draw(&mut c3, gfx.stone_glass.as_mut(), at, lamps);
+                }
+            }
+
             // --- star bullets: spinning 2.5D gold bursts -------------------
             for b in &self.bullets {
                 let (cx, cy, z) = (wx(b.x), wy(b.y), 0.3);
@@ -1745,8 +1910,14 @@ impl VoiceGame for Runner {
 
         // --- HUD: crisp 2D over the 3D scene -------------------------------
 
-        // Letter signs above live obstacles, projected from world space.
-        for o in &self.obstacles {
+        // Flat letter signs above live obstacles, projected from world
+        // space — only if the stone tablets didn't build.
+        let flat_signs = if gfx.tablets.is_some() {
+            &[][..]
+        } else {
+            &self.obstacles[..]
+        };
+        for o in flat_signs {
             if o.bounced {
                 continue;
             }
@@ -1892,6 +2063,51 @@ mod tests {
         }
         assert!(r.on_ground);
         assert_eq!(r.hero_y, GROUND_Y - HERO_H);
+    }
+
+    #[test]
+    fn saying_a_vowel_hops_its_own_tablets_only() {
+        // Jump is "u", duck "o", shoot "y": the hop follows the vowel, not a
+        // fixed a/e/i.
+        let mut r = Runner::new(4, 3, 5, vec![Kind::Jump]);
+        r.update(&input(Some(3), Some(3)), 1.0 / 60.0);
+        assert_eq!(r.tablet_hop, [0.0, 1.0, 0.0]);
+        // Up and back down in one quick arc, then at rest.
+        let mut highest: f32 = 0.0;
+        for _ in 0..30 {
+            r.update(&input(Some(3), None), 1.0 / 60.0);
+            highest = highest.max(tablet_lift(r.tablet_hop[1]));
+        }
+        assert!(highest > TABLET_HOP * 0.9, "hopped {highest}");
+        assert_eq!(r.tablet_hop[1], 0.0);
+        assert_eq!(tablet_lift(r.tablet_hop[1]), 0.0);
+        // Every kind carries the vowel of the move that gets past it.
+        let moves = [Kind::Jump, Kind::Duck, Kind::Wall, Kind::High].map(Kind::move_index);
+        assert_eq!(moves, [0, 1, 2, 0]);
+    }
+
+    #[test]
+    fn a_tablet_floats_behind_a_low_obstacle_and_hangs_on_a_tall_one() {
+        let front = 0.3;
+        for kind in [Kind::Jump, Kind::Duck] {
+            let o = Obstacle::new(HERO_X, kind);
+            let (_, top, _, _) = obstacle_rect(&o);
+            let c = tablet_centre(&o, front);
+            assert!(c.z < -0.5, "{kind:?}: in the hero's way");
+            // Its bottom clears the obstacle's top.
+            let half = props::TABLET_H as f32 * props::TABLET_CELL / 2.0;
+            assert!(c.y - half > wy(top), "{kind:?}");
+        }
+        for kind in [Kind::Wall, Kind::High] {
+            let o = Obstacle::new(HERO_X, kind);
+            let (_, top, _, _) = obstacle_rect(&o);
+            let c = tablet_centre(&o, front);
+            let half = props::TABLET_D as f32 * props::TABLET_CELL / 2.0;
+            assert_eq!(c.z - half, front, "{kind:?}: not on its front");
+            // Within its height, its top under the obstacle's.
+            let top_half = props::TABLET_H as f32 * props::TABLET_CELL / 2.0;
+            assert!(c.y + top_half < wy(top) && c.y - top_half > 0.0, "{kind:?}");
+        }
     }
 
     #[test]

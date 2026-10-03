@@ -21,6 +21,11 @@ brick walls to knock down with a star, and tall pillars that need a double
 jump. Your child says one vowel to **jump** (say it again in mid-air for a
 flying double jump), another to **duck**, and a third to **throw a star**.
 
+Every obstacle comes with a little white stone tablet, the vowel that gets
+past it carved right in. The tablets listen too: when your child says a
+tablet's vowel, it gives a happy hop, and its letter lights up for as long as
+the sound goes on.
+
 A miss is no drama: the hero just bounces off and keeps running. Every
 obstacle cleared the way it asks earns a point, and the golden sun at the top
 spins round like a coin to show the new score. (Leaping over a bar or a wall

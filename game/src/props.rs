@@ -1,6 +1,7 @@
-//! Vowel Runner's code-built props: the meadow the hero runs on and the four
-//! obstacles, each a [`Grid`] of coloured bricks (see `bricks.rs`), lit by
-//! Lam::pula like everything else in the scene.
+//! Vowel Runner's code-built props: the meadow the hero runs on, the four
+//! obstacles and the stone tablets their vowels are carved in, each a
+//! [`Grid`] of coloured bricks (see `bricks.rs`), lit by Lam::pula like
+//! everything else in the scene.
 //!
 //! Everything here is deterministic — a hash of the brick's place, never a
 //! random generator — so the meadow and the obstacles look the same every
@@ -678,6 +679,140 @@ pub fn pillar() -> Grid {
     g
 }
 
+// ---- the vowel tablets ------------------------------------------------------
+
+/// One tablet brick, world units: a little finer than an obstacle's, so a
+/// letter's two-brick strokes stay crisp.
+pub const TABLET_CELL: f32 = 0.1;
+/// A tablet's size in bricks: 13 wide and 15 tall (1.3 × 1.5 units, about
+/// the old flat sign), and 4 thick, the carving one brick deep.
+pub const TABLET_W: usize = 13;
+pub const TABLET_H: usize = 15;
+pub const TABLET_D: usize = 4;
+/// The outline's corner radii, in bricks: an arched top over a squarer
+/// bottom, the shape of a tablet of old.
+const TABLET_ARCH: f32 = 5.0;
+const TABLET_FOOT: f32 = 3.0;
+
+const LIME: u8 = 1;
+const LIME_LIGHT: u8 = 2;
+const LIME_DARK: u8 = 3;
+const LIME_SPECK: u8 = 4;
+const PAINT: u8 = 5;
+
+/// The paint in each move's carved letter (jump, duck, shoot): the family
+/// colour of the obstacles it gets past, deep, so it reads strong on the
+/// brightly lit white stone (see runner.rs's `stone_glass`).
+pub const TABLET_PAINT: [[u8; 3]; 3] = [[150, 18, 78], [66, 30, 156], [150, 38, 18]];
+/// The same letters lit up, while the child is saying their vowel: the
+/// family colour at its most vivid. The stone stays white.
+pub const TABLET_LIT_PAINT: [[u8; 3]; 3] = [[255, 20, 120], [110, 40, 255], [255, 60, 10]];
+
+/// A tablet's colours: white limestone, and `paint` in the carved letter
+/// (grid colour n = `tablet_palette(..)[n - 1]`). The white is the stone's
+/// own, kept for it: a tablet stands apart from the colourful world around
+/// it, and its letter reads on it at a glance. Its shades are cool greys,
+/// never cream, which would sit with the earth.
+pub fn tablet_palette(paint: [u8; 3]) -> [[u8; 3]; 5] {
+    [
+        [248, 249, 250], // limestone
+        [255, 255, 255], // limestone, light
+        [230, 233, 237], // limestone, weathered
+        [204, 208, 214], // a speck
+        paint,
+    ]
+}
+
+/// Whether brick `(x, y)` of a tablet's front (y up) lies inside its
+/// outline, drawn `inset` bricks in from the edge: a rectangle with its
+/// corners rounded, the top ones more.
+fn on_tablet(x: usize, y: usize, inset: f32) -> bool {
+    let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+    let (w, h) = (TABLET_W as f32, TABLET_H as f32);
+    if px < inset || px > w - inset || py < inset || py > h - inset {
+        return false;
+    }
+    let r = if py > h / 2.0 {
+        TABLET_ARCH
+    } else {
+        TABLET_FOOT
+    } - inset;
+    // The nearest point of the rectangle shrunk by r: within r of it is in.
+    let cx = px.clamp(inset + r, w - inset - r);
+    let cy = py.clamp(inset + r, h - inset - r);
+    (px - cx).powi(2) + (py - cy).powi(2) <= r * r
+}
+
+/// Where the vowel's bitmap sits on the tablet's front, in bricks: its
+/// top-left corner, x from the left and y from the *top* (the bitmap's own
+/// rows). Centred; when it can't be exact, a touch low, under the arch.
+fn tablet_letter_at(bitmap: rondelek_core::arcade::Bitmap) -> (usize, usize) {
+    let (bw, bh) = rondelek_core::arcade::bitmap_size(bitmap);
+    ((TABLET_W + 1 - bw) / 2, (TABLET_H + 1 - bh) / 2)
+}
+
+/// A stone tablet with `label`'s vowel carved in it: a slab of limestone,
+/// arched on top, pillowed front and back (the outermost ring of each set
+/// back a brick, so its edges read as worn round), hewn (a notch in the
+/// outline here and there, a nick in the rim), and the arcade's bold pixel vowel (`rondelek_core::arcade::vowel_glyph`)
+/// cut a brick deep into the face, its floor painted. The face itself stays
+/// plain, so nothing but the letter reads as a mark. An unknown label gives a
+/// blank tablet.
+pub fn tablet(label: &str) -> Grid {
+    let (w, h, d) = (TABLET_W, TABLET_H, TABLET_D);
+    let mut g = Grid::new(w, h, d);
+    let salt = label.bytes().map(u64::from).sum::<u64>();
+    let letter: Vec<(usize, usize)> = match rondelek_core::arcade::vowel_glyph(label) {
+        Some((b, _)) => {
+            let (x0, y0) = tablet_letter_at(b);
+            rondelek_core::arcade::bitmap_cells(b)
+                .map(|(col, row)| (x0 + col, h - 1 - (y0 + row)))
+                .collect()
+        }
+        None => Vec::new(),
+    };
+    for y in 0..h {
+        for x in 0..w {
+            if !on_tablet(x, y, 0.0) {
+                continue;
+            }
+            let face = on_tablet(x, y, 1.0);
+            let r = |salt2| hash(x, y, salt as usize, salt2);
+            // The rim weathers darker, specked; the face only varies faintly.
+            let stone = if face {
+                if r(31) < 0.3 { LIME_LIGHT } else { LIME }
+            } else {
+                match r(32) {
+                    v if v < 0.12 => LIME_SPECK,
+                    v if v < 0.55 => LIME_DARK,
+                    _ => LIME,
+                }
+            };
+            // Hewn: now and then a notch right through the rim, or a nick
+            // out of its front half.
+            let chip = if face { 1.0 } else { r(33) };
+            if chip < 0.07 {
+                continue;
+            }
+            for z in 0..d {
+                let outer = z == 0 || z == d - 1;
+                if outer && !face {
+                    continue; // the pillowed edge
+                }
+                if z == d - 2 && chip < 0.2 {
+                    continue;
+                }
+                g.set(x, y, z, stone);
+            }
+        }
+    }
+    for &(x, y) in &letter {
+        g.set(x, y, d - 1, 0);
+        g.set(x, y, d - 2, PAINT);
+    }
+    g
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -789,6 +924,7 @@ mod tests {
             ("bridge", bridge()),
             ("wall", wall()),
             ("pillar", pillar()),
+            ("tablet y", tablet("y")),
         ] {
             let n = vertex_count(&g, Build::default());
             assert!(n <= u16::MAX as usize + 1, "{name}: {n} vertices");
@@ -943,6 +1079,58 @@ mod tests {
             let n = crate::bricks::vertex_count(&palm_grove(grove), how);
             assert!(n <= u16::MAX as usize + 1, "{n} vertices");
         }
+    }
+
+    #[test]
+    fn every_vowel_is_carved_clean_into_its_tablet() {
+        let front = TABLET_D as isize - 1;
+        for v in ["a", "e", "i", "o", "u", "y"] {
+            let g = tablet(v);
+            let (b, _) = rondelek_core::arcade::vowel_glyph(v).unwrap();
+            let (x0, y0) = tablet_letter_at(b);
+            let ink: Vec<(usize, usize)> = rondelek_core::arcade::bitmap_cells(b)
+                .map(|(c, r)| (x0 + c, TABLET_H - 1 - (y0 + r)))
+                .collect();
+            for y in 0..TABLET_H {
+                for x in 0..TABLET_W {
+                    let (xi, yi) = (x as isize, y as isize);
+                    if ink.contains(&(x, y)) {
+                        // Cut a brick deep, painted at the bottom, and the
+                        // whole letter on the face, clear of the worn rim.
+                        assert!(on_tablet(x, y, 1.0), "{v}: ink on the rim at {x},{y}");
+                        assert_eq!(g.get(xi, yi, front), 0, "{v}: not carved at {x},{y}");
+                        assert_eq!(g.get(xi, yi, front - 1), PAINT, "{v}: unpainted");
+                    } else if on_tablet(x, y, 1.0) {
+                        // Nothing else on the face is a mark.
+                        let c = g.get(xi, yi, front);
+                        assert!([LIME, LIME_LIGHT].contains(&c), "{v}: {c} at {x},{y}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_tablet_is_about_the_old_signs_size() {
+        // The flat sign was 88 px square on a 720-px screen: about 1.27
+        // world units at the hero's depth. A tablet is as wide, a bit taller.
+        let [w, h, d] = size(&tablet("a"), TABLET_CELL);
+        assert!(
+            (1.2..=1.4).contains(&w) && (1.3..=1.6).contains(&h),
+            "{w}×{h}"
+        );
+        assert_eq!(d, TABLET_D as f32 * TABLET_CELL);
+        // Unknown labels give a blank slab rather than a panic.
+        let blank = tablet("x");
+        assert!(
+            (0..TABLET_H as isize).all(|y| (0..TABLET_W as isize).all(|x| !on_tablet(
+                x as usize, y as usize, 1.0
+            ) || blank.get(
+                x,
+                y,
+                TABLET_D as isize - 1
+            ) != 0))
+        );
     }
 
     #[test]

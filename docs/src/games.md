@@ -160,11 +160,12 @@ glide past while the camera stays put.
 | Meadow & bank | z 0, parallax 1.0 | code-built **bricks** (`props::ground`): a grass top over layered earth, tile after tile, through Lam::pula |
 | **Water** | z 1.5 → 8.5 | little glass bricks rising and falling on a swell, through **Lam::pula** like the clouds; scrolls with the ground |
 | Obstacles | z 0 | code-built **bricks** (`props.rs`): a toy brick, a bridge, a brick wall, a candy pillar, through Lam::pula |
+| **Vowel tablets** | z −0.75 (floating), or on a tall obstacle's front | code-built **bricks** (`props::tablet`): white stone with the vowel carved in, through their own white-lit Lam::pula |
 | Ledges, little suns | z 0 | floating strips of meadow bricks (`props::ledge`); `sun.glb`, small, through the sun's Lam::pula |
 | Stars (bullets) | z 0 | procedural cubes |
 | Hero | z 0 | the blocky brick hero under the toon shader (**permanent by design**) |
 | Score sun | 3 units in front of the camera | `sun.glb` through its own Lam::pula, the count on its face |
-| HUD | 2D | vowel signs over obstacles, point sparks, the vowel meter |
+| HUD | 2D | point sparks, the vowel meter (and flat vowel signs, only if the tablets fail to build) |
 
 ### Design rules for the scene
 
@@ -421,6 +422,16 @@ place, never a random generator, so they look the same every game:
   vowel's two, purple for the duck vowel, brick red for the shoot vowel. Tests
   hold each one to its hitbox in `runner.rs`, and the bridge to leaving room
   for a ducking hero.
+- **The vowel tablets** (`tablet`, 0.1-unit bricks, 13 × 15 and 4 thick): a
+  slab of white limestone, arched on top, pillowed front and back (the
+  outermost ring of each set back a brick, so the edges read as worn round),
+  hewn here and there (a notch through the rim, a nick out of its front), with
+  the arcade's bold pixel vowel (`rondelek_core::arcade::vowel_glyph`, the one
+  on the entrance screens) cut a brick deep into the face and its floor
+  painted. The paint is the obstacle family's colour, deep (`TABLET_PAINT`).
+  **The white is kept for the stone** (Greg's call): it must stand apart from
+  the colourful world, so its shades are cool greys, never cream. Tests hold
+  every letter to its carving, clear of the rim, on an otherwise plain face.
 
 They all share one Lam::pula, `world_glass()`: the clouds' glass made solid,
 under warm daylight lamps, and toned down. At the clouds' full strength the
@@ -430,6 +441,23 @@ flattened what was left. So it has less exposure, a faint room, softer
 highlights and more vibrance. The meadow's lamps stand round a fixed stretch
 of the world (`ground_lamps`), so it slides under still lamps; each obstacle
 is lit by lamps round itself, so every one is lit alike.
+
+The tablets have a glass of their own, `stone_glass()`: the same, made chalk.
+Under the meadow's warm lamps the white came out cream, and with the shading
+and the reflected room it went silver, so it has white lamps, light all round
+(a high ambient, a soft wrap), little sheen and almost no room. Lit that
+brightly, a paint comes out lighter than it goes in, hence the deep paints.
+
+The runner builds each move's tablet once the grown-up has picked the vowels
+(`Tablets::build`): one with the jump vowel, one with the duck vowel, one with
+the shoot vowel. Over a low obstacle (block, bridge) the tablet floats a
+little behind the hero's lane, so a jumping hero passes in front of it, not
+through it, and bobs slow and small, each out of step. A tall one (wall,
+pillar) wears it on its front, over its upper part. A bumped obstacle carries
+its tablet off. **The tablets answer the voice**: say a tablet's vowel and it
+hops (`tablet_hop`, one quick arc), and while the vowel is held its letter
+lights up in the family colour at its most vivid (`TABLET_LIT_PAINT`, a second
+build of the same grid). The stone stays white.
 
 ### Tuning: tables, not constants
 
