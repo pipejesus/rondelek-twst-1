@@ -153,7 +153,8 @@ glide past while the camera stays put.
 | Haze | — | the sky gradient again, see-through, in front of each far plane (see below) |
 | **Mountains** | z −12, parallax 0.16 | code-built **bricks** (`props::mountains`): a blue-violet range with snowy peaks, some rising in front of the clouds |
 | Valley mist | — | a white band rising from the mountains' feet |
-| **Palms** | z −9.5, parallax 0.26 | code-built **bricks** (`props::palm_grove`): a grove of palms, every one its own |
+| Far palms | z −11, parallax 0.20 | code-built **bricks** (`props::FAR_GROVE`): a plainer, paler grove, in its own mist |
+| **Palms** | z −9.5, parallax 0.26 | code-built **bricks** (`props::NEAR_GROVE`): a grove of palms, every one its own, in its own mist |
 | **Jungle** | z −5, parallax 0.36 | code-built **bricks** (`props::jungle`): a canopy of round treetops, hiding the palms' feet |
 | Valley mist | — | a thinner band at the jungle's feet, out of which the meadow comes |
 | Meadow & bank | z 0, parallax 1.0 | code-built **bricks** (`props::ground`): a grass top over layered earth, tile after tile, through Lam::pula |
@@ -333,10 +334,11 @@ each changed row in `WaterParams` notes its previous value.
 
 ### The far planes: mountains, palms and jungle
 
-Behind the meadow lie three far planes, 90s style: continuous bands, each at
+Behind the meadow lie four far planes, 90s style: continuous bands, each at
 its own depth and scrolled at its own rate, each hazed toward the sky by how
-far away it is. All are code-built bricks (`props::mountains`,
-`props::palm_grove`, `props::jungle`),
+far away it is, so the farther a plane lies, the more it looks like the sky.
+All are code-built bricks (`props::mountains`, `props::palm_grove` twice,
+`props::jungle`),
 pixel-art silhouettes extruded a couple of bricks deep the way flat-draw turns
 a drawing into a prop, laid tile after tile like the meadow (`lay_tiles`), and
 lit by `backdrop_glass()`: the meadow's glass without glints or highlights, so
@@ -348,19 +350,24 @@ nothing out there pulls the eye.
   along for one up, never steeper: sheer columns of bricks read as a city. The
   big peaks rise into the clouds' band, and the depth test puts them in front
   of a cloud now and then.
-- **The palms** (0.25-unit bricks, z −9.5): a grove in a plane of its own, so
-  it slides by at its own pace behind the jungle, which hides the trunks' feet.
-  `props::palms` makes every palm its own: short to tall (the tall ones thicker
-  at the foot), straight or leaning — the leaners by turns one way and the
-  other, their trunks bending upright toward the crown like a coconut palm's
-  — 6 to 9 long fronds each, fanned out to both sides, rising and then drooping
-  past level, with leaflets along their outer halves, and coconuts under most
-  crowns. The crowns rise above the camera, so this plane is built with every
-  face (their undersides show).
+- **The palms**, two groves (`props::Grove`), each a plane of its own sliding
+  by at its own pace behind the jungle, which hides the trunks' feet.
+  `props::palms` makes every palm its own: short to tall, straight or leaning
+  — the leaners by turns one way and the other, their trunks bending upright
+  toward the crown like a coconut palm's — with long fronds fanned out to both
+  sides, rising and then drooping past level. The crowns rise above the camera,
+  so the groves are built with every face (their undersides show).
+  - **Near** (`NEAR_GROVE`, 0.25-unit bricks, z −9.5): every detail — 6 to 9
+    fronds with leaflets along their outer halves, ringed trunks thick at the
+    foot of a tall palm, coconuts under most crowns.
+  - **Far** (`FAR_GROVE`, 0.32-unit bricks, z −11): plainer — 4 or 5 fronds,
+    plain trunks, no leaflets or coconuts — and greens a step lighter and
+    cooler. Most of its distance comes from the mist it stands in: recoloured
+    all the way to the mountains' blue, it stopped reading as palms.
 - **The jungle** (0.25-unit bricks, z −5): a bumpy canopy of round treetops, lit
   on the left and shaded below, over dark undergrowth.
 
-All start below the meadow's sightline (`MOUNTAIN_BASE`, `PALM_BASE`,
+All start below the meadow's sightline (`MOUNTAIN_BASE`, the groves' `base`,
 `JUNGLE_BASE`), so no floor ever shows under them. The draw order does the
 rest:
 
@@ -368,13 +375,15 @@ rest:
 2. a haze pass, then the mountains;
 3. a haze pass, then **valley mist** at the mountains' feet (`MOUNTAIN_MIST`: a
    white band, clear a little way up and thick at the foot);
-4. the palms, then a haze pass;
-5. the jungle, then a last haze pass and a thinner mist at the jungle's feet
+4. the far palms, then a haze pass and their mist (`FAR_PALM_MIST`);
+5. the near palms, then a haze pass and their mist (`PALM_MIST`), into which
+   their trunks fade above the jungle's canopy;
+6. the jungle, then a last haze pass and a low, thin mist at the jungle's feet
    (`JUNGLE_MIST`), out of which the meadow comes.
 
 The hazes are set as how far each plane ends up pulled toward the sky
-(`CLOUD_HAZE`, `MOUNTAIN_HAZE`, `PALM_HAZE`, `JUNGLE_HAZE`), and `haze_step`
-works out the
+(`CLOUD_HAZE`, `MOUNTAIN_HAZE`, `FAR_PALM_HAZE`, `PALM_HAZE`, `JUNGLE_HAZE`),
+and `haze_step` works out the
 pass in front of each plane from them, since a plane behind also gets every
 pass in front of it. The clouds' figure is the one they had before the planes
 came, so they look just as they did.

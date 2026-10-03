@@ -59,8 +59,9 @@ Tracked items intentionally left for later batches.
   the like). The meadow, the obstacles and the far planes (mountains, palms,
   jungle; 2026-10-03) stay code-built bricks (`props.rs`), Greg's call.
 - **The far planes are a first draft** (2026-10-03), to be tuned together:
-  shapes in `props::mountains` / `props::palms` / `props::jungle`, haze and
-  mist in the `MOUNTAIN_*` / `PALM_*` / `JUNGLE_*` constants of `runner.rs`.
+  shapes in `props::mountains` / `props::palms` (the two `Grove`s) /
+  `props::jungle`, haze and mist in the `MOUNTAIN_*` / `FAR_PALM_*` /
+  `PALM_*` / `JUNGLE_*` constants of `runner.rs`.
   The sky may want a touch of tuning around them.
 - `cloud9_rain.glb` is unused (kept for a possible rain variant).
 - **Re-measure the game's GPU/CPU cost on real hardware.** The brick water
