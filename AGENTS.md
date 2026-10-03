@@ -21,7 +21,7 @@ cargo run --bin genavatars   # regenerate the classic character avatars (assets/
 cargo run --bin genpixelpals # regenerate the pixel-art "pixel pals" (assets/avatars/pixel-*.png)
 cargo run --bin genicon      # regenerate the app icon (assets/icon/rondelek.png)
 cargo run --bin genarcade    # regenerate the README's banner, marquee + framed shots (docs/images/arcade/)
-docs/images/arcade/record-runner.sh  # re-record the README's gameplay GIF (Linux: Xvfb, ffmpeg; demo mode; TAKE= re-cuts a take)
+docs/images/arcade/record-runner.sh  # re-record the README's gameplay GIF (Linux: Xvfb, ffmpeg; demo mode; 10 s offline take at 1080p/30 fps; TAKE= re-cuts a take, KEEP= copies it out)
 packaging/appimage/build.sh target/release v0.0.0-local dist  # Linux AppImage from a release build
 ```
 
@@ -312,6 +312,8 @@ packaging/appimage/       Linux AppImage: AppRun (app / --game), desktop entry,
   `RONDELEK_VIZ=<n>` (visualizer index), `RONDELEK_SHOT=<png>` (capture a few frames
   in and exit). Game: `RONDELEK_GAME_SCREEN=profiles|select`, `RONDELEK_GAME_FRAMES=<n>`,
   `RONDELEK_GAME_AUTOPLAY=1` (demo mode: the game plays itself),
+  `RONDELEK_GAME_RECORD=<dir>` (save every frame, stepping 1/30 s each, for video;
+  `RONDELEK_GAME_RECORD_FROM=<s>` skips the first s seconds),
   `RONDELEK_GAME_SHOT=<png>`, `RONDELEK_LAMPULA=<json>` / `RONDELEK_WATER=<json>` /
   `RONDELEK_PROPS=<json>` (shader tuning overrides for the clouds and sun / the water /
   the meadow and obstacles, read at launch; `RONDELEK_LAMPULA` also takes flat-draw's

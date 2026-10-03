@@ -9,16 +9,28 @@
 # --release`). The game runs on a virtual display with a throwaway profile
 # library, in demo mode (RONDELEK_GAME_AUTOPLAY): it plays itself the way a
 # child who knows every vowel would, so the take shows the game played well.
-# Each game deals a fresh course, so the full take is kept as runner-take.mp4
-# in the temp folder: look through it, then re-cut that same take with a
-# better start/length (TAKE=…/runner-take.mp4 skips recording).
+# It records offline (RONDELEK_GAME_RECORD): every frame is saved, the game
+# stepping 1/30 s each however slowly the virtual display draws it, so the
+# take is smooth, 30 fps and at real speed. SIZE (default 1920x1080) is the
+# picture's size, SECS (default 10) the take's length, and FROM (default 4)
+# how many seconds of the game go by before it starts, so it opens as the
+# first obstacle comes in rather than on an empty meadow.
 #
-# Earlier GIFs are kept beside this one for history (runner-v0.3.gif/.png).
+# Each game deals a fresh course, so the full take is kept as runner-take.mp4
+# in the temp folder (and copied to KEEP=<path>, if given): look through it,
+# then re-cut that same take with a better start/length (TAKE=…/runner-take.mp4
+# skips recording).
+#
+# Earlier GIFs are kept beside this one for history (runner-vX.Y.gif/.png):
+# rename the current pair before recording a new one.
 set -eu
 
-START=${1:-10}
+START=${1:-1}
 LEN=${2:-8}
 STILL=${3:-3.15}
+SIZE=${SIZE:-1920x1080}
+SECS=${SECS:-10}
+FROM=${FROM:-4}
 ROOT="$(pwd)"
 GAME="${GAME:-$ROOT/target/release/rondelek-game}"
 FRAME="$ROOT/docs/images/arcade/runner-frame.png"
@@ -32,21 +44,23 @@ if [ -n "${TAKE:-}" ]; then
   cp "$TAKE" "$WORK/runner-take.mp4"
 else
   DISPLAY_NUM=:91
-  Xvfb "$DISPLAY_NUM" -screen 0 1280x720x24 >/dev/null 2>&1 &
+  Xvfb "$DISPLAY_NUM" -screen 0 "${SIZE}x24" >/dev/null 2>&1 &
   XVFB_PID=$!
   trap 'kill "$XVFB_PID" 2>/dev/null || true' EXIT
   sleep 1
   export DISPLAY="$DISPLAY_NUM"
+  unset WAYLAND_DISPLAY
 
   # RONDELEK_GAME_FRAMES skips the pre-game screens and quits on its own.
-  (cd "$WORK" && RONDELEK_GAME_AUTOPLAY=1 RONDELEK_GAME_FRAMES=6000 \
-    "$GAME" runner >/dev/null 2>&1) &
-  GAME_PID=$!
-  sleep 3
-
-  ffmpeg -y -loglevel error -f x11grab -video_size 1280x720 -framerate 30 \
-    -draw_mouse 0 -i "$DISPLAY_NUM" -t 40 -pix_fmt yuv420p "$WORK/runner-take.mp4"
-  kill "$GAME_PID" 2>/dev/null || true
+  (cd "$WORK" && RONDELEK_GAME_AUTOPLAY=1 RONDELEK_GAME_FRAMES=$(((FROM + SECS) * 30)) \
+    RONDELEK_GAME_RECORD="$WORK/frames" RONDELEK_GAME_RECORD_FROM="$FROM" \
+    "$GAME" runner >/dev/null 2>&1)
+  ffmpeg -y -loglevel error -framerate 30 -i "$WORK/frames/%05d.qoi" \
+    -c:v libx264 -crf 16 -preset slow -pix_fmt yuv420p "$WORK/runner-take.mp4"
+  rm -r "$WORK/frames"
+fi
+if [ -n "${KEEP:-}" ]; then
+  cp "$WORK/runner-take.mp4" "$KEEP"
 fi
 
 # Gameplay padded out to the frame's size with the picture in its 640×360

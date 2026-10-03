@@ -97,6 +97,9 @@ fn keyboard_vowel(rl: &RaylibHandle) -> Option<usize> {
     (0..VOWELS.len()).find(|&i| rl.is_key_down(KEYS[i]))
 }
 
+/// The game time between recorded frames (`RONDELEK_GAME_RECORD`): 30 a second.
+const RECORD_DT: f32 = 1.0 / 30.0;
+
 /// raylib saves screenshots relative to the directory it was *initialized*
 /// in, so shoot to a bare name there and move the file to the requested
 /// destination (copy + remove — rename can't cross filesystems into /tmp).
@@ -218,9 +221,29 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
 
     // Phase 2: play (or, in demo mode, let the game play itself).
     let autoplay = std::env::var_os("RONDELEK_GAME_AUTOPLAY").is_some();
+    // Recording (`RONDELEK_GAME_RECORD=<dir>`): every frame is saved as
+    // <dir>/00000.qoi, 00001.qoi, … (QOI: lossless and quick to write, where
+    // PNG took seconds a frame), the game stepping a fixed RECORD_DT each
+    // however slowly it draws, so a machine that can't draw it in real time
+    // (a virtual display) still makes smooth, real-speed video of it.
+    // `RONDELEK_GAME_RECORD_FROM=<s>` plays the first s seconds unsaved, so
+    // a short take starts where the action does.
+    let record = std::env::var_os("RONDELEK_GAME_RECORD").map(PathBuf::from);
+    if let Some(dir) = &record
+        && let Err(e) = std::fs::create_dir_all(dir)
+    {
+        anyhow::bail!("can't record into {}: {e}", dir.display());
+    }
+    let record_from = std::env::var("RONDELEK_GAME_RECORD_FROM")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .map_or(0, |s| (s / RECORD_DT).round().max(0.0) as u64);
     let mut frame: u64 = 0;
     while !rl.window_should_close() {
-        let dt = rl.get_frame_time().min(0.1);
+        let dt = match record {
+            Some(_) => RECORD_DT,
+            None => rl.get_frame_time().min(0.1),
+        };
         let kb_held = keyboard_vowel(&rl);
         let input = match autoplay.then(|| game.autoplay()).flatten() {
             Some(demo) => demo,
@@ -232,6 +255,15 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
         {
             let mut d = rl.begin_drawing(&thread);
             game.draw(&mut d, w, h);
+            if let Some(dir) = record.as_ref().filter(|_| frame >= record_from) {
+                // Read the frame back before it is shown: flush what raylib
+                // still has batched, then take the back buffer.
+                // SAFETY: a plain rlgl flush, between our own draw calls.
+                unsafe { raylib::ffi::rlDrawRenderBatchActive() };
+                let path = dir.join(format!("{:05}.qoi", frame - record_from));
+                d.load_image_from_screen(&thread)
+                    .export_image(&path.to_string_lossy());
+            }
         }
 
         frame += 1;

@@ -567,9 +567,18 @@ one value, never the whole game.
   so it keeps up as the game speeds up. A test lets it play four minutes
   without a single bump, which also proves every obstacle can be cleared at
   every speed the game reaches.
+- **Recording**: `RONDELEK_GAME_RECORD=<dir>` saves every frame into the
+  folder (`00000.qoi`, …: QOI, lossless and quick to write, where PNG took
+  seconds a frame at 1080p), the game stepping a fixed 1/30 s each however
+  slowly it draws. So a virtual display, which draws the game at a few frames
+  a second, still makes smooth, real-speed 30 fps video.
+  `RONDELEK_GAME_RECORD_FROM=<s>` plays the first *s* seconds unsaved.
 - `docs/images/arcade/record-runner.sh [start] [length] [still]` records the
   README's gameplay GIF and its still on a virtual display (Xvfb, demo mode,
-  ffmpeg). Every game deals a fresh course, so the full take is kept: look
-  through it, then re-cut that same take with `TAKE=<runner-take.mp4>`
-  instead of recording a different game. Earlier GIFs stay beside the current
-  one for history (`runner-v0.3.gif`, `runner-v0.3.png`).
+  the recording mode above, ffmpeg): a 10 s take (`SECS`) at 1920×1080
+  (`SIZE`), from 4 s into the game (`FROM`), as the first obstacle comes in.
+  Every game deals a fresh course, so the full take is kept (`KEEP=<path>`
+  copies it out): look through it, then re-cut that same take with
+  `TAKE=<runner-take.mp4>` instead of recording a different game. Earlier GIFs
+  stay beside the current one for history (`runner-v0.3.*`, `runner-v0.4.*`):
+  rename the current pair before recording a new one.

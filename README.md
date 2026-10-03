@@ -21,7 +21,7 @@ Every child in the family gets their own card, picture and recordings.
     <td align="center" valign="top" width="60%">
       <picture>
         <source media="(prefers-reduced-motion: reduce)" srcset="docs/images/arcade/runner.png">
-        <img src="docs/images/arcade/runner.gif" alt="Vowel Runner: a little blue hero runs along a meadow of bricks by a sea of glass bricks, below palms and snowy mountains in valley mist; it ducks under a bridge, fires a star that knocks down a brick wall marked with a vowel, jumps a toy brick, and hops up a staircase of ledges to collect little golden suns, while the big golden sun at the top spins round for every point" width="460">
+        <img src="docs/images/arcade/runner.gif" alt="Vowel Runner: a little blue hero runs along a meadow of bricks by a sea of glass bricks, in front of a thick jungle under tall snowy mountains; each obstacle carries a white stone tablet with its vowel carved in. The hero ducks under a bridge marked e, double-jumps a candy-striped pillar and jumps a toy brick marked a, the camera rising gently with the high jumps, while the big golden sun at the top spins round for every point" width="460">
       </picture>
     </td>
   </tr>

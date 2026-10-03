@@ -9,7 +9,7 @@ of practice with sounds and vowels along the way.
 <p align="center">
   <img src="images/arcade-sampler.png" alt="The sound board: a navy arcade cabinet with a neon dot-matrix screen over a 4×3 grid of rainbow pixel keys" width="300">
   &nbsp;
-  <img src="images/arcade-runner.png" alt="Vowel Runner: a little blue hero stands on a grassy ledge among little golden suns, below palms and snowy mountains in valley mist, by a sea of glass bricks, while the big golden sun shows the score" width="440">
+  <img src="images/arcade-runner.png" alt="Vowel Runner: a little blue hero ducks under a purple bridge by a sea of glass bricks, in front of a thick jungle under tall snowy mountains; white stone tablets with carved vowels float over the obstacles, e over the bridge and a on a candy-striped pillar ahead, while the big golden sun shows the score" width="440">
 </p>
 
 One install serves the whole family. Every child gets their own card, picture
