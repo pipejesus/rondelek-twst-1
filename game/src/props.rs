@@ -13,7 +13,7 @@
 //! jump vowel's block and pillar, purple for the duck vowel's bridge, brick
 //! red for the wall the shoot vowel knocks down.
 
-use super::bricks::Grid;
+use super::bricks::{Build, Grid};
 
 /// Deterministic hash of a brick's place (plus a salt) → 0..1.
 fn hash(x: usize, y: usize, z: usize, salt: u64) -> f32 {
@@ -172,10 +172,11 @@ pub fn ledge(len: usize) -> Grid {
 
 // ---- the backdrops: 90s-style parallax planes --------------------------------
 //
-// Two far planes, each one tile of bricks laid end to end and scrolled at its
-// own rate (runner.rs): a mountain range at the back, a jungle in front of
-// it. Both are pixel-art silhouettes extruded a couple of bricks deep — the
-// way flat-draw turns a drawing into a prop — and both start below the
+// Three far planes, each one tile of bricks laid end to end and scrolled at
+// its own rate (runner.rs): a mountain range at the back, a palm grove, and a
+// jungle in front. The mountains and the palms are pixel-art silhouettes
+// extruded a brick or few deep — the way flat-draw turns a drawing into a
+// prop — while the jungle is built in the round. All start below the
 // meadow's sightline, so no floor ever shows under them.
 
 /// Signed distance from `a` to `b` along a loop `n` long (the shorter way
@@ -191,7 +192,7 @@ pub const MOUNTAIN_CELL: f32 = 0.4;
 /// Bricks along one tile (64 units).
 pub const MOUNTAIN_TILE: usize = 160;
 /// Bricks from the bottom of the range to the sky.
-pub const MOUNTAIN_LAYERS: usize = 26;
+pub const MOUNTAIN_LAYERS: usize = 28;
 /// World y of the range's bottom.
 pub const MOUNTAIN_BASE: f32 = -2.0;
 
@@ -249,18 +250,18 @@ fn ridge(peaks: &[Peak], x: usize, w: usize) -> (f32, f32) {
 /// smaller shoulders round them — behind a darker, lower ridge of rolling
 /// foothills. The slopes step two bricks along for one up, never steeper:
 /// sheer columns of bricks read as towers, and this is no city. The big
-/// peaks rise into the clouds' band, so now and then one stands in front of
-/// a cloud.
+/// peaks rise high into the clouds' band, well over the jungle's canopy in
+/// front, so now and then one stands in front of a cloud.
 pub fn mountains() -> Grid {
     let (w, h) = (MOUNTAIN_TILE, MOUNTAIN_LAYERS);
     let mut g = Grid::new(w, h, 3);
-    let mut back = peaks(4, w, (19.0, 25.0), (0.42, 0.58), 31);
-    back.extend(peaks(7, w, (11.0, 17.0), (0.45, 0.6), 33));
-    let front = peaks(6, w, (7.0, 12.0), (0.32, 0.5), 37);
+    let mut back = peaks(4, w, (21.0, 27.0), (0.42, 0.58), 31);
+    back.extend(peaks(7, w, (13.0, 19.0), (0.45, 0.6), 33));
+    let front = peaks(6, w, (9.0, 14.0), (0.32, 0.5), 37);
     // (peaks, z rows, rock, shade, snow, snowline in bricks, salt)
     let ranges = [
-        (&back, 0..1, PEAK_ROCK, PEAK_SHADE, PEAK_SNOW, 18.0, 41),
-        (&front, 1..3, RIDGE_ROCK, RIDGE_SHADE, RIDGE_SNOW, 13.0, 43),
+        (&back, 0..1, PEAK_ROCK, PEAK_SHADE, PEAK_SNOW, 20.0, 41),
+        (&front, 1..3, RIDGE_ROCK, RIDGE_SHADE, RIDGE_SNOW, 15.0, 43),
     ];
     for x in 0..w {
         for (peaks, zs, rock, shade, snow, snowline, salt) in ranges.iter().cloned() {
@@ -290,71 +291,496 @@ pub const JUNGLE_CELL: f32 = 0.25;
 /// Bricks along one tile (48 units).
 pub const JUNGLE_TILE: usize = 192;
 /// Bricks from the bottom of the jungle to its tallest treetop.
-pub const JUNGLE_LAYERS: usize = 15;
+pub const JUNGLE_LAYERS: usize = 26;
+/// Bricks front to back (2.5 units): room for the jungle's layers, trees at
+/// the back to ferns at the front.
+pub const JUNGLE_DEPTH: usize = 10;
 /// World y of the jungle's bottom.
 pub const JUNGLE_BASE: f32 = -1.0;
+/// How the jungle is walled in: no backs (never seen), but bottoms, because
+/// the canopies and fronds above the camera's eye show their undersides.
+pub const JUNGLE_BUILD: Build = Build {
+    wrap_x: true,
+    open_below: false,
+    open_behind: true,
+};
 
-const LEAF_SUN: u8 = 1;
-const LEAF: u8 = 2;
-const LEAF_DEEP: u8 = 3;
-const UNDERGROWTH: u8 = 4;
-pub const JUNGLE_PALETTE: [[u8; 3]; 4] = [
-    [132, 204, 96], // leaves in the sun
-    [76, 162, 78],  // leaves
-    [46, 124, 72],  // leaves in shade
-    [30, 92, 64],   // undergrowth
+// Two families of leaves, so neighbouring plants differ: a warm, sunny green
+// and a cool emerald, each in four shades from sunlit to deep shade. Then the
+// floor, the trees' pale bark, the palms' trunks, the lianas, and the light
+// midrib down a big leaf.
+const WARM: u8 = 1; // the warm family's sunlit shade; WARM + 1..3 darker
+const COOL: u8 = 5; // the same for the cool family
+const UNDERGROWTH: u8 = 9;
+const BARK: u8 = 10;
+const BARK_SHADE: u8 = 11;
+const PALM_TRUNK: u8 = 12;
+const LIANA: u8 = 13;
+const MIDRIB: u8 = 14;
+pub const JUNGLE_PALETTE: [[u8; 3]; 14] = [
+    [156, 216, 92],  // warm: in the sun
+    [104, 184, 74],  // warm
+    [64, 146, 66],   // warm: in shade
+    [40, 108, 60],   // warm: deep shade
+    [118, 210, 118], // cool: in the sun
+    [66, 172, 98],   // cool
+    [40, 132, 86],   // cool: in shade
+    [26, 98, 74],    // cool: deep shade
+    [24, 78, 58],    // undergrowth
+    [176, 172, 150], // a rainforest tree's pale bark
+    [128, 126, 110], // bark, the shaded side
+    [124, 96, 66],   // a palm's trunk
+    [92, 112, 52],   // a liana
+    [186, 230, 126], // the midrib of a big leaf
 ];
 
-/// One tile of jungle: a bumpy canopy of round treetops (lit on the left,
-/// shaded below) over dark undergrowth. The palms stand in a plane of their
-/// own behind it (`palm_grove`).
-pub fn jungle() -> Grid {
-    let (w, h) = (JUNGLE_TILE, JUNGLE_LAYERS);
-    let mut g = Grid::new(w, h, 2);
-    let n = w / 7;
-    let crowns: Vec<(f32, f32, f32)> = (0..n)
-        .map(|i| {
-            let x = (i as f32 + hash(i, 0, 0, 51)) * w as f32 / n as f32;
-            let r = 3.0 + 3.0 * hash(i, 1, 0, 51);
-            let c = 6.0 + 3.0 * hash(i, 2, 0, 51);
-            (x, r, c)
-        })
-        .collect();
-    for x in 0..w {
-        // The tallest crown over this column, and which side of it we're on.
-        let (top, dx) = crowns
-            .iter()
-            .filter_map(|&(cx, r, c)| {
-                let dx = loop_dx(x as f32 + 0.5, cx, w as f32);
-                (dx.abs() <= r).then(|| (c + (r * r - dx * dx).sqrt(), dx))
-            })
-            .fold((6.0, 0.0), |best, t| if t.0 > best.0 { t } else { best });
-        let top = (top as usize).min(h);
-        let sunny = dx < 0.0;
-        for y in 0..top {
-            let below = top - y;
-            let c = if y < 3 {
-                UNDERGROWTH
-            } else if below <= 2 && sunny {
-                LEAF_SUN
-            } else if below <= 3 {
-                LEAF
-            } else {
-                LEAF_DEEP
-            };
-            g.set(x, y, 0, c);
-            g.set(x, y, 1, c);
-        }
-    }
-    g
+/// Bricks up from the jungle's bottom to the forest floor's top.
+const FLOOR: usize = 2;
+
+/// A round mass of leaves: an ellipsoid of bricks, centre and radii in
+/// bricks, of one leaf family.
+struct Lobe {
+    x: f32,
+    y: f32,
+    z: f32,
+    r: [f32; 3],
+    family: u8,
+    /// Added to its light: below 0, a mass deeper in the shade.
+    bias: f32,
 }
 
-/// A palm grove: one tile of palms, laid end to end in a plane of its own.
-/// There are two: [`NEAR_GROVE`] behind the jungle, and [`FAR_GROVE`] farther
-/// back, plainer and a little paler, so the farther a plane lies, the more it
-/// looks like the sky. (Most of the distance comes from the mist it stands
-/// in; recoloured all the way to the mountains' blue, it stopped reading as
-/// palms.)
+/// Paints a jungle tile: wraps x round the tile (so plants near an end carry
+/// on at the other), ignores anything above or behind the grid.
+struct Jungle {
+    g: Grid,
+}
+
+impl Jungle {
+    fn put(&mut self, x: isize, y: isize, z: isize, c: u8) {
+        if y >= 0 && z >= 0 {
+            let x = x.rem_euclid(self.g.w as isize) as usize;
+            self.g.set(x, y as usize, z as usize, c);
+        }
+    }
+
+    fn put_at(&mut self, p: [f32; 3], c: u8) {
+        self.put(
+            p[0].floor() as isize,
+            p[1].floor() as isize,
+            p[2].floor() as isize,
+            c,
+        );
+    }
+
+    fn empty(&self, x: isize, y: isize, z: isize) -> bool {
+        let x = x.rem_euclid(self.g.w as isize);
+        self.g.get(x, y, z) == 0
+    }
+
+    /// A leaf or a frond: from `base`, heading `az` round the vertical
+    /// (0 = right, a quarter turn = toward the camera) and rising `el`
+    /// (radians), `len` bricks long, its tip drooping `droop` bricks. Its
+    /// blade is `width(t)` bricks either side of the spine `t` bricks along,
+    /// laid flat across the way it heads; the spine is `spine`, the blade
+    /// `blade` on the sunny side and `under` on the other.
+    #[allow(clippy::too_many_arguments)]
+    fn leaf(
+        &mut self,
+        base: [f32; 3],
+        (az, el): (f32, f32),
+        len: f32,
+        droop: f32,
+        width: impl Fn(f32) -> f32,
+        spine: u8,
+        (blade, under): (u8, u8),
+    ) {
+        let (dx, dz) = (az.cos() * el.cos(), az.sin() * el.cos());
+        // Across the leaf, level: the way its blade spreads.
+        let (sx, sz) = (-az.sin(), az.cos());
+        let mut t = 0.0;
+        while t <= len {
+            let p = [
+                base[0] + dx * t,
+                base[1] + el.sin() * t - droop * (t / len).powi(2),
+                base[2] + dz * t,
+            ];
+            let half = width(t).round() as i32;
+            for s in -half..=half {
+                let c = match s {
+                    0 => spine,
+                    // The side toward the sun (the left) is the lit one.
+                    s if (s as f32 * sx) < 0.0 => blade,
+                    _ => under,
+                };
+                self.put_at([p[0] + sx * s as f32, p[1], p[2] + sz * s as f32], c);
+            }
+            t += 0.5;
+        }
+    }
+
+    /// A palm frond, the way the palm groves draw theirs: a spine of single
+    /// bricks arching out and drooping (see [`Jungle::leaf`] for the
+    /// heading), sunlit on the left, with leaflets hanging under its outer
+    /// two thirds.
+    fn frond(&mut self, base: [f32; 3], (az, el): (f32, f32), len: f32, droop: f32, family: u8) {
+        let (dx, dz) = (az.cos() * el.cos(), az.sin() * el.cos());
+        let spine = if dx < 0.0 { family } else { family + 1 };
+        let mut t = 1.0;
+        let mut step = 0;
+        while t <= len {
+            let p = [
+                base[0] + dx * t,
+                base[1] + el.sin() * t - droop * (t / len).powi(2),
+                base[2] + dz * t,
+            ];
+            self.put_at(p, spine);
+            if t > len * 0.35 && step % 2 == 0 {
+                self.put_at([p[0], p[1] - 1.0, p[2]], family + 2);
+            }
+            t += 0.5;
+            step += 1;
+        }
+    }
+}
+
+/// The jungle's plants, from the back of the tile to the front: tall
+/// rainforest trees, jungle palms, bushes, then the big-leaved plants and
+/// ferns of the forest floor. Each is placed by a hash of its number, never a
+/// random generator, so the jungle is the same every game.
+fn jungle_plants() -> Jungle {
+    let (w, h, d) = (JUNGLE_TILE, JUNGLE_LAYERS, JUNGLE_DEPTH);
+    let mut j = Jungle {
+        g: Grid::new(w, h, d),
+    };
+    let wf = w as f32;
+    let mut lobes = Vec::new();
+
+    // The trees: a straight pale trunk, two bricks square, flaring into
+    // buttress roots at the floor, a flat, wide canopy of leaf masses on
+    // top, and lianas hanging from it.
+    let trees = 7;
+    let mut trunks = Vec::new();
+    for i in 0..trees {
+        let r = |k| hash(i, k, 0, 81);
+        let x = ((i as f32 + 0.2 + 0.6 * r(0)) * wf / trees as f32) as isize;
+        let top = 10 + (r(1) * 4.0) as isize;
+        let family = if r(2) < 0.5 { WARM } else { COOL };
+        trunks.push((x, top));
+        // A crown of round masses heaped over the trunk's top, spreading
+        // wide and tumbling lower at its edges, into the next tree's.
+        for k in 0..7 + (r(3) * 3.0) as usize {
+            let q = |m| hash(i, 10 + k * 5 + m, 0, 81);
+            let out = (q(1) - 0.5) * 2.0; // -1 (left edge) .. 1 (right)
+            let rad = 2.8 + 1.8 * q(0);
+            lobes.push(Lobe {
+                x: x as f32 + 1.0 + out * 10.0,
+                y: top as f32 + 1.0 + 1.5 * q(2) - 3.5 * out * out,
+                z: 2.0 + q(3) * 3.5,
+                r: [rad * 1.25, rad * 0.85, rad * 0.8],
+                family,
+                bias: 0.0,
+            });
+        }
+    }
+
+    // The jungle's dark heart, at the back: masses of leaves in deep shade
+    // from the floor up into the canopy, so between the trunks there is
+    // jungle all the way back rather than sky.
+    for i in 0..18 {
+        let r = |k| hash(i, k, 5, 79);
+        let rad = 4.5 + 2.0 * r(2);
+        lobes.push(Lobe {
+            x: (i as f32 + r(0)) * wf / 18.0,
+            y: FLOOR as f32 + 4.0 + 4.0 * r(1),
+            z: 0.6,
+            r: [rad * 1.6, rad, 1.6],
+            family: if r(3) < 0.5 { WARM } else { COOL },
+            bias: -0.3,
+        });
+    }
+
+    // Bushes between them, low down, so the floor never shows through.
+    for i in 0..16 {
+        let r = |k| hash(i, k, 1, 83);
+        let rad = 2.6 + 1.6 * r(2);
+        let family = if r(3) < 0.5 { WARM } else { COOL };
+        let (x, y, z) = (
+            (i as f32 + r(0)) * wf / 16.0,
+            FLOOR as f32 + 1.5 + 2.5 * r(1),
+            3.5 + 2.5 * r(4),
+        );
+        lobes.push(Lobe {
+            x,
+            y,
+            z,
+            r: [rad * 1.2, rad, rad * 0.8],
+            family,
+            bias: -0.35,
+        });
+        for k in 0..2 {
+            let q = |m: usize| hash(i, 10 + k * 3 + m, 1, 83);
+            let a = std::f32::consts::PI * (0.2 + 0.6 * q(0));
+            let sub = rad * (0.45 + 0.15 * q(1));
+            lobes.push(Lobe {
+                x: x + a.cos() * rad,
+                y: y + a.sin() * rad * 0.7,
+                z: z + (q(2) - 0.5),
+                r: [sub * 1.1, sub, sub * 0.9],
+                family,
+                bias: -0.35,
+            });
+        }
+    }
+    shade_lobes(&mut j, &lobes);
+
+    // The forest floor.
+    j.g.fill([0, 0, 0], [w, FLOOR, d], UNDERGROWTH);
+
+    for &(x, top) in &trunks {
+        // The trunk, lit on its left side; a fin of buttress root out each
+        // way at its foot, narrowing as it climbs.
+        for y in FLOOR as isize..top {
+            for (dx, c) in [(0, BARK), (1, BARK_SHADE)] {
+                for z in 2..4 {
+                    if j.empty(x + dx, y, z) {
+                        j.put(x + dx, y, z, c);
+                    }
+                }
+            }
+        }
+        for up in 0..3isize {
+            let y = FLOOR as isize + up;
+            let reach = 3 - up;
+            for s in 1..=reach {
+                j.put(x - s, y, 2, BARK);
+                j.put(x + 1 + s, y, 3, BARK_SHADE);
+                j.put(x, y, 3 + s, BARK);
+                j.put(x + 1, y, 2 - s.min(2), BARK_SHADE);
+            }
+        }
+    }
+    for (i, &(x, top)) in trunks.iter().enumerate() {
+        // Lianas: hanging from under the canopy, in front of the trunk,
+        // swaying a brick or so as they fall; some end in a few leaves.
+        for k in 0..3 {
+            let q = |m: usize| hash(i, 40 + k * 4 + m, 0, 81);
+            let vx = x + [-7, -2, 5][k] + ((q(0) - 0.5) * 3.0) as isize;
+            let vz = 5 + (q(1) * 2.0) as isize;
+            let from = top - 1;
+            let to = (from - 5 - (q(2) * 8.0) as isize).max(FLOOR as isize + 2);
+            let phase = q(3) * 6.0;
+            for y in to..from {
+                let sway = ((y as f32 * 0.6 + phase).sin() * 0.8).round() as isize;
+                j.put(vx + sway, y, vz, LIANA);
+            }
+            if q(2) > 0.5 {
+                let sway = ((to as f32 * 0.6 + phase).sin() * 0.8).round() as isize;
+                for (lx, ly) in [(-1, 0), (1, 0), (0, -1)] {
+                    j.put(vx + sway + lx, to + ly, vz, COOL + 1);
+                }
+            }
+        }
+    }
+
+    // Jungle palms: a slender trunk, leaning a little, rising through the
+    // canopy, and a crown of long fronds fanned all the way round, toward the
+    // camera too, their leaflets hanging — the jungle's silhouette.
+    let palms = 6;
+    for i in 0..palms {
+        let r = |k| hash(i, k, 2, 85);
+        let x = (i as f32 + 0.1 + 0.8 * r(0)) * wf / palms as f32;
+        let z = 6.5 + 1.0 * r(1);
+        let height = 15.0 + 4.0 * r(2);
+        let lean = (r(3) - 0.5) * 8.0;
+        let family = if r(4) < 0.5 { WARM } else { COOL };
+        let mut y = FLOOR as f32;
+        while y < FLOOR as f32 + height {
+            let u = (y - FLOOR as f32) / height;
+            j.put_at([x + lean * u * u, y, z], PALM_TRUNK);
+            y += 1.0;
+        }
+        let crown = [x + lean, FLOOR as f32 + height, z];
+        let fronds = 8 + (r(5) * 3.0) as usize;
+        for k in 0..fronds {
+            let q = |m| hash(i, 20 + k * 4 + m, 2, 85);
+            let az = (k as f32 + 0.4 * q(0)) / fronds as f32 * std::f32::consts::TAU;
+            let el = (10.0 + 35.0 * q(1)).to_radians();
+            let len = 6.0 + 3.0 * q(2);
+            j.frond(crown, (az, el), len, len * (0.5 + 0.3 * q(3)), family);
+        }
+        j.put_at(crown, family);
+        j.put_at([crown[0], crown[1] + 1.0, crown[2]], family);
+    }
+
+    // The forest floor's big leaves: plants of a few broad leaves on short
+    // stalks, opening toward the light and the camera.
+    let big_leaves = 11;
+    for i in 0..big_leaves {
+        let r = |k| hash(i, k, 3, 87);
+        let base = [
+            (i as f32 + r(0)) * wf / big_leaves as f32,
+            FLOOR as f32,
+            8.0 + 1.5 * r(1),
+        ];
+        let family = if r(2) < 0.6 { WARM } else { COOL };
+        let leaves = 3 + (r(3) * 3.0) as usize;
+        for k in 0..leaves {
+            let q = |m| hash(i, 20 + k * 4 + m, 3, 87);
+            // Spread round the front half, from the right through the
+            // camera to the left.
+            let az = std::f32::consts::PI * (k as f32 + 0.5 * q(0)) / leaves as f32;
+            let el = (45.0 + 25.0 * q(1)).to_radians();
+            let len = 7.0 + 2.5 * q(2);
+            let stalk = 2.0;
+            j.leaf(
+                base,
+                (az, el),
+                len,
+                len * (0.3 + 0.2 * q(3)),
+                |t| {
+                    let u = (t - stalk) / (len - stalk);
+                    if u <= 0.0 {
+                        0.0
+                    } else {
+                        2.2 * (std::f32::consts::PI * u).sin()
+                    }
+                },
+                MIDRIB,
+                (family + 1, family + 2),
+            );
+        }
+    }
+
+    // Ferns: low tufts of arching fronds, at the very front.
+    let ferns = 18;
+    for i in 0..ferns {
+        let r = |k| hash(i, k, 4, 89);
+        let base = [
+            (i as f32 + r(0)) * wf / ferns as f32,
+            FLOOR as f32,
+            8.0 + 1.5 * r(1),
+        ];
+        let family = if r(2) < 0.5 { COOL } else { WARM };
+        let fronds = 6 + (r(3) * 4.0) as usize;
+        for k in 0..fronds {
+            let q = |m| hash(i, 20 + k * 4 + m, 4, 89);
+            let az = (k as f32 + 0.5 * q(0)) / fronds as f32 * std::f32::consts::TAU;
+            let el = (35.0 + 35.0 * q(1)).to_radians();
+            let len = 3.0 + 2.0 * q(2);
+            j.leaf(
+                base,
+                (az, el),
+                len,
+                len * 0.6,
+                |t| if t > len * 0.3 { 1.0 } else { 0.0 },
+                family + 1,
+                (family, family + 2),
+            );
+        }
+    }
+    j
+}
+
+/// Fill the leaf masses, each brick shaded by where it sits on its own mass
+/// — sunlit up and to the left, shaded below, darker toward the ground and
+/// toward the back of the jungle — and darker still in the creases where
+/// masses meet, so each reads as a ball of leaves, not a cut-out. The
+/// surface is roughened brick by brick and the odd leaf is a shade lighter
+/// or darker, for a leafy texture.
+fn shade_lobes(j: &mut Jungle, lobes: &[Lobe]) {
+    let (w, h, d) = (j.g.w, j.g.h, j.g.d);
+    // Where the sun comes from: up, to the left and a little in front.
+    let sun = {
+        let (x, y, z) = (-0.5f32, 0.8f32, 0.45f32);
+        let n = (x * x + y * y + z * z).sqrt();
+        [x / n, y / n, z / n]
+    };
+    // First where the leaves are, with each brick's family and light; then
+    // the shades, once every brick's neighbours are known.
+    let mut leaves: Vec<(usize, usize, usize, u8, f32)> = Vec::new();
+    for x in 0..w {
+        let px = x as f32 + 0.5;
+        let near: Vec<&Lobe> = lobes
+            .iter()
+            .filter(|l| loop_dx(px, l.x, w as f32).abs() <= l.r[0] + 1.0)
+            .collect();
+        for y in FLOOR..h {
+            for z in 0..d {
+                // The mass this brick is most inside of, if any: q < 1 is
+                // inside, roughened by up to a seventh either way.
+                let rough = 0.28 * (hash(x, y, z, 71) - 0.5);
+                let best = near
+                    .iter()
+                    .map(|l| {
+                        let n = [
+                            loop_dx(px, l.x, w as f32) / l.r[0],
+                            (y as f32 + 0.5 - l.y) / l.r[1],
+                            (z as f32 + 0.5 - l.z) / l.r[2],
+                        ];
+                        (n[0] * n[0] + n[1] * n[1] + n[2] * n[2], n, l)
+                    })
+                    .filter(|(q, _, _)| *q <= 1.0 + rough)
+                    .min_by(|a, b| a.0.total_cmp(&b.0));
+                let Some((_, n, lobe)) = best else {
+                    continue;
+                };
+                let family = lobe.family;
+                let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-4);
+                let mut lit = (n[0] * sun[0] + n[1] * sun[1] + n[2] * sun[2]) / len + lobe.bias;
+                lit -= 0.5 * ((FLOOR as f32 + 3.0 - y as f32) / 4.0).clamp(0.0, 1.0);
+                lit -= 0.55 * (1.0 - z as f32 / d as f32).powi(2);
+                j.g.set(x, y, z, family);
+                leaves.push((x, y, z, family, lit));
+            }
+        }
+    }
+    for (x, y, z, family, mut lit) in leaves {
+        // A crease: a brick with more neighbours than one on the round of a
+        // single mass (about a dozen of the 26) sits where masses meet.
+        let mut around = 0;
+        for dz in -1..=1isize {
+            for dy in -1..=1isize {
+                for dx in -1..=1isize {
+                    let nx = (x as isize + dx).rem_euclid(w as isize);
+                    if (dx, dy, dz) != (0, 0, 0)
+                        && j.g.get(nx, y as isize + dy, z as isize + dz) != 0
+                    {
+                        around += 1;
+                    }
+                }
+            }
+        }
+        lit -= 0.06 * (around as f32 - 13.0).max(0.0);
+        let mut shade: u8 = match lit {
+            v if v > 0.35 => 0,
+            v if v > -0.05 => 1,
+            v if v > -0.4 => 2,
+            _ => 3,
+        };
+        match hash(x, y, z, 73) {
+            v if v < 0.1 => shade = shade.saturating_sub(1),
+            v if v > 0.92 => shade = (shade + 1).min(3),
+            _ => {}
+        }
+        j.g.set(x, y, z, family + shade);
+    }
+}
+
+/// One tile of jungle, in the round, the way a film's rainforest is: tall
+/// pale-trunked trees with buttress roots, wide canopies and lianas, jungle
+/// palms among them, bushes between, and big-leaved plants and ferns
+/// crowding the floor — each at its own depth, the near ones hiding the far
+/// ones' feet (see [`jungle_plants`]). The palm grove stands in a plane of
+/// its own behind it (`palm_grove`).
+pub fn jungle() -> Grid {
+    jungle_plants().g
+}
+
+/// A palm grove: one tile of palms, laid end to end in a plane of its own
+/// behind the jungle ([`GROVE`]). Its distance comes from the mist it stands
+/// in, not its colours: recoloured toward the mountains' blue, it stopped
+/// reading as palms. (A second, farther grove was retired once the jungle
+/// grew tall: it crowded the scene.)
 pub struct Grove {
     /// One brick, world units.
     pub cell: f32,
@@ -369,8 +795,6 @@ pub struct Grove {
     /// Trunk lengths, bricks (inclusive), and fronds per crown.
     heights: (usize, usize),
     fronds: (usize, usize),
-    /// Leaflets, coconuts, trunk rings and thick feet: the near grove's.
-    detail: bool,
     salt: u64,
 }
 
@@ -381,8 +805,8 @@ const FROND_SUN: u8 = 4;
 const FROND_DEEP: u8 = 5;
 const COCONUT: u8 = 6;
 
-/// The palms behind the jungle: every detail, in the jungle's bricks.
-pub const NEAR_GROVE: Grove = Grove {
+/// The palms behind the jungle, in the jungle's bricks.
+pub const GROVE: Grove = Grove {
     cell: 0.25,
     tile: 160, // 40 units
     layers: 30,
@@ -397,29 +821,7 @@ pub const NEAR_GROVE: Grove = Grove {
     ],
     heights: (10, 20),
     fronds: (6, 9),
-    detail: true,
     salt: 61,
-};
-
-/// The palms beyond them: chunkier bricks, plainer crowns, and greens a
-/// step lighter and cooler, toward the sky.
-pub const FAR_GROVE: Grove = Grove {
-    cell: 0.32,
-    tile: 128, // 41 units
-    layers: 24,
-    base: -0.5,
-    palette: [
-        [146, 126, 108], // trunk
-        [146, 126, 108], // (no rings this far off)
-        [94, 168, 112],  // fronds
-        [140, 206, 136], // fronds in the sun
-        [94, 168, 112],  // (no leaflets)
-        [146, 126, 108], // (no coconuts)
-    ],
-    heights: (8, 14),
-    fronds: (4, 5),
-    detail: false,
-    salt: 71,
 };
 
 /// One palm of a grove, in bricks.
@@ -457,7 +859,7 @@ impl Palm {
 
 /// A grove's palms: spread along the tile in loose clumps, every one its own
 /// — short or tall, straight or leaning either way, a sparse crown or a full
-/// one, with coconuts or without (near ones only).
+/// one, with coconuts or without.
 pub fn palms(grove: &Grove) -> Vec<Palm> {
     let salt = grove.salt;
     let (h0, h1) = grove.heights;
@@ -500,7 +902,7 @@ pub fn palms(grove: &Grove) -> Vec<Palm> {
             height,
             lean,
             fronds,
-            coconuts: grove.detail && r(5) < 0.65,
+            coconuts: r(5) < 0.65,
         });
         // Loose clumps: a close neighbour now and then, else a wider gap.
         x += if r(6) < 0.3 { 5 } else { 11 } + (r(7) * 9.0) as usize;
@@ -513,7 +915,6 @@ pub fn palms(grove: &Grove) -> Vec<Palm> {
 /// round the tile's ends, so tiles join without a seam.
 pub fn palm_grove(grove: &Grove) -> Grid {
     let (w, h) = (grove.tile, grove.layers);
-    let detail = grove.detail;
     let mut g = Grid::new(w, h, 1);
     let mut put = |x: isize, y: isize, c: u8| {
         if y >= 0 {
@@ -521,24 +922,19 @@ pub fn palm_grove(grove: &Grove) -> Grid {
         }
     };
     for p in palms(grove) {
-        // The trunk: ringed, and two bricks thick at the foot of a tall one,
-        // up close; plain far off.
+        // The trunk: ringed, and two bricks thick at the foot of a tall one.
         for y in 0..p.height {
             let x = p.x as isize + p.shift(y);
-            let c = if detail && y % 3 == 2 {
-                TRUNK_RING
-            } else {
-                TRUNK
-            };
+            let c = if y % 3 == 2 { TRUNK_RING } else { TRUNK };
             put(x, y as isize, c);
-            if detail && p.height >= 15 && y < p.height / 3 {
+            if p.height >= 15 && y < p.height / 3 {
                 put(x + 1, y as isize, c);
             }
         }
         let (cx, cy) = p.crown();
         // The fronds: arcs out from the crown, rising and then drooping
-        // toward their tips, sunlit on the left; up close, leaflets hang
-        // along their outer halves.
+        // toward their tips, sunlit on the left, leaflets hanging along
+        // their outer halves.
         for &(angle, len, droop) in &p.fronds {
             let (dx, dy) = (angle.to_radians().cos(), angle.to_radians().sin());
             let colour = if dx < 0.0 { FROND_SUN } else { FROND };
@@ -548,7 +944,7 @@ pub fn palm_grove(grove: &Grove) -> Grid {
                 let fx = cx + (t * dx).round() as isize;
                 let fy = cy + (t * dy - droop * (t / len).powi(2)).round() as isize;
                 put(fx, fy, colour);
-                if detail && s % 3 == 0 && t > len * 0.45 && t < len - 0.5 {
+                if s % 3 == 0 && t > len * 0.45 && t < len - 0.5 {
                     put(fx, fy - 1, FROND_DEEP);
                 }
             }
@@ -914,7 +1310,8 @@ mod tests {
         use crate::bricks::{Build, vertex_count};
         let ground = Build {
             wrap_x: true,
-            open_below_and_behind: true,
+            open_below: true,
+            open_behind: true,
         };
         let n = vertex_count(&super::ground(), ground);
         assert!(n <= u16::MAX as usize + 1, "ground: {n} vertices");
@@ -959,15 +1356,15 @@ mod tests {
     #[test]
     fn some_mountains_rise_into_the_clouds() {
         // The clouds' band runs from about 3.3 units up to 9 (runner.rs):
-        // the big peaks rise into it but stay well under its top, so the
-        // clouds still float above them, and the valleys between dip below
-        // it, so the range is no wall.
+        // the big peaks rise high into it, over the jungle in front, but stay
+        // under its top, so the clouds still float above them, and the
+        // valleys between dip below it, so the range is no wall.
         let tops: Vec<f32> = skyline(&mountains())
             .iter()
             .map(|&b| MOUNTAIN_BASE + b as f32 * MOUNTAIN_CELL)
             .collect();
         let tallest = tops.iter().cloned().fold(0.0, f32::max);
-        assert!((5.0..=8.0).contains(&tallest), "tallest peak {tallest}");
+        assert!((7.0..=9.0).contains(&tallest), "tallest peak {tallest}");
         assert!(tops.iter().any(|&t| t < 3.3), "no valley under the clouds");
     }
 
@@ -976,19 +1373,52 @@ mod tests {
         use crate::bricks::{Build, vertex_count};
         let how = Build {
             wrap_x: true,
-            open_below_and_behind: true,
+            open_below: true,
+            open_behind: true,
         };
-        for (name, g) in [("mountains", mountains()), ("jungle", jungle())] {
-            assert!(skyline(&g).iter().all(|&t| t > 0), "{name} has a gap");
-            let n = vertex_count(&g, how);
-            assert!(n <= u16::MAX as usize + 1, "{name}: {n} vertices");
+        let g = mountains();
+        assert!(
+            skyline(&g).iter().all(|&t| t > 0),
+            "the mountains have a gap"
+        );
+        let n = vertex_count(&g, how);
+        assert!(n <= u16::MAX as usize + 1, "mountains: {n} vertices");
+        // The jungle is too leafy for one mesh; it builds into several, but
+        // stays light enough for a family laptop (a tile or two is on screen).
+        let g = jungle();
+        assert!(skyline(&g).iter().all(|&t| t > 0), "the jungle has a gap");
+        let n = vertex_count(&g, JUNGLE_BUILD);
+        assert!(n <= 2 * u16::MAX as usize, "jungle: {n} vertices");
+    }
+
+    #[test]
+    fn the_jungle_is_round_not_a_cutout() {
+        // Seen from the front, the nearest brick over each spot lies at many
+        // depths (clumps in rows, each rounded), in many shades.
+        let g = jungle();
+        let mut depths = std::collections::HashSet::new();
+        let mut shades = std::collections::HashSet::new();
+        for x in 0..g.w as isize {
+            for y in 2..g.h as isize {
+                if let Some(z) = (0..g.d as isize).rev().find(|&z| g.get(x, y, z) != 0) {
+                    depths.insert(z);
+                    shades.insert(g.get(x, y, z));
+                }
+            }
         }
+        assert!(depths.len() >= 6, "front depths {depths:?}");
+        assert!(shades.len() >= 7, "front shades {shades:?}");
     }
 
     #[test]
     fn the_jungle_is_greenery_only() {
-        // The palms moved to a plane of their own.
-        assert_eq!(JUNGLE_PALETTE.len(), 4);
+        // Leaves, lianas and the floor are all greens; the only other
+        // colours are the trunks'.
+        for (i, [r, g, b]) in JUNGLE_PALETTE.iter().enumerate() {
+            if ![BARK, BARK_SHADE, PALM_TRUNK].contains(&(i as u8 + 1)) {
+                assert!(g > r && g > b, "colour {} isn't a green", i + 1);
+            }
+        }
         let g = jungle();
         for z in 0..g.d as isize {
             for y in 0..g.h as isize {
@@ -1001,7 +1431,8 @@ mod tests {
 
     #[test]
     fn every_palm_is_its_own() {
-        for (name, grove) in [("near", &NEAR_GROVE), ("far", &FAR_GROVE)] {
+        {
+            let (name, grove) = ("grove", &GROVE);
             let palms = palms(grove);
             assert!(palms.len() >= 7, "{name}: {} palms", palms.len());
             let heights: Vec<usize> = palms.iter().map(|p| p.height).collect();
@@ -1033,29 +1464,9 @@ mod tests {
     }
 
     #[test]
-    fn the_far_grove_is_plainer_and_paler() {
-        // Fewer fronds, nothing hung on them, bigger bricks…
-        const { assert!(FAR_GROVE.fronds.1 < NEAR_GROVE.fronds.0) };
-        assert!(palms(&FAR_GROVE).iter().all(|p| !p.coconuts));
-        assert!(palms(&NEAR_GROVE).iter().any(|p| p.coconuts));
-        const { assert!(FAR_GROVE.cell > NEAR_GROVE.cell) };
-        // …and every colour a step nearer the sky's horizon (runner.rs's
-        // SKY_LOW) than the near grove's.
-        let sky = [184u8, 228, 255];
-        let dist = |c: [u8; 3]| {
-            (0..3)
-                .map(|k| (c[k] as f32 - sky[k] as f32).powi(2))
-                .sum::<f32>()
-        };
-        for k in [TRUNK, FROND, FROND_SUN] {
-            let k = k as usize - 1;
-            assert!(dist(FAR_GROVE.palette[k]) < dist(NEAR_GROVE.palette[k]));
-        }
-    }
-
-    #[test]
     fn every_palm_fits_its_grove() {
-        for grove in [&NEAR_GROVE, &FAR_GROVE] {
+        {
+            let grove = &GROVE;
             // Nothing is cut off at the top: a crown plus its highest frond.
             for p in palms(grove) {
                 let up = p
@@ -1073,7 +1484,8 @@ mod tests {
             // (crowns rise above the camera, so their undersides show).
             let how = crate::bricks::Build {
                 wrap_x: true,
-                open_below_and_behind: false,
+                open_below: false,
+                open_behind: false,
             };
             let n = crate::bricks::vertex_count(&palm_grove(grove), how);
             assert!(n <= u16::MAX as usize + 1, "{n} vertices");

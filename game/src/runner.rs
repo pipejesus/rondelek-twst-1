@@ -6,8 +6,8 @@
 //! Rendering: a fixed perspective camera slightly above and beside the action,
 //! everything built from chunky 3D bricks ("pixels became big and 3-D").
 //! Parallax planes scroll by hand-tuned factors of the travelled distance,
-//! 90s style: clouds 0.10, mountains 0.16, far palms 0.20, palms 0.26,
-//! jungle 0.36, ground 1.0, each
+//! 90s style: clouds 0.10, mountains 0.16, palms 0.23, jungle 0.36,
+//! ground 1.0, each
 //! farther plane hazed toward the sky and the mountains and jungle rising out
 //! of valley mist. The clouds are a hand-drawn flat-draw prop (GLB, see
 //! `models.rs`) through flat-draw's own Lam::pula glass shader (`lampula.rs`),
@@ -123,29 +123,32 @@ const CLOUD_BREATH_RATE: f32 = 0.5;
 // fraction of the ground's), each built in bricks (`props.rs`).
 const MOUNTAIN_Z: f32 = -12.0;
 const MOUNTAIN_SCROLL: f32 = 0.16;
-const FAR_PALM_Z: f32 = -11.0;
-const FAR_PALM_SCROLL: f32 = 0.20;
-const PALM_Z: f32 = -9.5;
-const PALM_SCROLL: f32 = 0.26;
+/// World y of the range's middle, top to bottom: where its lamps centre.
+const MOUNTAIN_MID: f32 =
+    props::MOUNTAIN_BASE + props::MOUNTAIN_LAYERS as f32 * props::MOUNTAIN_CELL / 2.0;
+const PALM_Z: f32 = -10.25;
+const PALM_SCROLL: f32 = 0.23;
 const JUNGLE_Z: f32 = -5.0;
 const JUNGLE_SCROLL: f32 = 0.36;
+/// World y of the jungle's middle, top to bottom: where its lamps centre.
+const JUNGLE_MID: f32 = props::JUNGLE_BASE + props::JUNGLE_LAYERS as f32 * props::JUNGLE_CELL / 2.0;
 // Atmospheric haze: how far each plane ends up pulled toward the sky behind
 // it (0 = not at all, 1 = gone) — the farther, the more. The clouds' is what
 // it was before the planes came, so they look as they did. See `haze_step`.
 const CLOUD_HAZE: f32 = 0.45;
 const MOUNTAIN_HAZE: f32 = 0.3;
-const FAR_PALM_HAZE: f32 = 0.26;
-const PALM_HAZE: f32 = 0.22;
-const JUNGLE_HAZE: f32 = 0.16;
+const PALM_HAZE: f32 = 0.24;
+const JUNGLE_HAZE: f32 = 0.1;
 // Valley mist: a white band rising from a plane's foot, clear `fade` units up
 // and `alpha` thick at the foot (and below). It ties the planes together: the
 // mountains stand in it, the jungle rises out of it, the meadow comes out of
 // it in front.
 const MIST: Color = Color::new(236, 244, 250, 255);
 const MOUNTAIN_MIST: (f32, f32, f32) = (0.6, 2.2, 0.8); // (foot y, fade, alpha)
-const FAR_PALM_MIST: (f32, f32, f32) = (0.5, 1.8, 0.5);
-const PALM_MIST: (f32, f32, f32) = (0.3, 1.3, 0.4);
-const JUNGLE_MIST: (f32, f32, f32) = (0.1, 1.0, 0.32);
+// The palms' mist stands high, up into their crowns: the tall jungle in front
+// hides everything lower, so a mist at their feet would never be seen.
+const PALM_MIST: (f32, f32, f32) = (3.0, 2.6, 0.42);
+const JUNGLE_MIST: (f32, f32, f32) = (0.0, 0.8, 0.18);
 
 // The water in front of the meadow: its resting surface sits a little below
 // the grass, so a strip of the bank's earth shows above it; it runs from the
@@ -484,7 +487,6 @@ struct Gfx {
     /// One tile each of the far planes (`props::mountains`,
     /// `props::palm_grove` twice, `props::jungle`).
     mountains: Option<BrickModel>,
-    far_palms: Option<BrickModel>,
     palms: Option<BrickModel>,
     jungle: Option<BrickModel>,
     /// One tile of the meadow (`props::ground`), laid end to end.
@@ -1044,7 +1046,8 @@ fn grove_model(thread: &RaylibThread, name: &str, grove: &props::Grove) -> Optio
         grove.cell,
         Build {
             wrap_x: true,
-            open_below_and_behind: false,
+            open_below: false,
+            open_behind: false,
         },
     )
 }
@@ -1178,7 +1181,8 @@ impl VoiceGame for Runner {
                 props::GROUND_CELL,
                 Build {
                     wrap_x: true,
-                    open_below_and_behind: true,
+                    open_below: true,
+                    open_behind: true,
                 },
             ),
             obstacle_models: ObstacleModels::build(thread),
@@ -1191,23 +1195,20 @@ impl VoiceGame for Runner {
                 props::MOUNTAIN_CELL,
                 Build {
                     wrap_x: true,
-                    open_below_and_behind: true,
+                    open_below: true,
+                    open_behind: true,
                 },
             ),
             // Every face built: the crowns rise above the camera, so their
             // undersides show.
-            far_palms: grove_model(thread, "far palms", &props::FAR_GROVE),
-            palms: grove_model(thread, "palms", &props::NEAR_GROVE),
+            palms: grove_model(thread, "palms", &props::GROVE),
             jungle: BrickModel::build(
                 thread,
                 "jungle",
                 &props::jungle(),
                 &props::JUNGLE_PALETTE,
                 props::JUNGLE_CELL,
-                Build {
-                    wrap_x: true,
-                    open_below_and_behind: true,
-                },
+                props::JUNGLE_BUILD,
             ),
             ledge_models: {
                 let ledge = |size: LedgeSize| {
@@ -1560,49 +1561,33 @@ impl VoiceGame for Runner {
                 MOUNTAIN_Z,
                 dist_u * MOUNTAIN_SCROLL,
                 (
-                    Vector3::new(0.0, 2.0, MOUNTAIN_Z),
-                    Vector3::new(24.0, 4.0, 0.6),
+                    Vector3::new(0.0, MOUNTAIN_MID, MOUNTAIN_Z),
+                    Vector3::new(24.0, MOUNTAIN_MID - props::MOUNTAIN_BASE, 0.6),
                 ),
             );
         }
-        haze(d, haze_step(MOUNTAIN_HAZE, FAR_PALM_HAZE));
+        haze(d, haze_step(MOUNTAIN_HAZE, PALM_HAZE));
         mist(d, MOUNTAIN_Z, MOUNTAIN_MIST);
 
-        // --- palm groves: far (z -11, 0.20) and near (z -9.5, 0.26) --------
-        // The far grove plainer and a little paler, standing in its own mist;
-        // the near one in every detail. Each a step less hazed than the plane
-        // behind, so the farther, the more like the sky. The jungle hides
+        // --- palm grove (z -10.25, factor 0.23) ----------------------------
+        // A step less hazed than the mountains behind; the jungle hides
         // their feet.
-        let groves = [
-            (
-                &gfx.far_palms,
-                &props::FAR_GROVE,
-                FAR_PALM_Z,
-                FAR_PALM_SCROLL,
-            ),
-            (&gfx.palms, &props::NEAR_GROVE, PALM_Z, PALM_SCROLL),
-        ];
-        for (i, (model, grove, z, scroll)) in groves.into_iter().enumerate() {
-            if let Some(model) = model {
-                let mut c3 = d.begin_mode3D(camera);
-                lay_tiles(
-                    &mut c3,
-                    model,
-                    gfx.backdrop_glass.as_mut(),
-                    grove.tile as f32 * grove.cell,
-                    grove.base,
-                    z,
-                    dist_u * scroll,
-                    (Vector3::new(0.0, 2.5, z), Vector3::new(17.0, 3.0, 0.2)),
-                );
-            }
-            if i == 0 {
-                haze(d, haze_step(FAR_PALM_HAZE, PALM_HAZE));
-                mist(d, FAR_PALM_Z, FAR_PALM_MIST);
-            }
+        if let Some(model) = &gfx.palms {
+            let grove = &props::GROVE;
+            let mut c3 = d.begin_mode3D(camera);
+            lay_tiles(
+                &mut c3,
+                model,
+                gfx.backdrop_glass.as_mut(),
+                grove.tile as f32 * grove.cell,
+                grove.base,
+                PALM_Z,
+                dist_u * PALM_SCROLL,
+                (Vector3::new(0.0, 2.5, PALM_Z), Vector3::new(17.0, 3.0, 0.2)),
+            );
         }
         haze(d, haze_step(PALM_HAZE, JUNGLE_HAZE));
-        // The near palms' trunks fade into mist above the jungle's canopy.
+        // The palms' trunks fade into mist, well up toward their crowns.
         mist(d, PALM_Z, PALM_MIST);
 
         // --- jungle (z -5, factor 0.36): rising out of the mist -----------
@@ -1617,8 +1602,12 @@ impl VoiceGame for Runner {
                 JUNGLE_Z,
                 dist_u * JUNGLE_SCROLL,
                 (
-                    Vector3::new(0.0, 1.0, JUNGLE_Z),
-                    Vector3::new(16.0, 2.0, 0.25),
+                    Vector3::new(0.0, JUNGLE_MID, JUNGLE_Z),
+                    Vector3::new(
+                        16.0,
+                        JUNGLE_MID - props::JUNGLE_BASE,
+                        props::JUNGLE_DEPTH as f32 * props::JUNGLE_CELL / 2.0,
+                    ),
                 ),
             );
         }
@@ -2623,21 +2612,19 @@ mod tests {
     #[test]
     fn each_plane_ends_up_hazed_as_set() {
         // The passes drawn in front of each plane multiply what shows through.
-        let (c, m, f, p, j) = (
+        let (c, m, p, j) = (
             haze_step(CLOUD_HAZE, MOUNTAIN_HAZE),
-            haze_step(MOUNTAIN_HAZE, FAR_PALM_HAZE),
-            haze_step(FAR_PALM_HAZE, PALM_HAZE),
+            haze_step(MOUNTAIN_HAZE, PALM_HAZE),
             haze_step(PALM_HAZE, JUNGLE_HAZE),
             JUNGLE_HAZE,
         );
         let through = |passes: &[f32]| 1.0 - passes.iter().map(|a| 1.0 - a).product::<f32>();
-        assert!((through(&[c, m, f, p, j]) - CLOUD_HAZE).abs() < 1e-5);
-        assert!((through(&[m, f, p, j]) - MOUNTAIN_HAZE).abs() < 1e-5);
-        assert!((through(&[f, p, j]) - FAR_PALM_HAZE).abs() < 1e-5);
+        assert!((through(&[c, m, p, j]) - CLOUD_HAZE).abs() < 1e-5);
+        assert!((through(&[m, p, j]) - MOUNTAIN_HAZE).abs() < 1e-5);
         assert!((through(&[p, j]) - PALM_HAZE).abs() < 1e-5);
         assert!((through(&[j]) - JUNGLE_HAZE).abs() < 1e-5);
         // The farther, the hazier: every pass is a real (non-negative) one.
-        assert!([c, m, f, p, j].iter().all(|&a| a >= 0.0));
+        assert!([c, m, p, j].iter().all(|&a| a >= 0.0));
     }
 
     #[test]

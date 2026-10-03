@@ -74,9 +74,12 @@ pub struct Build {
     /// its last column and its first, which a neighbouring copy covers, are
     /// left out.
     pub wrap_x: bool,
-    /// Leave out the bottoms and backs: for something the camera always sees
-    /// from above and in front (the ground), they are never seen.
-    pub open_below_and_behind: bool,
+    /// Leave out the bottoms: for something the camera always sees from
+    /// above (the ground), they are never seen.
+    pub open_below: bool,
+    /// Leave out the backs: the camera is in front of everything, so a back
+    /// is only ever seen through a hole (the ground, the far planes).
+    pub open_behind: bool,
 }
 
 /// The six face directions (each the step to the neighbour it borders, and
@@ -97,7 +100,9 @@ struct Faces {
     vertices: Vec<Vector3>,
     texcoords: Vec<Vector2>,
     normals: Vec<Vector3>,
-    indices: Vec<u16>,
+    /// Into `vertices`, all of them: [`Faces::meshes`] splits them into runs
+    /// raylib's 16-bit indices can hold.
+    indices: Vec<u32>,
 }
 
 impl Faces {
@@ -123,7 +128,7 @@ impl Faces {
                     let lo =
                         Vector3::new(x0 + x as f32 * cell, y as f32 * cell, z0 + z as f32 * cell);
                     for (k, step) in FACES.iter().enumerate() {
-                        if how.open_below_and_behind && k >= 4 {
+                        if (how.open_below && k == 4) || (how.open_behind && k == 5) {
                             continue;
                         }
                         let mut nx = x + step[0];
@@ -190,11 +195,35 @@ impl Faces {
                 v(lo.x, hi.y, hi.z),
             ]
         };
-        let base = self.vertices.len() as u16;
+        let base = self.vertices.len() as u32;
         self.vertices.extend(corners);
         self.texcoords.extend([uv; 4]);
         self.normals.extend([n; 4]);
         self.indices.extend([0, 1, 2, 0, 2, 3].map(|i| base + i));
+    }
+}
+
+/// The most faces one mesh can hold: raylib's indices are 16-bit, and every
+/// face has four vertices of its own. (raylib-rs wants the vertex *count* to
+/// fit 16 bits too, so a mesh holds 65535 vertices at most, not 65536.)
+const FACES_PER_MESH: usize = u16::MAX as usize / 4;
+
+impl Faces {
+    /// The faces in runs that each fit one mesh: each run's first vertex and
+    /// vertex count, and its indices, counted from that first vertex.
+    fn meshes(&self) -> Vec<(usize, usize, Vec<u16>)> {
+        let quads = self.vertices.len() / 4;
+        (0..quads)
+            .step_by(FACES_PER_MESH)
+            .map(|first| {
+                let last = (first + FACES_PER_MESH).min(quads);
+                let indices = self.indices[first * 6..last * 6]
+                    .iter()
+                    .map(|&i| (i - first as u32 * 4) as u16)
+                    .collect();
+                (first * 4, (last - first) * 4, indices)
+            })
+            .collect()
     }
 }
 
@@ -206,9 +235,10 @@ fn palette_pixels(colours: &[[u8; 3]]) -> Vec<u8> {
         .collect()
 }
 
-/// A grid, built into a mesh and ready to draw any number of times.
+/// A grid, built into a mesh and ready to draw any number of times. (Into
+/// several, if it has more faces than one mesh can hold: a draw call each.)
 pub struct BrickModel {
-    mesh: Mesh,
+    meshes: Vec<Mesh>,
     palette: PaletteMaterial,
     /// Model space → the brick lattice: every brick corner on whole numbers.
     pub lattice: Matrix,
@@ -219,9 +249,8 @@ pub struct BrickModel {
 
 impl BrickModel {
     /// Build `grid` with bricks `cell` units big, its colours from `palette`
-    /// (grid colour `n` = `palette[n - 1]`). `None` (logged) if the mesh or
-    /// the palette won't load, or the grid has too many faces for raylib's
-    /// 16-bit indices.
+    /// (grid colour `n` = `palette[n - 1]`). `None` (logged) if the grid is
+    /// empty, or a mesh or the palette won't load.
     pub fn build(
         thread: &RaylibThread,
         name: &str,
@@ -231,24 +260,25 @@ impl BrickModel {
         how: Build,
     ) -> Option<Self> {
         let faces = Faces::new(grid, cell, palette.len(), how);
-        if faces.vertices.is_empty() || faces.vertices.len() > u16::MAX as usize + 1 {
-            eprintln!(
-                "{name}: {} vertices won't make a mesh",
-                faces.vertices.len()
-            );
+        if faces.vertices.is_empty() {
+            eprintln!("{name}: no bricks, no mesh");
             return None;
         }
-        let mesh = match Mesh::gen_mesh(&faces.vertices, &faces.texcoords)
-            .normals(&faces.normals)
-            .indices(&faces.indices)
-            .build(thread)
-        {
-            Ok(m) => m,
-            Err(e) => {
-                eprintln!("{name} mesh: {e}");
-                return None;
+        let mut meshes = Vec::new();
+        for (first, count, indices) in faces.meshes() {
+            let run = first..first + count;
+            match Mesh::gen_mesh(&faces.vertices[run.clone()], &faces.texcoords[run.clone()])
+                .normals(&faces.normals[run])
+                .indices(&indices)
+                .build(thread)
+            {
+                Ok(m) => meshes.push(m),
+                Err(e) => {
+                    eprintln!("{name} mesh: {e}");
+                    return None;
+                }
             }
-        };
+        }
         // Snapped, not blended: each texel is one brick colour.
         let palette = PaletteMaterial::new(
             thread,
@@ -259,7 +289,7 @@ impl BrickModel {
         )?;
         let (hw, hd) = (grid.w as f32 * cell / 2.0, grid.d as f32 * cell / 2.0);
         Some(Self {
-            mesh,
+            meshes,
             palette,
             lattice: lattice(grid, cell),
             min: Vector3::new(-hw, 0.0, -hd),
@@ -277,16 +307,19 @@ impl BrickModel {
         transform: Matrix,
         lamps: (Vector3, Vector3),
     ) {
-        match glass {
-            Some(g) => g.draw_mesh(
-                d,
-                &self.mesh,
-                self.palette.material(),
-                transform,
-                self.lattice,
-                lamps,
-            ),
-            None => d.draw_mesh(&self.mesh, self.palette.material().clone(), transform),
+        let mut glass = glass;
+        for mesh in &self.meshes {
+            match glass.as_deref_mut() {
+                Some(g) => g.draw_mesh(
+                    d,
+                    mesh,
+                    self.palette.material(),
+                    transform,
+                    self.lattice,
+                    lamps,
+                ),
+                None => d.draw_mesh(mesh, self.palette.material().clone(), transform),
+            }
         }
     }
 }
@@ -335,7 +368,8 @@ mod tests {
     fn wrapping_and_opening_leave_out_what_is_never_seen() {
         let how = Build {
             wrap_x: true,
-            open_below_and_behind: true,
+            open_below: true,
+            open_behind: true,
         };
         // A 4×1×2 slab tiled along x: only its tops and fronts remain.
         let f = Faces::new(&solid(4, 1, 2), 1.0, 1, how);
@@ -373,6 +407,39 @@ mod tests {
         // Colour n sits at the middle of texel n - 1.
         assert!(f.texcoords.iter().any(|t| (t.x - 1.5 / 3.0).abs() < 1e-6));
         assert!(f.texcoords.iter().any(|t| (t.x - 2.5 / 3.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn a_big_grid_splits_into_meshes_raylib_can_index() {
+        // 128 × 4 × 40 lone bricks, every other one: 10240 bricks, six faces
+        // each, too many for one mesh.
+        let mut g = Grid::new(128, 4, 40);
+        for z in (0..40).step_by(2) {
+            for y in (0..4).step_by(2) {
+                for x in (0..128).step_by(2) {
+                    g.set(x, y, z, 1);
+                }
+            }
+        }
+        let f = Faces::new(&g, 1.0, 1, Build::default());
+        let quads = f.vertices.len() / 4;
+        assert_eq!(quads, 64 * 2 * 20 * 6);
+        let meshes = f.meshes();
+        assert_eq!(meshes.len(), quads.div_ceil(FACES_PER_MESH));
+        let mut next = 0;
+        for (first, count, indices) in &meshes {
+            assert_eq!(*first, next, "runs follow on");
+            next += count;
+            assert!(*count <= u16::MAX as usize + 1);
+            // Every index lands inside its own run, on the same vertex the
+            // whole-grid index pointed at.
+            assert!(indices.iter().all(|&i| (i as usize) < *count));
+            let whole = &f.indices[first / 4 * 6..(first + count) / 4 * 6];
+            for (&i, &w) in indices.iter().zip(whole) {
+                assert_eq!(first + i as usize, w as usize);
+            }
+        }
+        assert_eq!(next, f.vertices.len());
     }
 
     #[test]

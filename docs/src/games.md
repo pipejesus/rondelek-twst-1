@@ -151,12 +151,11 @@ glide past while the camera stays put.
 | Sky | behind everything | 2D gradient `SKY_TOP` → `SKY_LOW` (a clear blue day) |
 | Clouds | z −14, parallax 0.10 | `cloud.glb` (flat-draw) through **Lam::pula** glass, gently floating and breathing |
 | Haze | — | the sky gradient again, see-through, in front of each far plane (see below) |
-| **Mountains** | z −12, parallax 0.16 | code-built **bricks** (`props::mountains`): a blue-violet range with snowy peaks, some rising in front of the clouds |
+| **Mountains** | z −12, parallax 0.16 | code-built **bricks** (`props::mountains`): a blue-violet range with snowy peaks rising high over the jungle, some in front of the clouds |
 | Valley mist | — | a white band rising from the mountains' feet |
-| Far palms | z −11, parallax 0.20 | code-built **bricks** (`props::FAR_GROVE`): a plainer, paler grove, in its own mist |
-| **Palms** | z −9.5, parallax 0.26 | code-built **bricks** (`props::NEAR_GROVE`): a grove of palms, every one its own, in its own mist |
-| **Jungle** | z −5, parallax 0.36 | code-built **bricks** (`props::jungle`): a canopy of round treetops, hiding the palms' feet |
-| Valley mist | — | a thinner band at the jungle's feet, out of which the meadow comes |
+| **Palms** | z −10.25, parallax 0.23 | code-built **bricks** (`props::GROVE`): a grove of palms, every one its own, their crowns in mist above the jungle |
+| **Jungle** | z −5, parallax 0.36 | code-built **bricks** in the round (`props::jungle`): a rainforest of trees, palms, bushes, big leaves and ferns |
+| Valley mist | — | a thin band at the jungle's feet, out of which the meadow comes |
 | Meadow & bank | z 0, parallax 1.0 | code-built **bricks** (`props::ground`): a grass top over layered earth, tile after tile, through Lam::pula |
 | **Water** | z 1.5 → 8.5 | little glass bricks rising and falling on a swell, through **Lam::pula** like the clouds; scrolls with the ground |
 | Obstacles | z 0 | code-built **bricks** (`props.rs`): a toy brick, a bridge, a brick wall, a candy pillar, through Lam::pula |
@@ -335,40 +334,50 @@ each changed row in `WaterParams` notes its previous value.
 
 ### The far planes: mountains, palms and jungle
 
-Behind the meadow lie four far planes, 90s style: continuous bands, each at
+Behind the meadow lie three far planes, 90s style: continuous bands, each at
 its own depth and scrolled at its own rate, each hazed toward the sky by how
 far away it is, so the farther a plane lies, the more it looks like the sky.
-All are code-built bricks (`props::mountains`, `props::palm_grove` twice,
-`props::jungle`),
-pixel-art silhouettes extruded a couple of bricks deep the way flat-draw turns
-a drawing into a prop, laid tile after tile like the meadow (`lay_tiles`), and
-lit by `backdrop_glass()`: the meadow's glass without glints or highlights, so
-nothing out there pulls the eye.
+All are code-built bricks (`props::mountains`, `props::palm_grove`,
+`props::jungle`), laid tile after tile like the meadow (`lay_tiles`), and lit
+by `backdrop_glass()`: the meadow's glass without glints or highlights, so
+nothing out there pulls the eye. The mountains and the palms are pixel-art
+silhouettes extruded a brick or few deep, the way flat-draw turns a drawing
+into a prop; the jungle, the nearest, is built in the round.
 
 - **The mountains** (0.4-unit bricks, z −12): a paler back range with four big
   snowy peaks and smaller shoulders, behind a darker ridge of rolling foothills,
   each slope shaded on the side away from the sun. The slopes step two bricks
   along for one up, never steeper: sheer columns of bricks read as a city. The
-  big peaks rise into the clouds' band, and the depth test puts them in front
-  of a cloud now and then.
-- **The palms**, two groves (`props::Grove`), each a plane of its own sliding
-  by at its own pace behind the jungle, which hides the trunks' feet.
-  `props::palms` makes every palm its own: short to tall, straight or leaning
-  — the leaners by turns one way and the other, their trunks bending upright
-  toward the crown like a coconut palm's — with long fronds fanned out to both
-  sides, rising and then drooping past level. The crowns rise above the camera,
-  so the groves are built with every face (their undersides show).
-  - **Near** (`NEAR_GROVE`, 0.25-unit bricks, z −9.5): every detail — 6 to 9
-    fronds with leaflets along their outer halves, ringed trunks thick at the
-    foot of a tall palm, coconuts under most crowns.
-  - **Far** (`FAR_GROVE`, 0.32-unit bricks, z −11): plainer — 4 or 5 fronds,
-    plain trunks, no leaflets or coconuts — and greens a step lighter and
-    cooler. Most of its distance comes from the mist it stands in: recoloured
-    all the way to the mountains' blue, it stopped reading as palms.
-- **The jungle** (0.25-unit bricks, z −5): a bumpy canopy of round treetops, lit
-  on the left and shaded below, over dark undergrowth.
+  big peaks rise high into the clouds' band, well over the jungle's canopy, and
+  the depth test puts them in front of a cloud now and then.
+- **The palms** (`GROVE`, 0.25-unit bricks, z −10.25), a plane of their own
+  sliding by at its own pace behind the jungle, which hides all but their
+  crowns. `props::palms` makes every palm its own: short to tall, straight or
+  leaning — the leaners by turns one way and the other, their trunks bending
+  upright toward the crown like a coconut palm's — with 6 to 9 long fronds
+  fanned out to both sides, rising and then drooping past level, leaflets
+  along their outer halves, ringed trunks, coconuts under most crowns. The
+  crowns rise above the camera, so the grove is built with every face (their
+  undersides show). Its distance comes from the mist it stands in, not its
+  colours: recoloured toward the mountains' blue, it stopped reading as palms.
+  (A second, farther grove was retired when the jungle grew tall: it crowded
+  the scene.)
+- **The jungle** (0.25-unit bricks, z −5, 10 deep), the way a film's
+  rainforest is, in rows from the back: a dark heart of leaf masses in deep
+  shade (so between the trunks there's jungle, not sky); tall trees with pale
+  trunks flaring into buttress roots, round canopies spilling into each other
+  and lianas hanging in front; palms rising through the canopy, their long
+  fronds hung with leaflets breaking the skyline; darker bushes between; and
+  big-leaved plants and ferns crowding the floor at the front. The leaf masses
+  are ellipsoids of bricks (`jungle_plants`, `shade_lobes`), each brick shaded
+  by where it sits on its own mass (sunlit up and to the left, shaded below,
+  darker toward the ground and the back) and darker still in the creases
+  where masses meet, so each reads as a ball of leaves rather than a cut-out.
+  Leaves and fronds are drawn brick by brick along arcs (`Jungle::leaf`,
+  `Jungle::frond`). A tile is too leafy for one mesh, so it builds into
+  several (see below); it stays light, though, about 58,000 vertices.
 
-All start below the meadow's sightline (`MOUNTAIN_BASE`, the groves' `base`,
+All start below the meadow's sightline (`MOUNTAIN_BASE`, the grove's `base`,
 `JUNGLE_BASE`), so no floor ever shows under them. The draw order does the
 rest:
 
@@ -376,14 +385,14 @@ rest:
 2. a haze pass, then the mountains;
 3. a haze pass, then **valley mist** at the mountains' feet (`MOUNTAIN_MIST`: a
    white band, clear a little way up and thick at the foot);
-4. the far palms, then a haze pass and their mist (`FAR_PALM_MIST`);
-5. the near palms, then a haze pass and their mist (`PALM_MIST`), into which
-   their trunks fade above the jungle's canopy;
-6. the jungle, then a last haze pass and a low, thin mist at the jungle's feet
+4. the palms, then a haze pass and their mist (`PALM_MIST`), which stands
+   high, up in their crowns: the tall jungle in front hides everything lower,
+   so a mist at their feet would never be seen;
+5. the jungle, then a last haze pass and a low, thin mist at the jungle's feet
    (`JUNGLE_MIST`), out of which the meadow comes.
 
 The hazes are set as how far each plane ends up pulled toward the sky
-(`CLOUD_HAZE`, `MOUNTAIN_HAZE`, `FAR_PALM_HAZE`, `PALM_HAZE`, `JUNGLE_HAZE`),
+(`CLOUD_HAZE`, `MOUNTAIN_HAZE`, `PALM_HAZE`, `JUNGLE_HAZE`),
 and `haze_step` works out the
 pass in front of each plane from them, since a plane behind also gets every
 pass in front of it. The clouds' figure is the one they had before the planes
@@ -398,7 +407,11 @@ for it. A `Grid` holds a palette colour per brick (0 = empty), and
 cell, its texcoords pointing at its colour in a one-row palette texture (a
 `PaletteMaterial`, shared with the brick water). That's the shape of a
 flat-draw export, so Lam::pula lights it the same way, finding the brick edges
-and corners through `BrickModel::lattice`.
+and corners through `BrickModel::lattice`. raylib's indices are 16-bit, so a
+grid with more faces than one mesh holds (16383, four vertices each) builds
+into several, drawn one after another (`Faces::meshes`). `Build` can leave out
+the faces the camera never sees: the bottoms (`open_below`, for the ground)
+and the backs (`open_behind`).
 
 `game/src/props.rs` builds the runner's pieces from a hash of each brick's
 place, never a random generator, so they look the same every game:
