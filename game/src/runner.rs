@@ -121,9 +121,9 @@ const CLOUD_BREATH_RATE: f32 = 0.5;
 // fraction of the ground's), each built in bricks (`props.rs`).
 const MOUNTAIN_Z: f32 = -12.0;
 const MOUNTAIN_SCROLL: f32 = 0.16;
-const PALM_Z: f32 = -8.5;
+const PALM_Z: f32 = -9.5;
 const PALM_SCROLL: f32 = 0.26;
-const JUNGLE_Z: f32 = -6.0;
+const JUNGLE_Z: f32 = -5.0;
 const JUNGLE_SCROLL: f32 = 0.36;
 // Atmospheric haze: how far each plane ends up pulled toward the sky behind
 // it (0 = not at all, 1 = gone) — the farther, the more. The clouds' is what
@@ -1356,7 +1356,7 @@ impl VoiceGame for Runner {
         haze(d, haze_step(MOUNTAIN_HAZE, PALM_HAZE));
         mist(d, MOUNTAIN_Z, MOUNTAIN_MIST);
 
-        // --- palms (z -8.5, factor 0.26): a grove behind the jungle --------
+        // --- palms (z -9.5, factor 0.26): a grove behind the jungle --------
         // Tall ones and short, leaning and straight; the jungle in front
         // hides their feet.
         if let Some(palms) = &gfx.palms {
@@ -1374,7 +1374,7 @@ impl VoiceGame for Runner {
         }
         haze(d, haze_step(PALM_HAZE, JUNGLE_HAZE));
 
-        // --- jungle (z -6, factor 0.36): rising out of the mist -----------
+        // --- jungle (z -5, factor 0.36): rising out of the mist -----------
         if let Some(jungle) = &gfx.jungle {
             let mut c3 = d.begin_mode3D(camera);
             lay_tiles(

@@ -153,8 +153,8 @@ glide past while the camera stays put.
 | Haze | — | the sky gradient again, see-through, in front of each far plane (see below) |
 | **Mountains** | z −12, parallax 0.16 | code-built **bricks** (`props::mountains`): a blue-violet range with snowy peaks, some rising in front of the clouds |
 | Valley mist | — | a white band rising from the mountains' feet |
-| **Palms** | z −8.5, parallax 0.26 | code-built **bricks** (`props::palm_grove`): a grove of palms, every one its own |
-| **Jungle** | z −6, parallax 0.36 | code-built **bricks** (`props::jungle`): a canopy of round treetops, hiding the palms' feet |
+| **Palms** | z −9.5, parallax 0.26 | code-built **bricks** (`props::palm_grove`): a grove of palms, every one its own |
+| **Jungle** | z −5, parallax 0.36 | code-built **bricks** (`props::jungle`): a canopy of round treetops, hiding the palms' feet |
 | Valley mist | — | a thinner band at the jungle's feet, out of which the meadow comes |
 | Meadow & bank | z 0, parallax 1.0 | code-built **bricks** (`props::ground`): a grass top over layered earth, tile after tile, through Lam::pula |
 | **Water** | z 1.5 → 8.5 | little glass bricks rising and falling on a swell, through **Lam::pula** like the clouds; scrolls with the ground |
@@ -348,7 +348,7 @@ nothing out there pulls the eye.
   along for one up, never steeper: sheer columns of bricks read as a city. The
   big peaks rise into the clouds' band, and the depth test puts them in front
   of a cloud now and then.
-- **The palms** (0.25-unit bricks, z −8.5): a grove in a plane of its own, so
+- **The palms** (0.25-unit bricks, z −9.5): a grove in a plane of its own, so
   it slides by at its own pace behind the jungle, which hides the trunks' feet.
   `props::palms` makes every palm its own: short to tall (the tall ones thicker
   at the foot), straight or leaning — the leaners by turns one way and the
@@ -357,7 +357,7 @@ nothing out there pulls the eye.
   past level, with leaflets along their outer halves, and coconuts under most
   crowns. The crowns rise above the camera, so this plane is built with every
   face (their undersides show).
-- **The jungle** (0.25-unit bricks, z −6): a bumpy canopy of round treetops, lit
+- **The jungle** (0.25-unit bricks, z −5): a bumpy canopy of round treetops, lit
   on the left and shaded below, over dark undergrowth.
 
 All start below the meadow's sightline (`MOUNTAIN_BASE`, `PALM_BASE`,
