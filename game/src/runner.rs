@@ -635,6 +635,72 @@ impl Runner {
     /// smaller is higher): the ground, or a ledge the hero overlaps along x
     /// whose top is no higher than the feet. A ledge above the feet doesn't
     /// count, which is what lets the hero jump up through one.
+    /// Demo mode's pilot: this frame's input as a child who knows every
+    /// vowel would give it. It jumps a block, ducks under a bar, shoots a
+    /// wall, double-jumps a pillar, hops onto a ledge (and up a staircase)
+    /// and runs along it for the little suns, saying the vowel as it goes,
+    /// so the hero's mouth moves and the water dances. Every trigger is a
+    /// lead *time*, so it keeps up as the game speeds up. A test holds it to
+    /// clearing everything, which also proves every obstacle can be cleared.
+    fn pilot(&self) -> VoiceInput {
+        let (jump, duck, shoot) = (self.jump_vowel, self.duck_vowel, self.shoot_vowel);
+        let lead = |secs: f32| self.speed * secs;
+        let front = HERO_X + HERO_W / 2.0;
+        let back = HERO_X - HERO_W / 2.0;
+        let feet = self.hero_y + HERO_H;
+        let near_apex = !self.on_ground && !self.air_jumped && self.vy > -250.0;
+        let mut held = None;
+        let mut onset = None;
+
+        // The next obstacle not yet behind the hero.
+        let next = self
+            .obstacles
+            .iter()
+            .filter(|o| !o.bounced)
+            .filter(|o| {
+                let (ox, _, ow, _) = obstacle_rect(o);
+                ox + ow > back
+            })
+            .min_by(|a, b| a.x.total_cmp(&b.x));
+        if let Some(o) = next {
+            let (ox, _, ow, _) = obstacle_rect(o);
+            let ahead = o.x - HERO_X;
+            match o.kind {
+                Kind::Jump if self.on_ground && ahead < lead(0.42) => onset = Some(jump),
+                Kind::Duck if ox < front + lead(0.2) && ox + ow > back => held = Some(duck),
+                Kind::Wall if self.bullets.is_empty() && ahead < 700.0 => onset = Some(shoot),
+                Kind::High if self.on_ground && ahead < lead(0.7) => onset = Some(jump),
+                Kind::High if near_apex && ahead < lead(0.7) => onset = Some(jump),
+                _ => {}
+            }
+        }
+
+        // The next ledge ahead, higher than where the feet are now.
+        let ledge = self
+            .ledges
+            .iter()
+            .filter(|l| l.x + l.w() > front && l.top < feet - 1.0)
+            .min_by(|a, b| a.x.total_cmp(&b.x));
+        if let (None, Some(l)) = (onset, ledge) {
+            let climb = feet - l.top;
+            let single = JUMP_V * JUMP_V / (2.0 * GRAVITY) - 30.0;
+            if self.on_ground && l.x - front < lead(0.3) {
+                onset = Some(jump);
+            } else if climb > single && near_apex && l.x - front < lead(0.6) {
+                onset = Some(jump); // too high for one jump: the second
+            }
+        }
+
+        // Saying it: a vowel is held while it's spoken.
+        let held = held.or(onset);
+        VoiceInput {
+            held,
+            onset,
+            scores: [0.0; 6],
+            level: if held.is_some() { 0.8 } else { 0.05 },
+        }
+    }
+
     fn floor_below(&self, bottom: f32) -> f32 {
         let (hx, _, hw, _) = self.hero_rect();
         self.ledges
@@ -938,6 +1004,10 @@ fn half_span(z: f32) -> f32 {
 }
 
 impl VoiceGame for Runner {
+    fn autoplay(&mut self) -> Option<VoiceInput> {
+        Some(self.pilot())
+    }
+
     fn init(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
         // Every game its own order of obstacles and ledges (the unit tests,
         // which never init, keep `new`'s fixed seed).
@@ -2084,6 +2154,33 @@ mod tests {
         });
         assert!(!bumped && always_down);
         assert_eq!(r.stars, 0, "the suns float out of reach overhead");
+    }
+
+    #[test]
+    fn the_demo_pilot_clears_everything_without_a_bump() {
+        // Four minutes with every obstacle kind, the game speeding up as it
+        // goes: not one bump, a star for every obstacle, ledges landed on and
+        // their suns collected. (Which also proves every obstacle can be
+        // cleared at every speed the game reaches.)
+        let mut r = Runner::new(
+            0,
+            1,
+            2,
+            vec![Kind::Jump, Kind::Duck, Kind::Wall, Kind::High],
+        );
+        let (mut bumps, mut on_ledges, mut squash) = (0, 0, 0.0);
+        for _ in 0..60 * 240 {
+            let i = r.pilot();
+            r.update(&i, 1.0 / 60.0);
+            // A bump is the frame the hero's squash jumps up.
+            bumps += usize::from(r.squash > squash);
+            squash = r.squash;
+            on_ledges += usize::from(r.on_ground && r.hero_y + HERO_H < GROUND_Y - 1.0);
+        }
+        assert_eq!(bumps, 0, "the pilot bumped into something");
+        assert!(r.stars > 40, "only {} points in four minutes", r.stars);
+        assert!(on_ledges > 0, "never stood on a ledge");
+        assert!(r.speed > 400.0, "the game never sped up ({})", r.speed);
     }
 
     #[test]

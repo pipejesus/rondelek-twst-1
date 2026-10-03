@@ -75,6 +75,12 @@ pub trait VoiceGame {
     fn init(&mut self, _rl: &mut RaylibHandle, _thread: &RaylibThread) {}
     fn update(&mut self, input: &VoiceInput, dt: f32);
     fn draw(&mut self, d: &mut RaylibDrawHandle, w: i32, h: i32);
+    /// Demo mode (`RONDELEK_GAME_AUTOPLAY`): this frame's input as a child
+    /// who knows every vowel would give it, for recording the README's
+    /// gameplay. `None` (the default) for a game without a demo.
+    fn autoplay(&mut self) -> Option<VoiceInput> {
+        None
+    }
 }
 
 /// The keyboard fallback: A/E/I/O/U/Y act as held vowels.
@@ -209,12 +215,16 @@ pub fn run(id: &str, profile_dir: Option<PathBuf>) -> anyhow::Result<()> {
     };
     game.init(&mut rl, &thread);
 
-    // Phase 2: play.
+    // Phase 2: play (or, in demo mode, let the game play itself).
+    let autoplay = std::env::var_os("RONDELEK_GAME_AUTOPLAY").is_some();
     let mut frame: u64 = 0;
     while !rl.window_should_close() {
         let dt = rl.get_frame_time().min(0.1);
         let kb_held = keyboard_vowel(&rl);
-        let input = bridge.poll(dt, kb_held);
+        let input = match autoplay.then(|| game.autoplay()).flatten() {
+            Some(demo) => demo,
+            None => bridge.poll(dt, kb_held),
+        };
         game.update(&input, dt);
 
         let (w, h) = (rl.get_screen_width(), rl.get_screen_height());

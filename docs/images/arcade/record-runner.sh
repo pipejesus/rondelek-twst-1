@@ -5,12 +5,15 @@
 #
 #   docs/images/arcade/record-runner.sh [start-s] [length-s] [still-offset-s]
 #
-# Linux only: needs Xvfb, xdotool, ffmpeg and a release build
-# (`cargo build --release`). The game runs on a virtual display with a
-# throwaway profile library; xdotool holds the vowel keys (A jumps, E ducks,
-# I shoots), which the game accepts in place of a voice. Timing on a virtual
-# display varies run to run, so the full take is kept as runner-take.mp4 in
-# the temp folder: look through it and re-run with a better start/length.
+# Linux only: needs Xvfb, ffmpeg and a release build (`cargo build
+# --release`). The game runs on a virtual display with a throwaway profile
+# library, in demo mode (RONDELEK_GAME_AUTOPLAY): it plays itself the way a
+# child who knows every vowel would, so the take shows the game played well.
+# Each game deals a fresh course, so the full take is kept as runner-take.mp4
+# in the temp folder: look through it, then re-cut that same take with a
+# better start/length (TAKE=…/runner-take.mp4 skips recording).
+#
+# Earlier GIFs are kept beside this one for history (runner-v0.3.gif/.png).
 set -eu
 
 START=${1:-10}
@@ -25,34 +28,26 @@ WORK="$(mktemp -d)"
 export XDG_DATA_HOME="$WORK/data" XDG_CONFIG_HOME="$WORK/config"
 mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME"
 
-DISPLAY_NUM=:91
-Xvfb "$DISPLAY_NUM" -screen 0 1280x720x24 >/dev/null 2>&1 &
-XVFB_PID=$!
-trap 'kill "$XVFB_PID" 2>/dev/null || true' EXIT
-sleep 1
-export DISPLAY="$DISPLAY_NUM"
+if [ -n "${TAKE:-}" ]; then
+  cp "$TAKE" "$WORK/runner-take.mp4"
+else
+  DISPLAY_NUM=:91
+  Xvfb "$DISPLAY_NUM" -screen 0 1280x720x24 >/dev/null 2>&1 &
+  XVFB_PID=$!
+  trap 'kill "$XVFB_PID" 2>/dev/null || true' EXIT
+  sleep 1
+  export DISPLAY="$DISPLAY_NUM"
 
-# RONDELEK_GAME_FRAMES skips the pre-game screens and quits on its own.
-(cd "$WORK" && RONDELEK_GAME_FRAMES=4000 "$GAME" runner >/dev/null 2>&1) &
-sleep 3
-xdotool mousemove 640 360  # keyboard focus follows the pointer (no WM)
+  # RONDELEK_GAME_FRAMES skips the pre-game screens and quits on its own.
+  (cd "$WORK" && RONDELEK_GAME_AUTOPLAY=1 RONDELEK_GAME_FRAMES=6000 \
+    "$GAME" runner >/dev/null 2>&1) &
+  GAME_PID=$!
+  sleep 3
 
-ffmpeg -y -loglevel error -f x11grab -video_size 1280x720 -framerate 30 \
-  -draw_mouse 0 -i "$DISPLAY_NUM" -t 30 -pix_fmt yuv420p "$WORK/runner-take.mp4" &
-FFMPEG_PID=$!
-
-press() { xdotool keydown "$1"; sleep "$2"; xdotool keyup "$1"; sleep "$3"; }
-i=0
-while [ "$i" -lt 9 ]; do
-  press a 0.35 0.55
-  press i 0.3 0.45
-  press i 0.3 0.6
-  press e 0.9 0.4
-  press a 0.35 0.2
-  press a 0.3 0.5
-  i=$((i + 1))
-done
-wait "$FFMPEG_PID"
+  ffmpeg -y -loglevel error -f x11grab -video_size 1280x720 -framerate 30 \
+    -draw_mouse 0 -i "$DISPLAY_NUM" -t 40 -pix_fmt yuv420p "$WORK/runner-take.mp4"
+  kill "$GAME_PID" 2>/dev/null || true
+fi
 
 # Gameplay padded out to the frame's size with the picture in its 640×360
 # hole at (20,20), the frame laid on top, then a GIF with a Bayer-dithered

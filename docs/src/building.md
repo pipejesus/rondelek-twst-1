@@ -133,6 +133,7 @@ screenshot on the way. They're great for testing, demos and pictures:
 | `RONDELEK_SHOT=<file.png>` | draw a few frames, save a screenshot, and quit |
 | `RONDELEK_GAME_SCREEN=profiles` \| `select` | *(game)* open the who's-playing picker or the setup screen |
 | `RONDELEK_GAME_FRAMES=<n>` / `RONDELEK_GAME_SHOT=<png>` | *(game)* quit after *n* frames / save a screenshot |
+| `RONDELEK_GAME_AUTOPLAY=1` | *(game)* demo mode: the game plays itself (for recording the README's GIF) |
 | `RONDELEK_WATER_STYLE=toon` \| `bricks` | *(game)* Vowel Runner's water: the first, smooth toon water, or the brick water (the default) |
 | `RONDELEK_LAMPULA` / `RONDELEK_WATER` / `RONDELEK_PROPS=<file.json>` | *(game)* tuning files for the glass of the clouds and sun / the water / the meadow and obstacles; see [Voice games](games.md) |
 

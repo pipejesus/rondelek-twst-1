@@ -480,5 +480,17 @@ one value, never the whole game.
 - For headless runs, `RONDELEK_GAME_FRAMES=<n>` skips the pre-game screens and
   quits after n frames, `RONDELEK_GAME_SHOT=<png>` saves a screenshot, and
   `RONDELEK_GAME_SCREEN=profiles|select` shows those screens instead.
-- `docs/images/arcade/record-runner.sh` records the README's gameplay GIF on a
-  virtual display (Xvfb, plus xdotool pressing vowel keys, plus ffmpeg).
+- **Demo mode**: `RONDELEK_GAME_AUTOPLAY=1` lets the game play itself
+  (`VoiceGame::autoplay`; Vowel Runner's is `Runner::pilot`), the way a child
+  who knows every vowel would: it jumps blocks, ducks under bars, shoots walls,
+  double-jumps pillars and hops up ledges for their suns, saying each vowel so
+  the hero's mouth moves and the water dances. Its triggers are lead *times*,
+  so it keeps up as the game speeds up. A test lets it play four minutes
+  without a single bump, which also proves every obstacle can be cleared at
+  every speed the game reaches.
+- `docs/images/arcade/record-runner.sh [start] [length] [still]` records the
+  README's gameplay GIF and its still on a virtual display (Xvfb, demo mode,
+  ffmpeg). Every game deals a fresh course, so the full take is kept: look
+  through it, then re-cut that same take with `TAKE=<runner-take.mp4>`
+  instead of recording a different game. Earlier GIFs stay beside the current
+  one for history (`runner-v0.3.gif`, `runner-v0.3.png`).
