@@ -23,15 +23,19 @@ const GAP: (f32, f32) = (1.6, 3.6);
 /// (seconds, at random): so they come one or two at a time.
 const PAIR: f32 = 0.4;
 const FOLLOW: (f32, f32) = (0.15, 0.5);
-/// Sunlight on glass: a warm white.
-const LIGHT: Color = Color::new(255, 244, 214, 255);
+/// Sunlight through leaves: a pale, leafy green, so it belongs to the
+/// jungle (and, added onto the green, it comes out bright, not white).
+const LIGHT: Color = Color::new(208, 252, 170, 255);
 /// The star's arms at their longest, in bricks: the four upright and level
-/// ones, then the four slanting between them.
-const ARM: (f32, f32) = (3.2, 1.4);
-/// Each arm's half-width where it leaves the middle, in bricks.
-const ARM_WIDTH: f32 = 0.08;
+/// ones, then the four slanting between them. Small enough to stay out of
+/// the hero's way, big enough to be seen.
+const ARM: (f32, f32) = (2.4, 1.05);
+/// Each arm's half-width where it leaves the middle, in bricks, and how much
+/// of it is left at its tip.
+const ARM_WIDTH: f32 = 0.06;
+const ARM_TIP: f32 = 0.5;
 /// The soft round glow at the star's middle, its radius in bricks.
-const CORE: f32 = 0.5;
+const CORE: f32 = 0.375;
 /// How far the star turns over its life, radians: a slow quarter of a
 /// slant, so it lives without spinning.
 const TURN: f32 = 0.35;
@@ -220,12 +224,25 @@ fn star(at: Vector3, eye: Vector3, cell: f32, bright: f32, turn: f32) {
         let a = turn + i as f32 * std::f32::consts::FRAC_PI_4;
         let len = if i % 2 == 0 { ARM.0 } else { ARM.1 } * cell * (0.3 + 0.7 * bright);
         let (u, v) = ((a.cos(), a.sin()), (-a.sin(), a.cos()));
-        let w = ARM_WIDTH * cell;
-        // Counter-clockwise to the eye: one side of the root, the tip, the
-        // other side.
-        vertex(p(-v.0 * w, -v.1 * w), lit);
-        vertex(p(u.0 * len, u.1 * len), none);
-        vertex(p(v.0 * w, v.1 * w), lit);
+        // A strip, lit at the root and dark at the tip, only a little
+        // narrower there: the fading light makes the point. (An arm that
+        // narrows to nothing, thinner than a pixel toward its end, breaks
+        // up into dashes.)
+        let root = |side: f32| {
+            let w = ARM_WIDTH * cell * side;
+            p(v.0 * w, v.1 * w)
+        };
+        let tip = |side: f32| {
+            let w = ARM_WIDTH * ARM_TIP * cell * side;
+            p(u.0 * len + v.0 * w, u.1 * len + v.1 * w)
+        };
+        // Two triangles, counter-clockwise to the eye.
+        vertex(root(-1.0), lit);
+        vertex(tip(-1.0), none);
+        vertex(tip(1.0), none);
+        vertex(root(-1.0), lit);
+        vertex(tip(1.0), none);
+        vertex(root(1.0), lit);
     }
     let r = CORE * cell * bright;
     const ROUND: usize = 12;
