@@ -833,7 +833,7 @@ const VEIL_FROM: f32 = 0.5;
 const VEIL_MOST: f32 = 0.75;
 /// A drift's size: the noise's lattice step, in bricks. It divides
 /// [`JUNGLE_TILE`], so the drifts run on across the seam between two tiles.
-const VEIL_GRAIN: usize = 8;
+const VEIL_GRAIN: usize = 2;
 
 /// Make the jungle's nearer bricks see-through, as the score sun's glass is:
 /// the more the nearer they stand, and in drifts (a smooth noise) rather
