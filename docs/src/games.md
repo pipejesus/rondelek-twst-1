@@ -153,7 +153,8 @@ glide past while the camera stays put.
 | Haze | — | the sky gradient again, see-through, in front of each far plane (see below) |
 | **Mountains** | z −12, parallax 0.16 | code-built **bricks** (`props::mountains`): a blue-violet range with snowy peaks, some rising in front of the clouds |
 | Valley mist | — | a white band rising from the mountains' feet |
-| **Jungle** | z −6, parallax 0.36 | code-built **bricks** (`props::jungle`): a canopy of round treetops with palms |
+| **Palms** | z −8.5, parallax 0.26 | code-built **bricks** (`props::palm_grove`): a grove of palms, every one its own |
+| **Jungle** | z −6, parallax 0.36 | code-built **bricks** (`props::jungle`): a canopy of round treetops, hiding the palms' feet |
 | Valley mist | — | a thinner band at the jungle's feet, out of which the meadow comes |
 | Meadow & bank | z 0, parallax 1.0 | code-built **bricks** (`props::ground`): a grass top over layered earth, tile after tile, through Lam::pula |
 | **Water** | z 1.5 → 8.5 | little glass bricks rising and falling on a swell, through **Lam::pula** like the clouds; scrolls with the ground |
@@ -330,11 +331,12 @@ crest bands, wobbly foam and a row of bubbles at the shore, "+" twinkles, and
 goldfish gliding underneath. Its defaults were calmed down on 2026-09-27, and
 each changed row in `WaterParams` notes its previous value.
 
-### The far planes: mountains and jungle
+### The far planes: mountains, palms and jungle
 
-Behind the meadow lie two far planes, 90s style: continuous bands, each at its
-own depth and scrolled at its own rate, each hazed toward the sky by how far
-away it is. Both are code-built bricks (`props::mountains`, `props::jungle`),
+Behind the meadow lie three far planes, 90s style: continuous bands, each at
+its own depth and scrolled at its own rate, each hazed toward the sky by how
+far away it is. All are code-built bricks (`props::mountains`,
+`props::palm_grove`, `props::jungle`),
 pixel-art silhouettes extruded a couple of bricks deep the way flat-draw turns
 a drawing into a prop, laid tile after tile like the meadow (`lay_tiles`), and
 lit by `backdrop_glass()`: the meadow's glass without glints or highlights, so
@@ -346,22 +348,33 @@ nothing out there pulls the eye.
   along for one up, never steeper: sheer columns of bricks read as a city. The
   big peaks rise into the clouds' band, and the depth test puts them in front
   of a cloud now and then.
+- **The palms** (0.25-unit bricks, z −8.5): a grove in a plane of its own, so
+  it slides by at its own pace behind the jungle, which hides the trunks' feet.
+  `props::palms` makes every palm its own: short to tall (the tall ones thicker
+  at the foot), straight or leaning — the leaners by turns one way and the
+  other, their trunks bending upright toward the crown like a coconut palm's
+  — 6 to 9 long fronds each, fanned out to both sides, rising and then drooping
+  past level, with leaflets along their outer halves, and coconuts under most
+  crowns. The crowns rise above the camera, so this plane is built with every
+  face (their undersides show).
 - **The jungle** (0.25-unit bricks, z −6): a bumpy canopy of round treetops, lit
-  on the left and shaded below, over dark undergrowth, with palms standing up
-  out of it.
+  on the left and shaded below, over dark undergrowth.
 
-Both start below the meadow's sightline (`MOUNTAIN_BASE`, `JUNGLE_BASE`), so
-no floor ever shows under them. The draw order does the rest:
+All start below the meadow's sightline (`MOUNTAIN_BASE`, `PALM_BASE`,
+`JUNGLE_BASE`), so no floor ever shows under them. The draw order does the
+rest:
 
 1. the sky, then the clouds;
 2. a haze pass, then the mountains;
 3. a haze pass, then **valley mist** at the mountains' feet (`MOUNTAIN_MIST`: a
    white band, clear a little way up and thick at the foot);
-4. the jungle, then a last haze pass and a thinner mist at the jungle's feet
+4. the palms, then a haze pass;
+5. the jungle, then a last haze pass and a thinner mist at the jungle's feet
    (`JUNGLE_MIST`), out of which the meadow comes.
 
 The hazes are set as how far each plane ends up pulled toward the sky
-(`CLOUD_HAZE`, `MOUNTAIN_HAZE`, `JUNGLE_HAZE`), and `haze_step` works out the
+(`CLOUD_HAZE`, `MOUNTAIN_HAZE`, `PALM_HAZE`, `JUNGLE_HAZE`), and `haze_step`
+works out the
 pass in front of each plane from them, since a plane behind also gets every
 pass in front of it. The clouds' figure is the one they had before the planes
 came, so they look just as they did.

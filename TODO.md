@@ -56,12 +56,12 @@ Tracked items intentionally left for later batches.
 - **Hero, fish and the near planes come as Greg's flat-draw art** (via
   `greg/`): the hero model (the brick hero stays, a drawn one would join it as
   a choice), the fish, and the planes nearer the player (birds flying by and
-  the like). The meadow, the obstacles and the far planes (mountains, jungle;
-  2026-10-03) stay code-built bricks (`props.rs`), Greg's call.
+  the like). The meadow, the obstacles and the far planes (mountains, palms,
+  jungle; 2026-10-03) stay code-built bricks (`props.rs`), Greg's call.
 - **The far planes are a first draft** (2026-10-03), to be tuned together:
-  shapes in `props::mountains` / `props::jungle`, haze and mist in the
-  `MOUNTAIN_*` / `JUNGLE_*` constants of `runner.rs`. The sky may want a
-  touch of tuning around them.
+  shapes in `props::mountains` / `props::palms` / `props::jungle`, haze and
+  mist in the `MOUNTAIN_*` / `PALM_*` / `JUNGLE_*` constants of `runner.rs`.
+  The sky may want a touch of tuning around them.
 - `cloud9_rain.glb` is unused (kept for a possible rain variant).
 - **Re-measure the game's GPU/CPU cost on real hardware.** The brick water
   (Lam::pula over ~3,600 brick columns, the lower third of the screen) and the

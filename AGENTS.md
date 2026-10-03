@@ -219,7 +219,7 @@ game/src/                 rondelek-game: raylib voice games (child process)
   bricks.rs               brick models built in code (grid of colours → one mesh,
                           lit by Lam::pula)
   props.rs                Vowel Runner's meadow, ledges, obstacles and far planes
-                          (mountains, jungle), built in bricks
+                          (mountains, palms, jungle), built in bricks
   brick_water.rs          the voice-reactive water along the front: little glass
                           bricks through Lam::pula (brick_water.vs + lampula.fs)
   water.rs                the first, smooth toon water (kept; RONDELEK_WATER_STYLE=toon)

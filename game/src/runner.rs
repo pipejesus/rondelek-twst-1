@@ -6,11 +6,12 @@
 //! Rendering: a fixed perspective camera slightly above and beside the action,
 //! everything built from chunky 3D bricks ("pixels became big and 3-D").
 //! Parallax planes scroll by hand-tuned factors of the travelled distance,
-//! 90s style: clouds 0.10, mountains 0.16, jungle 0.36, ground 1.0, each
+//! 90s style: clouds 0.10, mountains 0.16, palms 0.26, jungle 0.36, ground
+//! 1.0, each
 //! farther plane hazed toward the sky and the mountains and jungle rising out
 //! of valley mist. The clouds are a hand-drawn flat-draw prop (GLB, see
 //! `models.rs`) through flat-draw's own Lam::pula glass shader (`lampula.rs`),
-//! floating, bobbing and breathing; the mountains, jungle, meadow and
+//! floating, bobbing and breathing; the mountains, palms, jungle, meadow and
 //! obstacles are bricks built in code (`props.rs`) through the same glass. In front of the meadow's bank lies playful water that scrolls with
 //! the ground and dances to the child's voice: little glass bricks in the
 //! clouds' Lam::pula (`brick_water.rs`), or the first, smooth toon water
@@ -120,6 +121,8 @@ const CLOUD_BREATH_RATE: f32 = 0.5;
 // fraction of the ground's), each built in bricks (`props.rs`).
 const MOUNTAIN_Z: f32 = -12.0;
 const MOUNTAIN_SCROLL: f32 = 0.16;
+const PALM_Z: f32 = -8.5;
+const PALM_SCROLL: f32 = 0.26;
 const JUNGLE_Z: f32 = -6.0;
 const JUNGLE_SCROLL: f32 = 0.36;
 // Atmospheric haze: how far each plane ends up pulled toward the sky behind
@@ -127,6 +130,7 @@ const JUNGLE_SCROLL: f32 = 0.36;
 // it was before the planes came, so they look as they did. See `haze_step`.
 const CLOUD_HAZE: f32 = 0.45;
 const MOUNTAIN_HAZE: f32 = 0.3;
+const PALM_HAZE: f32 = 0.22;
 const JUNGLE_HAZE: f32 = 0.16;
 // Valley mist: a white band rising from a plane's foot, clear `fade` units up
 // and `alpha` thick at the foot (and below). It ties the planes together: the
@@ -444,8 +448,10 @@ struct Gfx {
     world_glass: Option<Lampula>,
     /// Lam::pula for the far planes: calmer, no glints. `None` → unlit.
     backdrop_glass: Option<Lampula>,
-    /// One tile each of the far planes (`props::mountains`, `props::jungle`).
+    /// One tile each of the far planes (`props::mountains`,
+    /// `props::palm_grove`, `props::jungle`).
     mountains: Option<BrickModel>,
+    palms: Option<BrickModel>,
     jungle: Option<BrickModel>,
     /// One tile of the meadow (`props::ground`), laid end to end.
     ground: Option<BrickModel>,
@@ -979,6 +985,19 @@ impl VoiceGame for Runner {
                     open_below_and_behind: true,
                 },
             ),
+            // Every face built: the crowns rise above the camera, so their
+            // undersides show.
+            palms: BrickModel::build(
+                thread,
+                "palms",
+                &props::palm_grove(),
+                &props::PALM_PALETTE,
+                props::PALM_CELL,
+                Build {
+                    wrap_x: true,
+                    open_below_and_behind: false,
+                },
+            ),
             jungle: BrickModel::build(
                 thread,
                 "jungle",
@@ -1334,8 +1353,26 @@ impl VoiceGame for Runner {
                 ),
             );
         }
-        haze(d, haze_step(MOUNTAIN_HAZE, JUNGLE_HAZE));
+        haze(d, haze_step(MOUNTAIN_HAZE, PALM_HAZE));
         mist(d, MOUNTAIN_Z, MOUNTAIN_MIST);
+
+        // --- palms (z -8.5, factor 0.26): a grove behind the jungle --------
+        // Tall ones and short, leaning and straight; the jungle in front
+        // hides their feet.
+        if let Some(palms) = &gfx.palms {
+            let mut c3 = d.begin_mode3D(camera);
+            lay_tiles(
+                &mut c3,
+                palms,
+                gfx.backdrop_glass.as_mut(),
+                props::PALM_TILE as f32 * props::PALM_CELL,
+                props::PALM_BASE,
+                PALM_Z,
+                dist_u * PALM_SCROLL,
+                (Vector3::new(0.0, 2.5, PALM_Z), Vector3::new(17.0, 3.0, 0.2)),
+            );
+        }
+        haze(d, haze_step(PALM_HAZE, JUNGLE_HAZE));
 
         // --- jungle (z -6, factor 0.36): rising out of the mist -----------
         if let Some(jungle) = &gfx.jungle {
@@ -2241,17 +2278,19 @@ mod tests {
     #[test]
     fn each_plane_ends_up_hazed_as_set() {
         // The passes drawn in front of each plane multiply what shows through.
-        let (c, m, j) = (
+        let (c, m, p, j) = (
             haze_step(CLOUD_HAZE, MOUNTAIN_HAZE),
-            haze_step(MOUNTAIN_HAZE, JUNGLE_HAZE),
+            haze_step(MOUNTAIN_HAZE, PALM_HAZE),
+            haze_step(PALM_HAZE, JUNGLE_HAZE),
             JUNGLE_HAZE,
         );
         let through = |passes: &[f32]| 1.0 - passes.iter().map(|a| 1.0 - a).product::<f32>();
-        assert!((through(&[c, m, j]) - CLOUD_HAZE).abs() < 1e-5);
-        assert!((through(&[m, j]) - MOUNTAIN_HAZE).abs() < 1e-5);
+        assert!((through(&[c, m, p, j]) - CLOUD_HAZE).abs() < 1e-5);
+        assert!((through(&[m, p, j]) - MOUNTAIN_HAZE).abs() < 1e-5);
+        assert!((through(&[p, j]) - PALM_HAZE).abs() < 1e-5);
         assert!((through(&[j]) - JUNGLE_HAZE).abs() < 1e-5);
         // The farther, the hazier: every pass is a real (non-negative) one.
-        assert!(c >= 0.0 && m >= 0.0 && j >= 0.0);
+        assert!(c >= 0.0 && m >= 0.0 && p >= 0.0 && j >= 0.0);
     }
 
     #[test]

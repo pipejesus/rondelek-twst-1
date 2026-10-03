@@ -288,8 +288,8 @@ pub fn mountains() -> Grid {
 pub const JUNGLE_CELL: f32 = 0.25;
 /// Bricks along one tile (48 units).
 pub const JUNGLE_TILE: usize = 192;
-/// Bricks from the bottom of the jungle to the tallest palm.
-pub const JUNGLE_LAYERS: usize = 17;
+/// Bricks from the bottom of the jungle to its tallest treetop.
+pub const JUNGLE_LAYERS: usize = 15;
 /// World y of the jungle's bottom.
 pub const JUNGLE_BASE: f32 = -1.0;
 
@@ -297,39 +297,16 @@ const LEAF_SUN: u8 = 1;
 const LEAF: u8 = 2;
 const LEAF_DEEP: u8 = 3;
 const UNDERGROWTH: u8 = 4;
-const TRUNK: u8 = 5;
-const FROND: u8 = 6;
-const FROND_SUN: u8 = 7;
-pub const JUNGLE_PALETTE: [[u8; 3]; 7] = [
+pub const JUNGLE_PALETTE: [[u8; 3]; 4] = [
     [132, 204, 96], // leaves in the sun
     [76, 162, 78],  // leaves
     [46, 124, 72],  // leaves in shade
     [30, 92, 64],   // undergrowth
-    [138, 102, 70], // a palm trunk
-    [70, 160, 82],  // palm fronds
-    [118, 196, 96], // palm fronds in the sun
-];
-
-/// A palm's fronds round the top of its trunk: (dx, dy) in bricks, the first
-/// in the sun.
-const FRONDS: [(isize, isize); 13] = [
-    (0, 1),
-    (-1, 1),
-    (1, 1),
-    (-1, 0),
-    (1, 0),
-    (-2, 0),
-    (2, 0),
-    (-3, 0),
-    (3, 0),
-    (-4, -1),
-    (4, -1),
-    (-5, -2),
-    (5, -2),
 ];
 
 /// One tile of jungle: a bumpy canopy of round treetops (lit on the left,
-/// shaded below) over dark undergrowth, with palms standing up out of it.
+/// shaded below) over dark undergrowth. The palms stand in a plane of their
+/// own behind it (`palm_grove`).
 pub fn jungle() -> Grid {
     let (w, h) = (JUNGLE_TILE, JUNGLE_LAYERS);
     let mut g = Grid::new(w, h, 2);
@@ -342,8 +319,7 @@ pub fn jungle() -> Grid {
             (x, r, c)
         })
         .collect();
-    let mut tops = vec![0usize; w];
-    for (x, column_top) in tops.iter_mut().enumerate() {
+    for x in 0..w {
         // The tallest crown over this column, and which side of it we're on.
         let (top, dx) = crowns
             .iter()
@@ -353,7 +329,6 @@ pub fn jungle() -> Grid {
             })
             .fold((6.0, 0.0), |best, t| if t.0 > best.0 { t } else { best });
         let top = (top as usize).min(h);
-        *column_top = top;
         let sunny = dx < 0.0;
         for y in 0..top {
             let below = top - y;
@@ -370,19 +345,161 @@ pub fn jungle() -> Grid {
             g.set(x, y, 1, c);
         }
     }
-    // Palms, in the front row, their trunks showing above the canopy.
-    for i in 0..7 {
-        let px = ((i as f32 + hash(i, 3, 0, 53)) * w as f32 / 7.0) as usize % w;
-        let crown = 13 + (hash(i, 4, 0, 53) * 3.0) as usize;
-        for y in tops[px].saturating_sub(1)..crown {
-            g.set(px, y, 1, TRUNK);
+    g
+}
+
+/// One palm-grove brick, world units: the jungle's.
+pub const PALM_CELL: f32 = 0.25;
+/// Bricks along one tile (40 units).
+pub const PALM_TILE: usize = 160;
+/// Bricks from the grove's bottom to the tip of the tallest frond.
+pub const PALM_LAYERS: usize = 30;
+/// World y of the grove's bottom: below the jungle's canopy, which stands in
+/// front and hides the trunks' feet.
+pub const PALM_BASE: f32 = -0.5;
+
+const TRUNK: u8 = 1;
+const TRUNK_RING: u8 = 2;
+const FROND: u8 = 3;
+const FROND_SUN: u8 = 4;
+const FROND_DEEP: u8 = 5;
+const COCONUT: u8 = 6;
+pub const PALM_PALETTE: [[u8; 3]; 6] = [
+    [150, 112, 76],  // trunk
+    [116, 84, 58],   // a ring round the trunk
+    [70, 160, 82],   // fronds
+    [126, 204, 100], // fronds in the sun
+    [42, 120, 70],   // leaflets underneath, in shade
+    [104, 70, 44],   // coconuts
+];
+
+/// One palm of the grove, in bricks.
+#[derive(Debug)]
+pub struct Palm {
+    /// The trunk's foot, a column of the tile.
+    pub x: usize,
+    /// Trunk length.
+    pub height: usize,
+    /// How far the crown sits sideways from the foot (negative: left). The
+    /// trunk leans from the foot and bends upright toward the crown, the way
+    /// a coconut palm grows toward the light.
+    pub lean: f32,
+    /// Each frond: (angle in degrees from pointing right, through up, to
+    /// pointing left; length; how far its tip droops).
+    pub fronds: Vec<(f32, f32, f32)>,
+    pub coconuts: bool,
+}
+
+impl Palm {
+    /// The trunk's sideways shift `y` bricks up.
+    fn shift(&self, y: usize) -> isize {
+        let u = y as f32 / self.height as f32;
+        (self.lean * (1.0 - (1.0 - u) * (1.0 - u))).round() as isize
+    }
+
+    /// Where the crown sits: (column, row).
+    fn crown(&self) -> (isize, isize) {
+        (
+            self.x as isize + self.shift(self.height),
+            self.height as isize,
+        )
+    }
+}
+
+/// The grove's palms: spread along the tile in loose clumps, every one its
+/// own — short or tall, straight or leaning either way, a sparse crown or a
+/// full one, with coconuts or without.
+pub fn palms() -> Vec<Palm> {
+    let mut out = Vec::new();
+    let mut x = (hash(0, 0, 0, 61) * 8.0) as usize;
+    let mut i = 0;
+    let mut leaners = 0;
+    while x < PALM_TILE {
+        let r = |k: usize| hash(i, k, 0, 61);
+        let height = 10 + (r(1) * 11.0) as usize; // 10..=20
+        // About a third stand straight; the rest lean, by turns one way and
+        // the other, the way palms in a clump lean apart.
+        let lean = if r(2) < 0.3 {
+            0.0
+        } else {
+            leaners += 1;
+            let amount = 2.0 + 4.0 * r(3);
+            if leaners % 2 == 0 { amount } else { -amount }
+        };
+        let n = 6 + (r(4) * 4.0) as usize; // 6..=9 fronds
+        let reach = 5.5 + height as f32 / 5.0; // taller palms, longer fronds
+        let fronds = (0..n)
+            .map(|k| {
+                let rk = |m: usize| hash(i, 10 + k, m, 63);
+                // Half to each side, fanned from nearly level to steeply up
+                // — never straight up — so every frond arches out on its own.
+                let side = k % 2;
+                let fan = (k / 2) as f32 / n.div_ceil(2) as f32;
+                let rise = -5.0 + 75.0 * (fan + 0.25 * rk(0)).min(1.0);
+                let angle = if side == 0 { rise } else { 180.0 - rise };
+                let len = reach * (0.8 + 0.3 * rk(1));
+                // Long and heavy: the tip falls back below where it rose.
+                let droop = len * (0.45 + 0.4 * rk(2));
+                (angle, len, droop)
+            })
+            .collect();
+        out.push(Palm {
+            x,
+            height,
+            lean,
+            fronds,
+            coconuts: r(5) < 0.65,
+        });
+        // Loose clumps: a close neighbour now and then, else a wider gap.
+        x += if r(6) < 0.3 { 5 } else { 11 } + (r(7) * 9.0) as usize;
+        i += 1;
+    }
+    out
+}
+
+/// One tile of the palm grove: the palms of [`palms`], one brick deep. Their
+/// fronds wrap round the tile's ends, so tiles join without a seam.
+pub fn palm_grove() -> Grid {
+    let (w, h) = (PALM_TILE, PALM_LAYERS);
+    let mut g = Grid::new(w, h, 1);
+    let mut put = |x: isize, y: isize, c: u8| {
+        if y >= 0 {
+            g.set(x.rem_euclid(w as isize) as usize, y as usize, 0, c);
         }
-        for (k, &(dx, dy)) in FRONDS.iter().enumerate() {
-            let x = (px as isize + dx).rem_euclid(w as isize) as usize;
-            let y = crown as isize + dy;
-            if y >= 0 {
-                g.set(x, y as usize, 1, if k == 0 { FROND_SUN } else { FROND });
+    };
+    for p in palms() {
+        // The trunk, ringed, two bricks thick at the foot of a tall one.
+        for y in 0..p.height {
+            let x = p.x as isize + p.shift(y);
+            let c = if y % 3 == 2 { TRUNK_RING } else { TRUNK };
+            put(x, y as isize, c);
+            if p.height >= 15 && y < p.height / 3 {
+                put(x + 1, y as isize, c);
             }
+        }
+        let (cx, cy) = p.crown();
+        // The fronds: arcs out from the crown, rising and then drooping
+        // toward their tips, with leaflets hanging along the outer half;
+        // sunlit on the left.
+        for &(angle, len, droop) in &p.fronds {
+            let (dx, dy) = (angle.to_radians().cos(), angle.to_radians().sin());
+            let colour = if dx < 0.0 { FROND_SUN } else { FROND };
+            let steps = (len * 2.0) as usize;
+            for s in 2..=steps {
+                let t = s as f32 / 2.0;
+                let fx = cx + (t * dx).round() as isize;
+                let fy = cy + (t * dy - droop * (t / len).powi(2)).round() as isize;
+                put(fx, fy, colour);
+                if s % 3 == 0 && t > len * 0.45 && t < len - 0.5 {
+                    put(fx, fy - 1, FROND_DEEP);
+                }
+            }
+        }
+        put(cx, cy, FROND_SUN);
+        put(cx, cy + 1, FROND_SUN);
+        if p.coconuts {
+            put(cx, cy - 1, COCONUT);
+            put(cx - 1, cy - 1, COCONUT);
         }
     }
     g
@@ -677,12 +794,57 @@ mod tests {
     }
 
     #[test]
-    fn palms_stand_up_out_of_the_jungle() {
+    fn the_jungle_is_greenery_only() {
+        // The palms moved to a plane of their own.
+        assert_eq!(JUNGLE_PALETTE.len(), 4);
         let g = jungle();
-        let trunks = (0..g.w as isize)
-            .filter(|&x| (0..g.h as isize).any(|y| g.get(x, y, 1) == TRUNK))
-            .count();
-        assert_eq!(trunks, 7);
+        for z in 0..g.d as isize {
+            for y in 0..g.h as isize {
+                for x in 0..g.w as isize {
+                    assert!((g.get(x, y, z) as usize) <= JUNGLE_PALETTE.len());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_palm_is_its_own() {
+        let palms = palms();
+        assert!(palms.len() >= 8, "{} palms", palms.len());
+        let heights: Vec<usize> = palms.iter().map(|p| p.height).collect();
+        let (lo, hi) = (heights.iter().min().unwrap(), heights.iter().max().unwrap());
+        assert!(hi - lo >= 6, "heights {heights:?}");
+        assert!(palms.iter().any(|p| p.lean < -1.0), "none leans left");
+        assert!(palms.iter().any(|p| p.lean > 1.0), "none leans right");
+        assert!(palms.iter().any(|p| p.lean == 0.0), "none stands straight");
+        let crowns: Vec<usize> = palms.iter().map(|p| p.fronds.len()).collect();
+        assert!(crowns.iter().all(|n| (6..=9).contains(n)), "{crowns:?}");
+        assert!(crowns.iter().any(|&n| n != crowns[0]), "every crown alike");
+    }
+
+    #[test]
+    fn every_palm_fits_the_grove() {
+        // Nothing is cut off at the top: a crown plus its highest frond.
+        for p in palms() {
+            let up = p
+                .fronds
+                .iter()
+                .map(|f| f.1 * f.0.to_radians().sin())
+                .fold(0.0, f32::max);
+            assert!(
+                (p.height + 2) as f32 + up < PALM_LAYERS as f32,
+                "a {}-brick palm reaching {up} up",
+                p.height
+            );
+        }
+        // And the tile fits raylib's 16-bit indices, all faces built (crowns
+        // rise above the camera, so their undersides show).
+        let how = crate::bricks::Build {
+            wrap_x: true,
+            open_below_and_behind: false,
+        };
+        let n = crate::bricks::vertex_count(&palm_grove(), how);
+        assert!(n <= u16::MAX as usize + 1, "palm grove: {n} vertices");
     }
 
     #[test]
