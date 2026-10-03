@@ -152,17 +152,17 @@ knows at take-off); once they fall, or stand, at where they'll come to rest:
 the ground, or a ledge. It rises by `CAM_FOLLOW` (about a third) of that
 height past a small dead zone (`CAM_DEAD`, so a little hop leaves it still),
 never more than `CAM_LIFT_MAX`, on a critically damped spring that never
-overshoots: gently up (`CAM_RATE_UP`), briskly down (`CAM_RATE_DOWN`). So it
-sets off with the take-off, turns at the top, and is coming down as the hero
-lands. The first version chased the hero's height on one slow spring instead:
-it lagged a quarter of a second behind every jump and took a second and a half
-to drift back, so it was never at rest between jumps, and the game felt like a
-ship at sea. Both where the camera stands and where it looks move together, so
+overshoots: up in step with the jump (`CAM_RATE_UP`), and back down unhurried
+(`CAM_RATE_DOWN`; a quicker return snapped back too hard). So it sets off with
+the take-off, turns at the top, and is on its way down as the hero lands. The
+first version chased the hero's height on one slow spring instead: it lagged a
+quarter of a second behind every jump and was still rising as the hero fell,
+so it was never in step, and the game felt like a ship at sea. Both where the camera stands and where it looks move together, so
 nothing tilts. The scene is truly 3D, so rising shows it from a little higher,
 and the near things slide down further than the far planes: vertical
 parallax, for free. A test holds it in step with the jump (topping out within
-a tenth of a second of the hero), smooth, and settled within half a second of
-landing.
+0.15 s of the hero), smooth, and easing back after landing: not snapped down,
+most of the way within a second, at rest within three.
 
 ### Coming and going out of sight
 

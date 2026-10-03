@@ -106,10 +106,12 @@ const PPU: f32 = 100.0;
 // `update`): at the top of the jump while the hero rises, at where they'll
 // land once they fall. It rises by `CAM_FOLLOW` of that height past a small
 // dead zone (`CAM_DEAD`, so a little hop leaves it still), never more than
-// `CAM_LIFT_MAX`, on a critically damped spring (it never overshoots):
-// gently up (`CAM_RATE_UP`), briskly down (`CAM_RATE_DOWN`). A camera that
-// chases the hero lags behind and drifts back after landing, never at rest
-// between jumps — it feels like a ship at sea. The scene is truly 3D, so
+// `CAM_LIFT_MAX`, on a critically damped spring (it never overshoots): up in
+// step with the jump (`CAM_RATE_UP`), and back down unhurried
+// (`CAM_RATE_DOWN`, Greg's pick: quicker snapped back too hard). A camera
+// that chases the hero instead lags behind every jump and is still drifting
+// back when the next one comes — it feels like a ship at sea. The scene is
+// truly 3D, so
 // rising shows it from a little higher — the near things slide down further
 // than the far planes: vertical parallax, for free.
 const CAMERA_AT: Vector3 = Vector3 {
@@ -127,7 +129,7 @@ const CAM_FOLLOW: f32 = 0.35;
 const CAM_DEAD: f32 = 0.5;
 const CAM_LIFT_MAX: f32 = 1.2;
 const CAM_RATE_UP: f32 = 5.0;
-const CAM_RATE_DOWN: f32 = 7.0;
+const CAM_RATE_DOWN: f32 = 3.0;
 
 // 2.5D palette: a clear, sunny-day world — saturated sky blue (the meadow's
 // greens and earths are bricks now, in `props`), so the kid's own drawings
@@ -2308,17 +2310,20 @@ mod tests {
             }
         }
         // Visibly up, never more than its share of the jump, and in step
-        // with it: the camera tops out within a tenth of a second of the hero.
+        // with it: the camera tops out within 0.15 s of the hero (the gentle
+        // settling spring carries it on a moment past the top; the chasing
+        // camera this replaced trailed by a quarter of a second and more).
         assert!(highest > 0.3, "rose {highest}");
         assert!(highest <= (2.4 - CAM_DEAD) * CAM_FOLLOW, "rose {highest}");
         assert!(
-            cam_top_at <= hero_top_at + 6,
+            cam_top_at <= hero_top_at + 9,
             "lags: {cam_top_at} vs {hero_top_at}"
         );
         // Smooth: never faster than a third of the hero's own take-off.
         assert!(steepest < JUMP_V / PPU / 3.0 * dt, "a jolt of {steepest}");
-        // Settled within half a second of landing, and back at rest for good,
-        // without dipping below it.
+        // Back down unhurried after landing — still on its way a tenth of a
+        // second in, most of the way there by one second, at rest within
+        // three — and for good, without dipping below it.
         let landed = landed_at.expect("never landed");
         let mut r2 = Runner::new(0, 1, 2, vec![Kind::Jump]);
         r2.spawn_timer = 999.0;
@@ -2327,8 +2332,15 @@ mod tests {
         for i in 0..400 {
             r2.update(&input(None, None), dt);
             lowest = lowest.min(r2.cam_lift);
-            if i == landed + 30 {
-                assert!(r2.cam_lift < 0.05, "still {} after landing", r2.cam_lift);
+            let lift = r2.cam_lift;
+            if i == landed + 6 {
+                assert!(lift > 0.1, "already down to {lift}");
+            }
+            if i == landed + 60 {
+                assert!(lift < 0.1, "still {lift} a second after landing");
+            }
+            if i == landed + 180 {
+                assert!(lift < 0.01, "still {lift} three seconds after landing");
             }
         }
         assert!(r2.cam_lift.abs() < 0.001, "still {}", r2.cam_lift);
