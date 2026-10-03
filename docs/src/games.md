@@ -377,7 +377,8 @@ far away it is, so the farther a plane lies, the more it looks like the sky.
 All are code-built bricks (`props::mountains`, `props::palm_grove`,
 `props::jungle`), laid tile after tile like the meadow (`lay_tiles`), and lit
 by `backdrop_glass()`: the meadow's glass without glints or highlights, so
-nothing out there pulls the eye. The mountains and the palms are pixel-art
+nothing out there pulls the eye (bar the jungle's odd twinkle, on purpose:
+see below). The mountains and the palms are pixel-art
 silhouettes extruded a brick or few deep, the way flat-draw turns a drawing
 into a prop; the jungle, the nearest, is built in the round.
 
@@ -412,7 +413,19 @@ into a prop; the jungle, the nearest, is built in the round.
   where masses meet, so each reads as a ball of leaves rather than a cut-out.
   Leaves and fronds are drawn brick by brick along arcs (`Jungle::leaf`,
   `Jungle::frond`). A tile is too leafy for one mesh, so it builds into
-  several (see below); it stays light, though, about 58,000 vertices.
+  several (see below); it stays light, though, about 72,000 vertices.
+
+  **Its front plane is glassy** (`props::veil`), the way the score sun's
+  glass is. From halfway back (`VEIL_FROM`) to the front, the palms, big
+  leaves and ferns go see-through, more the nearer they stand (up to
+  `VEIL_MOST`, 75%), in drifts rather than brick by brick: a tileable Perlin
+  noise (`gradient_noise`, two octaves, `VEIL_GRAIN` bricks across) decides
+  where, so a clump goes glassy together while its neighbour stays solid.
+  The trees and the dark heart behind stay solid; trunks and lianas show
+  faintly through the glass in front of them. Each brick's opacity is worked
+  out once, when the tile is built, in sixteenths (the barely veiled round
+  back to solid), so it costs nothing per frame: see the see-through bricks
+  below.
 
 All start below the meadow's sightline (`MOUNTAIN_BASE`, the grove's `base`,
 `JUNGLE_BASE`), so no floor ever shows under them. The draw order does the
@@ -425,8 +438,8 @@ rest:
 4. the palms, then a haze pass and their mist (`PALM_MIST`), which stands
    high, up in their crowns: the tall jungle in front hides everything lower,
    so a mist at their feet would never be seen;
-5. the jungle, then a last haze pass and a low, thin mist at the jungle's feet
-   (`JUNGLE_MIST`), out of which the meadow comes.
+5. the jungle and its twinkles, then a last haze pass and a low, thin mist at
+   the jungle's feet (`JUNGLE_MIST`), out of which the meadow comes.
 
 The hazes are set as how far each plane ends up pulled toward the sky
 (`CLOUD_HAZE`, `MOUNTAIN_HAZE`, `PALM_HAZE`, `JUNGLE_HAZE`),
@@ -435,20 +448,66 @@ pass in front of each plane from them, since a plane behind also gets every
 pass in front of it. The clouds' figure is the one they had before the planes
 came, so they look just as they did.
 
+### Twinkles on the jungle
+
+Now and then a glint of sun catches one of the jungle's bricks
+(`game/src/twinkle.rs`): one or two at a time, never more. Every couple of
+seconds (`GAP`) a twinkle starts, and two times in five (`PAIR`) a second one
+follows close behind (`FOLLOW`). Each picks a brick the camera sees straight
+on (its column's front-most, from `JUNGLE_TWINKLES_FROM` up, clear of the
+meadow and the mist), in sight and a fifth in from either side, and stays on
+it as the jungle scrolls. A soft star of pale, leafy green (`LIGHT`) gleams
+up on a corner of the brick's front face, quickly, then fades over `LIFE`
+(1.2 s), turning a little (`TURN`) as it goes; the brick lights up under it
+(`FLARE`). The star has four long arms and four short ones between (`ARM`),
+over a round core (`CORE`), each bright at the middle and fading to nothing,
+and is drawn additively, square to the eye.
+
+It is small on purpose: busy scenery pulls the eye off the hero, so the
+star is kept just big enough to be seen. Its arms taper only a little in
+shape and let the fading light make the point: an arm narrowing to nothing
+went thinner than a pixel toward its tip and broke into dashes (the game has
+no MSAA). The brick lights up within the depth test; the star is drawn over
+whatever stands near it, as a glint is light in the eye, not a thing in the
+scene. Where and when is plain state, unit-tested without a window;
+`Twinkles::draw` is the only part that touches the GPU, and it draws from
+the runner's own random numbers (`next_rand`).
+
 ### The meadow and the obstacles: bricks built in code
 
 The ground and the obstacles aren't drawings: they're generated, in the same
 brick style as the clouds and the water. `game/src/bricks.rs` is a small kit
 for it. A `Grid` holds a palette colour per brick (0 = empty), and
 `BrickModel::build` walls it in: one quad per brick face that borders an empty
-cell, its texcoords pointing at its colour in a one-row palette texture (a
-`PaletteMaterial`, shared with the brick water). That's the shape of a
+cell (or a see-through brick, below), its texcoords pointing at its colour in
+a small palette texture, one row for a solid grid (a `PaletteMaterial`,
+shared with the brick water). That's the shape of a
 flat-draw export, so Lam::pula lights it the same way, finding the brick edges
 and corners through `BrickModel::lattice`. raylib's indices are 16-bit, so a
 grid with more faces than one mesh holds (16383, four vertices each) builds
 into several, drawn one after another (`Faces::meshes`). `Build` can leave out
 the faces the camera never sees: the bottoms (`open_below`, for the ground)
 and the backs (`open_behind`).
+
+**See-through bricks.** A grid may also say how see-through each brick is
+(`Grid::set_alpha`, 0 clear to `SOLID`; a solid grid carries no second
+layer). The opacity is baked into the palette texture the way a flat-draw
+export bakes a layer's opacity into its atlas: one row per opacity the grid
+uses (`Grid::alphas`), so Lam::pula draws it unchanged, through its `tex.a`.
+Three things keep the glass right:
+
+- **Which faces.** A solid brick covers its neighbour's face; a see-through
+  one shows a solid neighbour's face through it, but covers another
+  see-through one's (`Grid::covers`). Touching glass bricks are one body,
+  seen by its skin, not a stack of panes: panes add up to solid again, and
+  the jungle's veil built three times the faces that way, not a fifth more.
+- **Back to front.** The camera is always in front, so `Faces::new` emits the
+  faces sorted by depth (each slice's fronts after its tops and sides), and a
+  see-through brick blends over what stands behind it.
+- **Tile by tile.** Seen at a slant, a tile's back reaches past its seam, in
+  behind the front of its neighbour nearer the eye; `lay_tiles` draws the
+  tile farthest to the side first (`tiles_far_to_near`), so it shows through
+  that neighbour's glass rather than being cut out by it.
 
 `game/src/props.rs` builds the runner's pieces from a hash of each brick's
 place, never a random generator, so they look the same every game:

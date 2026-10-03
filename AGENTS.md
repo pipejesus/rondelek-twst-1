@@ -219,9 +219,11 @@ game/src/                 rondelek-game: raylib voice games (child process)
   shader_params.rs        shader tuning tables (flat-draw's Param rows) + JSON overrides
   lampula.rs              flat-draw's Lam::pula glass shader, 1:1 (clouds, sun, water)
   bricks.rs               brick models built in code (grid of colours → one mesh,
-                          lit by Lam::pula)
+                          lit by Lam::pula; bricks may be see-through)
   props.rs                Vowel Runner's meadow, ledges, obstacles and far planes
-                          (mountains, palms, jungle), built in bricks
+                          (mountains, palms, jungle with its glassy front),
+                          built in bricks
+  twinkle.rs              now and then a glint of sun on the jungle's bricks
   brick_water.rs          the voice-reactive water along the front: little glass
                           bricks through Lam::pula (brick_water.vs + lampula.fs)
   water.rs                the first, smooth toon water (kept; RONDELEK_WATER_STYLE=toon)

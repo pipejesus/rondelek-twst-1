@@ -70,8 +70,9 @@ Tracked items intentionally left for later batches.
 - `cloud9_rain.glb` is unused (kept for a possible rain variant).
 - **Re-measure the game's GPU/CPU cost on real hardware.** The brick water
   (Lam::pula over ~3,600 brick columns, the lower third of the screen), the
-  clouds' and sun's Lam::pula and the 3D jungle (~58,000 vertices a tile, a
-  tile or two on screen) are new since `docs/PERF.md`'s ~10% figure. Headless
+  clouds' and sun's Lam::pula and the 3D jungle (~72,000 vertices a tile with
+  its glassy front, a tile or two on screen, blended back to front) are new
+  since `docs/PERF.md`'s ~10% figure. Headless
   Xvfb runs use software GL, so their numbers don't count: the game now draws
   at ~6 fps there (which is why `RONDELEK_GAME_RECORD` exists).
 - **Fish for the brick water.** The brick water (2026-10-02, the default, a

@@ -181,7 +181,9 @@ game/src/
   shader_params.rs  shader tuning tables + JSON overrides
   lampula.rs     flat-draw's Lam::pula glass shader, 1:1 (clouds, sun, water)
   bricks.rs      brick models built in code: a grid of colours → one mesh
+                 (bricks may be see-through)
   props.rs       the meadow, ledges, obstacles and far planes, in bricks
+  twinkle.rs     now and then a glint of sun on the jungle's bricks
   brick_water.rs the voice-reactive water along the front: glass bricks
   water.rs       the first, smooth toon water (kept: RONDELEK_WATER_STYLE=toon)
 ```

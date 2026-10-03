@@ -15,8 +15,9 @@ friendly reminder with a key that takes you straight there.
 ## Vowel Runner
 
 The first game is **Vowel Runner**. A little blocky hero runs along a meadow by
-the sea, in front of a thick jungle of trees, palms and big leaves under tall
-snowy mountains, and things come
+the sea, in front of a thick jungle of trees, palms and big leaves (glassy at
+the front, where the sun twinkles now and then) under tall snowy mountains,
+and things come
 their way: blocks to jump over, bars to duck under,
 brick walls to knock down with a star, and tall pillars that need a double
 jump. Your child says one vowel to **jump** (say it again in mid-air for a
