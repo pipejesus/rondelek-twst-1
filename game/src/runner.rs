@@ -102,12 +102,16 @@ const LITTLE_SUN_SPIN: f32 = 0.35;
 const PPU: f32 = 100.0;
 
 // The camera, at rest: a little above and to the right of the action,
-// looking at (0, 1, 0). It follows the hero up and down, gently: it rises by
-// `CAM_FOLLOW` of how high the hero's feet are (never more than
-// `CAM_LIFT_MAX`), on a critically damped spring of rate `CAM_RATE`, so it
-// eases after a jump and eases back, never overshooting. The scene is truly
-// 3D, so rising shows it from a little higher — the near things slide down
-// further than the far planes: vertical parallax, for free.
+// looking at (0, 1, 0). It follows the hero up and down, aiming ahead (see
+// `update`): at the top of the jump while the hero rises, at where they'll
+// land once they fall. It rises by `CAM_FOLLOW` of that height past a small
+// dead zone (`CAM_DEAD`, so a little hop leaves it still), never more than
+// `CAM_LIFT_MAX`, on a critically damped spring (it never overshoots):
+// gently up (`CAM_RATE_UP`), briskly down (`CAM_RATE_DOWN`). A camera that
+// chases the hero lags behind and drifts back after landing, never at rest
+// between jumps — it feels like a ship at sea. The scene is truly 3D, so
+// rising shows it from a little higher — the near things slide down further
+// than the far planes: vertical parallax, for free.
 const CAMERA_AT: Vector3 = Vector3 {
     x: 0.9,
     y: 2.2,
@@ -120,8 +124,10 @@ const CAMERA_LOOKS_AT: Vector3 = Vector3 {
 };
 const CAMERA_FOVY: f32 = 45.0;
 const CAM_FOLLOW: f32 = 0.35;
+const CAM_DEAD: f32 = 0.5;
 const CAM_LIFT_MAX: f32 = 1.2;
-const CAM_RATE: f32 = 3.0;
+const CAM_RATE_UP: f32 = 5.0;
+const CAM_RATE_DOWN: f32 = 7.0;
 
 // 2.5D palette: a clear, sunny-day world — saturated sky blue (the meadow's
 // greens and earths are bricks now, in `props`), so the kid's own drawings
@@ -1414,15 +1420,30 @@ impl VoiceGame for Runner {
             }
         }
 
-        // --- camera: up and down after the hero, gently ---
-        let feet_up = ((GROUND_Y - (self.hero_y + HERO_H)) / PPU).max(0.0);
-        let goal = (feet_up * CAM_FOLLOW).min(CAM_LIFT_MAX);
+        // --- camera: up and down with the hero ---
+        // It aims ahead rather than chasing: while the hero rises, at where
+        // this jump tops out; once they fall (or stand), at where they come
+        // to rest — the ground, or a ledge. So it sets off at the take-off,
+        // turns at the top and is coming down as the hero lands, in step,
+        // with nothing left to catch up on afterwards.
+        let feet = self.hero_y + HERO_H;
+        let aim = if self.vy < 0.0 {
+            (GROUND_Y - feet + self.vy * self.vy / (2.0 * GRAVITY)) / PPU
+        } else {
+            (GROUND_Y - self.floor_below(feet)) / PPU
+        };
+        let goal = ((aim - CAM_DEAD).max(0.0) * CAM_FOLLOW).min(CAM_LIFT_MAX);
         // Semi-implicit Euler in small substeps: stable even if a frame hitches.
         let n = (dt * 240.0).ceil().max(1.0);
         let h = dt / n;
         for _ in 0..n as u32 {
-            let pull = CAM_RATE * CAM_RATE * (goal - self.cam_lift);
-            self.cam_lift_v += (pull - 2.0 * CAM_RATE * self.cam_lift_v) * h;
+            let rate = if goal < self.cam_lift {
+                CAM_RATE_DOWN
+            } else {
+                CAM_RATE_UP
+            };
+            let pull = rate * rate * (goal - self.cam_lift);
+            self.cam_lift_v += (pull - 2.0 * rate * self.cam_lift_v) * h;
             self.cam_lift += self.cam_lift_v * h;
         }
         let view = self.view();
@@ -2264,30 +2285,61 @@ mod tests {
     }
 
     #[test]
-    fn the_camera_follows_a_jump_gently_and_comes_back() {
+    fn the_camera_follows_a_jump_in_step_and_settles_on_landing() {
         let dt = 1.0 / 60.0;
         let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);
         r.spawn_timer = 999.0;
         r.update(&input(Some(0), Some(0)), dt);
         let (mut highest, mut prev, mut steepest) = (0.0f32, 0.0f32, 0.0f32);
-        for _ in 0..90 {
+        let (mut hero_top_at, mut cam_top_at, mut hero_top) = (0, 0, f32::MAX);
+        let mut landed_at = None;
+        for i in 0..90 {
             r.update(&input(None, None), dt);
-            highest = highest.max(r.cam_lift);
+            if r.hero_y < hero_top {
+                (hero_top, hero_top_at) = (r.hero_y, i);
+            }
+            if r.cam_lift > highest {
+                (highest, cam_top_at) = (r.cam_lift, i);
+            }
             steepest = steepest.max((r.cam_lift - prev).abs());
             prev = r.cam_lift;
+            if r.on_ground && landed_at.is_none() {
+                landed_at = Some(i);
+            }
         }
-        // Visibly up, but not all the way: it lags, softly.
-        assert!(highest > 0.25, "rose {highest}");
-        assert!(highest < CAM_FOLLOW * 2.4, "rose {highest}");
-        assert!(steepest < 0.03, "a jolt of {steepest} in a frame");
-        // And back down, without dipping below the ground's view.
+        // Visibly up, never more than its share of the jump, and in step
+        // with it: the camera tops out within a tenth of a second of the hero.
+        assert!(highest > 0.3, "rose {highest}");
+        assert!(highest <= (2.4 - CAM_DEAD) * CAM_FOLLOW, "rose {highest}");
+        assert!(
+            cam_top_at <= hero_top_at + 6,
+            "lags: {cam_top_at} vs {hero_top_at}"
+        );
+        // Smooth: never faster than a third of the hero's own take-off.
+        assert!(steepest < JUMP_V / PPU / 3.0 * dt, "a jolt of {steepest}");
+        // Settled within half a second of landing, and back at rest for good,
+        // without dipping below it.
+        let landed = landed_at.expect("never landed");
+        let mut r2 = Runner::new(0, 1, 2, vec![Kind::Jump]);
+        r2.spawn_timer = 999.0;
+        r2.update(&input(Some(0), Some(0)), dt);
         let mut lowest = f32::MAX;
-        for _ in 0..240 {
-            r.update(&input(None, None), dt);
-            lowest = lowest.min(r.cam_lift);
+        for i in 0..400 {
+            r2.update(&input(None, None), dt);
+            lowest = lowest.min(r2.cam_lift);
+            if i == landed + 30 {
+                assert!(r2.cam_lift < 0.05, "still {} after landing", r2.cam_lift);
+            }
         }
-        assert!(r.cam_lift.abs() < 0.01, "still {}", r.cam_lift);
+        assert!(r2.cam_lift.abs() < 0.001, "still {}", r2.cam_lift);
         assert!(lowest > -0.01, "dipped to {lowest}");
+
+        // A little hop leaves it still.
+        let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);
+        r.hero_y -= CAM_DEAD * PPU * 0.9;
+        r.on_ground = false;
+        r.update(&input(None, None), dt);
+        assert_eq!(r.cam_lift, 0.0);
 
         // A double jump takes it higher, but never past the cap.
         let mut r = Runner::new(0, 1, 2, vec![Kind::Jump]);

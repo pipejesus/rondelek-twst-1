@@ -146,14 +146,23 @@ at `(0, 1, 0)`, with a fovy of 45°. It never moves sideways. Instead, each laye
 scrolls by its own hand-tuned fraction of the distance travelled, so the world
 seems to glide past while the camera stays put.
 
-It does follow the hero up and down, gently. It rises by `CAM_FOLLOW` (about a
-third) of how high the hero's feet are, never more than `CAM_LIFT_MAX`, on a
-critically damped spring (`CAM_RATE`), so it eases up after a jump and eases
-back without ever overshooting. Both where it stands and where it looks move
-together, so nothing tilts. The scene is truly 3D, so rising shows it from a
-little higher, and the near things slide down further than the far planes:
-vertical parallax, for free. A test keeps it soft (no jolt in a frame) and
-keeps it coming back to rest.
+It does follow the hero up and down, and it aims ahead rather than chasing.
+While the hero rises, it aims at where this jump will top out (the physics
+knows at take-off); once they fall, or stand, at where they'll come to rest:
+the ground, or a ledge. It rises by `CAM_FOLLOW` (about a third) of that
+height past a small dead zone (`CAM_DEAD`, so a little hop leaves it still),
+never more than `CAM_LIFT_MAX`, on a critically damped spring that never
+overshoots: gently up (`CAM_RATE_UP`), briskly down (`CAM_RATE_DOWN`). So it
+sets off with the take-off, turns at the top, and is coming down as the hero
+lands. The first version chased the hero's height on one slow spring instead:
+it lagged a quarter of a second behind every jump and took a second and a half
+to drift back, so it was never at rest between jumps, and the game felt like a
+ship at sea. Both where the camera stands and where it looks move together, so
+nothing tilts. The scene is truly 3D, so rising shows it from a little higher,
+and the near things slide down further than the far planes: vertical
+parallax, for free. A test holds it in step with the jump (topping out within
+a tenth of a second of the hero), smooth, and settled within half a second of
+landing.
 
 ### Coming and going out of sight
 
