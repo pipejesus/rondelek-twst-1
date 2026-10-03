@@ -57,16 +57,24 @@ Tracked items intentionally left for later batches.
   a choice), the fish, and the planes nearer the player (birds flying by and
   the like). The meadow, the obstacles and the far planes (mountains, palms,
   jungle; 2026-10-03) stay code-built bricks (`props.rs`), Greg's call.
-- **The far planes are a first draft** (2026-10-03), to be tuned together:
-  shapes in `props::mountains` / `props::palms` (the two `Grove`s) /
-  `props::jungle`, haze and mist in the `MOUNTAIN_*` / `FAR_PALM_*` /
-  `PALM_*` / `JUNGLE_*` constants of `runner.rs`.
-  The sky may want a touch of tuning around them.
+- **The far planes are tuned together, a hop at a time** (2026-10-03): the
+  jungle rebuilt as a 3D rainforest (Greg: "very, very good colours and
+  bulkiness"), the mountains raised over it, the far palm grove retired and
+  the one grove left set back in mist. Shapes in `props::mountains` /
+  `props::palms` (`GROVE`) / `props::jungle`; haze and mist in the
+  `MOUNTAIN_*` / `PALM_*` / `JUNGLE_*` constants of `runner.rs`. The sky may
+  still want a touch of tuning around them.
+- **Shot walls sink into the meadow.** A bumped or shot obstacle flies up a
+  little and then falls through the ground (`fly_y`), out of sight below it.
+  It reads oddly at times; it could fly off the screen instead, or break into
+  bricks. Offered to Greg (2026-10-03), not decided.
 - `cloud9_rain.glb` is unused (kept for a possible rain variant).
 - **Re-measure the game's GPU/CPU cost on real hardware.** The brick water
-  (Lam::pula over ~3,600 brick columns, the lower third of the screen) and the
-  clouds' and sun's Lam::pula are new since `docs/PERF.md`'s ~10% figure;
-  headless Xvfb runs use software GL, so their numbers don't count.
+  (Lam::pula over ~3,600 brick columns, the lower third of the screen), the
+  clouds' and sun's Lam::pula and the 3D jungle (~58,000 vertices a tile, a
+  tile or two on screen) are new since `docs/PERF.md`'s ~10% figure. Headless
+  Xvfb runs use software GL, so their numbers don't count: the game now draws
+  at ~6 fps there (which is why `RONDELEK_GAME_RECORD` exists).
 - **Fish for the brick water.** The brick water (2026-10-02, the default, a
   keeper) left the toon water's goldfish behind. Greg will draw the fish by
   hand in flat-draw and hand over the model(s) (via `greg/`); then they swim
