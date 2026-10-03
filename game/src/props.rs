@@ -753,8 +753,9 @@ fn tablet_letter_at(bitmap: rondelek_core::arcade::Bitmap) -> (usize, usize) {
 
 /// A stone tablet with `label`'s vowel carved in it: a slab of limestone,
 /// arched on top, pillowed front and back (the outermost ring of each set
-/// back a brick, so its edges read as worn round), hewn (a notch in the
-/// outline here and there, a nick in the rim), and the arcade's bold pixel vowel (`rondelek_core::arcade::vowel_glyph`)
+/// back a brick, so its edges read as worn round), with a nick in the rim
+/// here and there, and the arcade's bold pixel vowel
+/// (`rondelek_core::arcade::vowel_glyph`)
 /// cut a brick deep into the face, its floor painted. The face itself stays
 /// plain, so nothing but the letter reads as a mark. An unknown label gives a
 /// blank tablet.
@@ -788,18 +789,16 @@ pub fn tablet(label: &str) -> Grid {
                     _ => LIME,
                 }
             };
-            // Hewn: now and then a notch right through the rim, or a nick
-            // out of its front half.
-            let chip = if face { 1.0 } else { r(33) };
-            if chip < 0.07 {
-                continue;
-            }
+            // Hewn, just: now and then a nick out of the rim's front half.
+            // The outline itself stays whole (notches right through it made
+            // the sides look jagged).
+            let nick = !face && r(33) < 0.1;
             for z in 0..d {
                 let outer = z == 0 || z == d - 1;
                 if outer && !face {
                     continue; // the pillowed edge
                 }
-                if z == d - 2 && chip < 0.2 {
+                if z == d - 2 && nick {
                     continue;
                 }
                 g.set(x, y, z, stone);
@@ -1105,6 +1104,22 @@ mod tests {
                         let c = g.get(xi, yi, front);
                         assert!([LIME, LIME_LIGHT].contains(&c), "{v}: {c} at {x},{y}");
                     }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_tablets_outline_is_smooth() {
+        // Every brick of the outline is there at the back of the rim: the
+        // nicks only ever come out of its front half.
+        for v in ["a", "e", "i", "o", "u", "y"] {
+            let g = tablet(v);
+            for y in 0..TABLET_H {
+                for x in 0..TABLET_W {
+                    let inside = on_tablet(x, y, 0.0);
+                    let back = g.get(x as isize, y as isize, 1) != 0;
+                    assert_eq!(inside, back, "{v}: outline at {x},{y}");
                 }
             }
         }

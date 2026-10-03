@@ -425,7 +425,8 @@ place, never a random generator, so they look the same every game:
 - **The vowel tablets** (`tablet`, 0.1-unit bricks, 13 × 15 and 4 thick): a
   slab of white limestone, arched on top, pillowed front and back (the
   outermost ring of each set back a brick, so the edges read as worn round),
-  hewn here and there (a notch through the rim, a nick out of its front), with
+  a nick out of the rim's front here and there (the outline itself stays
+  smooth: notches right through it made the sides look jagged), with
   the arcade's bold pixel vowel (`rondelek_core::arcade::vowel_glyph`, the one
   on the entrance screens) cut a brick deep into the face and its floor
   painted. The paint is the obstacle family's colour, deep (`TABLET_PAINT`).
