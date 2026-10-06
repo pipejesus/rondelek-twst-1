@@ -11,7 +11,7 @@ AppDir/
   rondelek.png                assets/icon/rondelek.png, plus usr/share/icons/…
   usr/bin/rondelek            the sampler app
   usr/bin/rondelek-game       the voice-game runner
-  usr/share/doc/rondelek/     README.md, LICENSE
+  usr/share/doc/rondelek/     README.md
 ```
 
 ## Two binaries, one AppImage

@@ -17,8 +17,8 @@ others from shipping. The macOS legs are commented out in the matrix for now.
 
 ## Two binaries travel together
 
-Every package holds both `rondelek` and `rondelek-game`, side by side (with the
-`LICENSE`), and they need each other. The app starts a game by running the game binary from its own
+Every package holds both `rondelek` and `rondelek-game`, side by side, and they
+need each other. The app starts a game by running the game binary from its own
 folder (`App::spawn_game`, which uses `std::env::current_exe()`). If you're
 curious why the game is a separate process at all, [Architecture](architecture.md)
 explains.
