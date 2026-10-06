@@ -30,6 +30,7 @@ install -Dm644 "$HERE/rondelek.desktop" "$APPDIR/usr/share/applications/rondelek
 install -Dm644 assets/icon/rondelek.png "$APPDIR/rondelek.png"
 install -Dm644 assets/icon/rondelek.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/rondelek.png"
 install -Dm644 README.md "$APPDIR/usr/share/doc/rondelek/README.md"
+install -Dm644 LICENSE "$APPDIR/usr/share/doc/rondelek/LICENSE"
 
 if command -v desktop-file-validate >/dev/null; then
   desktop-file-validate "$APPDIR/rondelek.desktop"

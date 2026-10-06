@@ -149,6 +149,6 @@ own guide in [`docs/SKINS.md`](docs/SKINS.md).
 
 ## License
 
-MIT (see `Cargo.toml`). The bundled Space Grotesk and Tiny5 fonts are under the
+MIT, see [`LICENSE`](LICENSE). The bundled Space Grotesk and Tiny5 fonts are under the
 SIL Open Font License (`assets/fonts/`), the language flags are public domain,
 and the character pictures are the project's own (`assets/avatars/`).
