@@ -1,0 +1,405 @@
+//! Skin loading and drawing.
+//!
+//! A skin is a folder (or a zip of one) with a single `skin.png` spritesheet
+//! plus a `skin.json` for colours — see docs/SKINS.md. Every faceplate element
+//! is a fixed rectangle inside the sheet (`rondelek_core::config::atlas`); the
+//! app slices each one back out at draw time, so nothing here assumes a
+//! per-element texture.
+//!
+//! Two skins are **built in** (embedded): **Arcade** (`skins/arcade/`, from
+//! `cargo run --bin genarcadeskin`), the default, in the app's arcade look; and
+//! **Classic** (`skins/base/`, from `cargo run --bin genskin`), the original
+//! matte-plastic faceplate, which is also the **fallback**: a skin that omits
+//! `skin.png` or `skin.json` gets Classic's. Installed skins (folders or zips in
+//! the skins dir) are chosen by folder name; one named like a built-in wins.
+
+use egui::{Color32, Context, Painter, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
+use rondelek_core::config::atlas::{self, Sprite};
+use rondelek_core::config::{Theme, theme_light};
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+// ---- definition (skin.json) ----------------------------------------------
+
+#[derive(Deserialize, Default)]
+pub struct SkinDef {
+    // name/author are catalog metadata; the app itself doesn't display them yet
+    // (the in-app skin browser will).
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub name: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub author: String,
+    /// Hex overrides ("#RRGGBB" or "#RRGGBBAA") for `Theme` fields, keyed by
+    /// field name. Unknown keys are ignored.
+    #[serde(default)]
+    pub colors: HashMap<String, String>,
+}
+
+// ---- loaded skin ---------------------------------------------------------
+
+pub struct Skin {
+    /// The whole spritesheet. Elements are sub-rectangles (see `atlas`).
+    pub atlas: TextureHandle,
+    /// Colours for everything still drawn procedurally (visualizer, LEDs,
+    /// text, the non-sampler screens).
+    pub theme: Theme,
+}
+
+/// The built-in skins: (id, `skin.png`, `skin.json`). The first is the
+/// default, used when no skin has been chosen (`Settings::skin` = `None`).
+pub const BUILTIN: &[(&str, &[u8], &[u8])] = &[
+    (
+        "arcade",
+        include_bytes!("../../../skins/arcade/skin.png"),
+        include_bytes!("../../../skins/arcade/skin.json"),
+    ),
+    (
+        "base",
+        include_bytes!("../../../skins/base/skin.png"),
+        include_bytes!("../../../skins/base/skin.json"),
+    ),
+];
+
+/// The skin used when none has been chosen.
+pub const DEFAULT_SKIN: &str = BUILTIN[0].0;
+
+/// The skin whose files fill in whatever another skin lacks (Classic).
+const FALLBACK_SKIN: &str = "base";
+
+/// A built-in skin's file (`skin.png` / `skin.json`).
+fn builtin(id: &str, file: &str) -> Option<&'static [u8]> {
+    let (_, png, json) = BUILTIN.iter().find(|(n, _, _)| *n == id)?;
+    match file {
+        "skin.png" => Some(png),
+        "skin.json" => Some(json),
+        _ => None,
+    }
+}
+
+/// A file of the fallback skin; always present.
+fn embedded(file: &str) -> &'static [u8] {
+    builtin(FALLBACK_SKIN, file).unwrap_or_else(|| unreachable!("unknown skin file {file}"))
+}
+
+/// Whether `name` is a built-in skin's id.
+pub fn is_builtin(name: &str) -> bool {
+    BUILTIN.iter().any(|(n, _, _)| *n == name)
+}
+
+impl Skin {
+    /// Load skin `choice` (`None` = the default): an installed skin of that
+    /// name if there is one, else the built-in one, else the default. Any file
+    /// the skin lacks (or that won't read) comes from the Classic fallback.
+    pub fn load(ctx: &Context, choice: Option<&str>) -> Self {
+        let name = choice.unwrap_or(DEFAULT_SKIN);
+        let user = skins_dir().join(name);
+        let installed = user.join("skin.json").is_file();
+        let base = if installed || is_builtin(name) {
+            name
+        } else {
+            DEFAULT_SKIN
+        };
+        let bytes = |file: &str| -> Vec<u8> {
+            installed
+                .then(|| std::fs::read(user.join(file)).ok())
+                .flatten()
+                .or_else(|| builtin(base, file).map(<[u8]>::to_vec))
+                .unwrap_or_else(|| embedded(file).to_vec())
+        };
+
+        let png = bytes("skin.png");
+        let ci = crate::app::color_image_from_bytes(&png)
+            .or_else(|| crate::app::color_image_from_bytes(embedded("skin.png")))
+            .expect("embedded skin.png decodes");
+        let atlas = ctx.load_texture("skin_atlas", ci, TextureOptions::LINEAR);
+
+        let def: SkinDef = serde_json::from_slice(&bytes("skin.json")).unwrap_or_else(|e| {
+            eprintln!("skin.json invalid ({e}), using defaults");
+            serde_json::from_slice(embedded("skin.json")).expect("embedded skin.json parses")
+        });
+
+        let mut theme = theme_light();
+        apply_colors(&mut theme, &def.colors);
+
+        Self { atlas, theme }
+    }
+
+    // ---- element drawing --------------------------------------------------
+
+    /// UV rect for `s`, inset half a texel so linear sampling never bleeds from
+    /// a neighbouring sprite in the shared sheet.
+    fn uv(&self, s: Sprite) -> (f32, f32, f32, f32) {
+        let a = self.atlas.size_vec2();
+        let (hx, hy) = (0.5 / a.x, 0.5 / a.y);
+        (
+            s.x as f32 / a.x + hx,
+            s.y as f32 / a.y + hy,
+            (s.x + s.w) as f32 / a.x - hx,
+            (s.y + s.h) as f32 / a.y - hy,
+        )
+    }
+
+    /// Draw sprite `s` stretched to `dest`.
+    pub fn sprite(&self, p: &Painter, s: Sprite, dest: Rect, tint: Color32) {
+        let (u0, v0, u1, v1) = self.uv(s);
+        p.image(self.atlas.id(), dest, uv(u0, v0, u1, v1), tint);
+    }
+
+    /// Nine-slice `s` into `dest`: corners stay `inset_px` (source pixels, also
+    /// the on-screen corner size), edges stretch along one axis, centre both.
+    pub fn nine(&self, p: &Painter, s: Sprite, inset_px: f32, dest: Rect) {
+        let (u0, v0, u1, v1) = self.uv(s);
+        let d = slice_screen_inset(inset_px, dest);
+        let (su, sv) = (inset_px / s.w as f32, inset_px / s.h as f32);
+        let (uw, vh) = (u1 - u0, v1 - v0);
+        let xs = [dest.left(), dest.left() + d, dest.right() - d, dest.right()];
+        let ys = [dest.top(), dest.top() + d, dest.bottom() - d, dest.bottom()];
+        let us = [u0, u0 + su * uw, u1 - su * uw, u1];
+        let vs = [v0, v0 + sv * vh, v1 - sv * vh, v1];
+        for i in 0..3 {
+            for j in 0..3 {
+                p.image(
+                    self.atlas.id(),
+                    Rect::from_min_max(Pos2::new(xs[i], ys[j]), Pos2::new(xs[i + 1], ys[j + 1])),
+                    uv(us[i], vs[j], us[i + 1], vs[j + 1]),
+                    Color32::WHITE,
+                );
+            }
+        }
+    }
+
+    /// Draw sprite `s` covering `dest`: uniformly scaled to fill, centre-cropped.
+    pub fn cover(&self, p: &Painter, s: Sprite, dest: Rect) {
+        let (u0, v0, u1, v1) = self.uv(s);
+        let scale = (dest.width() / s.w as f32).max(dest.height() / s.h as f32);
+        let visx = dest.width() / (s.w as f32 * scale);
+        let visy = dest.height() / (s.h as f32 * scale);
+        let (cu, cv) = ((u0 + u1) * 0.5, (v0 + v1) * 0.5);
+        let (hu, hv) = (visx * (u1 - u0) * 0.5, visy * (v1 - v0) * 0.5);
+        p.image(
+            self.atlas.id(),
+            dest,
+            uv(cu - hu, cv - hv, cu + hu, cv + hv),
+            Color32::WHITE,
+        );
+    }
+
+    /// Draw key cap `idx` into `dest`. Pressing is engine-driven: the cap sinks
+    /// a little and dims, so skins carry only the idle artwork.
+    pub fn cap(&self, p: &Painter, idx: usize, dest: Rect, pressed: bool, tint: Color32) {
+        let (dest, tint) = if pressed {
+            let sink = dest.width().min(dest.height()) * 0.03;
+            (dest.translate(Vec2::new(0.0, sink)), mul_color(tint, 0.90))
+        } else {
+            (dest, tint)
+        };
+        self.sprite(p, atlas::cap(idx), dest, tint);
+    }
+}
+
+/// Darken a tint toward black by factor `f` (RGB scaled, alpha kept).
+fn mul_color(c: Color32, f: f32) -> Color32 {
+    let s = |v: u8| (v as f32 * f) as u8;
+    Color32::from_rgba_unmultiplied(s(c.r()), s(c.g()), s(c.b()), c.a())
+}
+
+// ---- discovery -----------------------------------------------------------
+
+/// Where user skins live: `<config>/rondelek/skins/<name>/skin.json`.
+pub fn skins_dir() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("rondelek")
+        .join("skins")
+}
+
+/// List installed skins. Any `.zip` dropped into the skins dir is extracted
+/// to a folder of the same name first, so zips are the distribution format
+/// and folders are the installed one.
+pub fn discover() -> Vec<String> {
+    discover_in(&skins_dir())
+}
+
+fn discover_in(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let entries: Vec<_> = entries.flatten().collect();
+
+    for e in &entries {
+        let path = e.path();
+        if path.extension().is_some_and(|x| x == "zip")
+            && let Some(stem) = path.file_stem()
+            && !dir.join(stem).exists()
+            && let Err(err) = extract_zip(&path, &dir.join(stem))
+        {
+            eprintln!("failed to extract skin {}: {err}", path.display());
+        }
+    }
+
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().join("skin.json").is_file())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    names.sort();
+    names
+}
+
+fn extract_zip(zip_path: &Path, dest: &Path) -> anyhow::Result<()> {
+    let file = std::fs::File::open(zip_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    archive.extract(dest)?;
+    // Tolerate zips that wrap everything in a single top-level folder.
+    if !dest.join("skin.json").is_file()
+        && let Ok(mut inner) = std::fs::read_dir(dest)
+        && let Some(Ok(only)) = inner.next()
+        && only.path().join("skin.json").is_file()
+    {
+        for e in std::fs::read_dir(only.path())?.flatten() {
+            std::fs::rename(e.path(), dest.join(e.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+// ---- drawing helpers -----------------------------------------------------
+
+fn uv(x0: f32, y0: f32, x1: f32, y1: f32) -> Rect {
+    Rect::from_min_max(Pos2::new(x0, y0), Pos2::new(x1, y1))
+}
+
+/// On-screen corner size for a nine-slice draw into `rect`.
+pub fn slice_screen_inset(inset_px: f32, rect: Rect) -> f32 {
+    inset_px.min(rect.width() / 2.5).min(rect.height() / 2.5)
+}
+
+// ---- theme colours -------------------------------------------------------
+
+fn parse_hex(s: &str) -> Option<Color32> {
+    let s = s.trim_start_matches('#');
+    match s.len() {
+        6 => {
+            let v = u32::from_str_radix(s, 16).ok()?;
+            Some(Color32::from_rgb((v >> 16) as u8, (v >> 8) as u8, v as u8))
+        }
+        8 => {
+            let v = u32::from_str_radix(s, 16).ok()?;
+            Some(Color32::from_rgba_unmultiplied(
+                (v >> 24) as u8,
+                (v >> 16) as u8,
+                (v >> 8) as u8,
+                v as u8,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn apply_colors(theme: &mut Theme, colors: &HashMap<String, String>) {
+    for (key, value) in colors {
+        let Some(c) = parse_hex(value) else {
+            eprintln!("skin colour {key}: bad value {value:?}");
+            continue;
+        };
+        match key.as_str() {
+            "panel_bg" => theme.panel_bg = c,
+            "panel_fg" => theme.panel_fg = c,
+            "pad_play_bg" => theme.pad_play_bg = c,
+            "pad_play_fg" => theme.pad_play_fg = c,
+            "pad_play_hover" => theme.pad_play_hover = c,
+            "pad_play_pressed" => theme.pad_play_pressed = c,
+            "pad_record_bg" => theme.pad_record_bg = c,
+            "pad_record_fg" => theme.pad_record_fg = c,
+            "pad_function_bg" => theme.pad_function_bg = c,
+            "pad_function_fg" => theme.pad_function_fg = c,
+            "led_empty" => theme.led_empty = c,
+            "led_full" => theme.led_full = c,
+            "case_shadow" => theme.case_shadow = c,
+            "case_border" => theme.case_border = c,
+            "text_primary" => theme.text_primary = c,
+            "text_secondary" => theme.text_secondary = c,
+            "visualizer_bg" => theme.visualizer_bg = c,
+            "visualizer_dot_off" => theme.visualizer_dot_off = c,
+            "visualizer_bar_low" => theme.visualizer_bar_low = c,
+            "visualizer_bar_mid" => theme.visualizer_bar_mid = c,
+            "visualizer_bar_high" => theme.visualizer_bar_high = c,
+            _ => eprintln!("skin colour {key}: unknown key"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_parses_rgb_and_rgba() {
+        assert_eq!(
+            parse_hex("#FF6A1A"),
+            Some(Color32::from_rgb(0xFF, 0x6A, 0x1A))
+        );
+        assert_eq!(
+            parse_hex("00000028"),
+            Some(Color32::from_rgba_unmultiplied(0, 0, 0, 0x28))
+        );
+        assert_eq!(parse_hex("#nope"), None);
+    }
+
+    #[test]
+    fn every_builtin_skin_decodes_and_parses() {
+        for (id, png, json) in BUILTIN {
+            assert!(
+                crate::app::color_image_from_bytes(png).is_some(),
+                "{id}: skin.png"
+            );
+            let def: SkinDef =
+                serde_json::from_slice(json).unwrap_or_else(|e| panic!("{id}: skin.json {e}"));
+            let mut theme = theme_light();
+            apply_colors(&mut theme, &def.colors);
+        }
+        assert_eq!(DEFAULT_SKIN, "arcade");
+        assert!(is_builtin("base") && !is_builtin("sunny"));
+    }
+
+    #[test]
+    fn base_skin_json_parses_and_all_colors_apply() {
+        let def: SkinDef = serde_json::from_slice(embedded("skin.json")).unwrap();
+        assert_eq!(def.name, "Base");
+        let mut theme = theme_light();
+        apply_colors(&mut theme, &def.colors);
+        // A colour the base skin overrides.
+        assert_eq!(theme.visualizer_bg, Color32::from_rgb(0x1A, 0x18, 0x14));
+    }
+
+    #[test]
+    fn zip_in_skins_dir_is_extracted_and_discovered() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("rondelek-skin-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let file = std::fs::File::create(dir.join("my-skin.zip")).unwrap();
+        let mut z = zip::ZipWriter::new(file);
+        let opts: zip::write::SimpleFileOptions = Default::default();
+        z.start_file("skin.json", opts).unwrap();
+        z.write_all(b"{\"name\":\"My Skin\"}").unwrap();
+        z.finish().unwrap();
+
+        assert_eq!(discover_in(&dir), vec!["my-skin".to_string()]);
+        assert!(dir.join("my-skin/skin.json").is_file());
+        // Idempotent: a second scan doesn't re-extract or duplicate.
+        assert_eq!(discover_in(&dir), vec!["my-skin".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn embedded_atlas_decodes() {
+        assert!(crate::app::color_image_from_bytes(embedded("skin.png")).is_some());
+    }
+}

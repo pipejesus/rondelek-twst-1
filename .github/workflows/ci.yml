@@ -1,0 +1,52 @@
+name: CI
+
+# Build + test on every push to the main branches and on pull requests, so
+# breakage is caught before it reaches a release tag (see release.yml).
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+# Least privilege: CI only reads the repo.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          # egui/eframe (X11), cpal (ALSA), rfd (GTK), nokhwa (v4l), udev.
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libasound2-dev \
+            libudev-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libv4l-dev
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      # `cargo test` compiles the whole workspace, so this doubles as a build check.
+      - name: Test
+        run: cargo test --locked

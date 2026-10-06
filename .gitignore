@@ -1,0 +1,23 @@
+# --- Rust build artifacts ---
+/target/
+**/*.rs.bk
+
+# --- Docs (mdBook) build output + generated mermaid assets ---
+/docs/book/
+/docs/mermaid.min.js
+/docs/mermaid-init.js
+
+# NOTE: Cargo.lock is intentionally COMMITTED.
+# `rondelek` is a binary/application (not a library), so the lockfile is
+# checked in to guarantee reproducible builds and CI releases (`--locked`).
+
+# --- Editor / IDE ---
+/.idea/
+/.zed/
+/.vscode/
+*.swp
+*~
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db

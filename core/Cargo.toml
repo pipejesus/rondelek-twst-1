@@ -1,0 +1,24 @@
+[package]
+name = "rondelek-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Shared audio/config/profile/session logic for the sampler app and the voice-game runner"
+
+[dependencies]
+# Bare egui (no eframe/winit) just for Color32/Key value types used in
+# Settings/theme — it has no windowing code, so it can't reintroduce the
+# raylib/windows-rs symbol clash this split exists to avoid.
+egui = "0.35"
+cpal = "0.18"
+hound = "3.5"
+spectrograms = "2"
+non-empty-slice = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+anyhow = "1"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+uuid = { version = "1.23.4", features = ["v4"] }
+sys-locale = "0.3.2"

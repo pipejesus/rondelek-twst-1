@@ -1,0 +1,25 @@
+{
+  "name": "Arcade",
+  "author": "Rondelek",
+  "colors": {
+    "panel_bg": "#2E2A5C",
+    "panel_fg": "#1D1A3A",
+    "pad_play_bg": "#3AA8F0",
+    "pad_play_fg": "#0A0917",
+    "pad_record_bg": "#F03E3E",
+    "pad_record_fg": "#FFF3E8",
+    "pad_function_bg": "#2E2A5C",
+    "pad_function_fg": "#3FE0FF",
+    "led_empty": "#3A3670",
+    "led_full": "#3FD67A",
+    "case_shadow": "#00000070",
+    "case_border": "#0A0917",
+    "text_primary": "#FFF3E8",
+    "text_secondary": "#A9A4D6",
+    "visualizer_bg": "#0B0A1C",
+    "visualizer_dot_off": "#1F1C40",
+    "visualizer_bar_low": "#3FE0FF",
+    "visualizer_bar_mid": "#FF4FA3",
+    "visualizer_bar_high": "#FFD84A"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "Base",
+  "author": "Rondelek",
+  "colors": {
+    "panel_bg": "#E6E1D5",
+    "panel_fg": "#D5D0C2",
+    "pad_play_bg": "#F3EEE4",
+    "pad_play_fg": "#26231E",
+    "pad_record_bg": "#FF6A1A",
+    "pad_record_fg": "#FFFFFF",
+    "pad_function_bg": "#2E2A24",
+    "pad_function_fg": "#FF6A1A",
+    "led_empty": "#BEB8AA",
+    "led_full": "#FF6A1A",
+    "case_shadow": "#00000030",
+    "case_border": "#CFC9BB",
+    "text_primary": "#26231E",
+    "text_secondary": "#8A8475",
+    "visualizer_bg": "#1A1814",
+    "visualizer_dot_off": "#2C2922",
+    "visualizer_bar_low": "#B85A12",
+    "visualizer_bar_mid": "#FF6A1A",
+    "visualizer_bar_high": "#FFC06A"
+  }
+}

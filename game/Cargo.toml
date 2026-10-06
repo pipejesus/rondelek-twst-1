@@ -1,0 +1,13 @@
+[package]
+name = "rondelek-game"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Voice-controlled mini-games (raylib), spawned as a child process by the sampler app"
+
+[dependencies]
+rondelek-core = { path = "../core" }
+raylib = "6.0.0"
+anyhow = "1"
+serde_json = "1"

@@ -1,0 +1,193 @@
+name: Release
+
+# Fires when you push a version tag, e.g.:
+#   git tag v0.1.0 && git push origin v0.1.0
+# The build jobs each upload their downloads as a workflow artifact; `publish`
+# then attaches everything to the GitHub Release for that tag (creating it if
+# it doesn't exist). One publishing job instead of one per build, so two jobs
+# never race to create the same release.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # TEMPORARILY DISABLED — re-enable by uncommenting (the Package
+          # (unix) step below handles macOS). Linux has its own job below.
+          # - os: macos-14        # Apple Silicon runner
+          #   target: aarch64-apple-darwin
+          # - os: macos-13        # Intel runner
+          #   target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          STAGE="rondelek-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "$STAGE" dist
+          # rondelek-game is spawned as a child process next to rondelek
+          # (App::spawn_game) — both binaries must ship together.
+          cp "target/${{ matrix.target }}/release/rondelek" "$STAGE/"
+          cp "target/${{ matrix.target }}/release/rondelek-game" "$STAGE/"
+          cp README.md "$STAGE/"
+          tar -czf "dist/$STAGE.tar.gz" "$STAGE"
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "rondelek-$env:GITHUB_REF_NAME-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $stage, dist | Out-Null
+          # rondelek-game is spawned as a child process next to rondelek.exe
+          # (App::spawn_game) — both binaries must ship together.
+          Copy-Item "target/${{ matrix.target }}/release/rondelek.exe" $stage
+          Copy-Item "target/${{ matrix.target }}/release/rondelek-game.exe" $stage
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/$stage.zip"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  # Linux: one AppImage holding both binaries (see packaging/appimage/README.md),
+  # plus a plain .tar.gz of the same build.
+  #
+  # Pinned to ubuntu-22.04, not ubuntu-latest: a binary needs at least the glibc
+  # it was built against, and 22.04's 2.35 runs on Ubuntu 22.04+, Debian 12+
+  # and every current rolling distro. A 24.04 build would refuse to start on
+  # those older LTS systems.
+  linux:
+    name: x86_64-unknown-linux-gnu (AppImage)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: linux-appimage
+
+      # cpal (ALSA), nokhwa (v4l, bindgen → libclang), raylib's GLFW (X11/GL
+      # headers), plus what packaging and the smoke test use: desktop-file-utils
+      # to validate the entry, xvfb + Mesa's software GL to draw headless.
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libv4l-dev libclang-dev \
+            libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            xorg-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev \
+            desktop-file-utils xvfb xauth libgl1-mesa-dri libxkbcommon-x11-0
+
+      # raylib-sys needs CMake >= 3.25 and 22.04's own package is 3.22. The
+      # runner image normally carries a newer one; fetch Kitware's if not.
+      - name: Ensure CMake >= 3.25
+        run: |
+          have=$(cmake --version 2>/dev/null | head -1 | awk '{print $3}')
+          if [ -z "$have" ] || [ "$(printf '%s\n' 3.25 "$have" | sort -V | head -1)" != 3.25 ]; then
+            curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz \
+              | sudo tar -xz -C /opt
+            echo /opt/cmake-3.31.6-linux-x86_64/bin >> "$GITHUB_PATH"
+          fi
+          echo "CMake before: ${have:-none}"
+
+      - name: Build
+        run: cargo build --release --locked
+
+      # appimagetool is an AppImage too and runners have no FUSE; this makes
+      # it (and the smoke test's AppImage) unpack to a temp dir and run from
+      # there instead.
+      - name: Build the AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: packaging/appimage/build.sh target/release "$GITHUB_REF_NAME" dist
+
+      - name: Smoke-test the AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: packaging/appimage/smoke.sh "dist/rondelek-$GITHUB_REF_NAME-x86_64.AppImage"
+
+      - name: Package the .tar.gz
+        run: |
+          STAGE="rondelek-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          mkdir "$STAGE"
+          # Both binaries together: the app starts the game from its own folder.
+          cp target/release/rondelek target/release/rondelek-game README.md "$STAGE/"
+          strip "$STAGE/rondelek" "$STAGE/rondelek-game"
+          tar -czf "dist/$STAGE.tar.gz" "$STAGE"
+          ls -la dist
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist-linux
+          path: dist/*
+          if-no-files-found: error
+
+  # Attach whatever was built. `!cancelled()` rather than the default: one
+  # broken platform shouldn't keep the others from shipping. The step summary
+  # lists what made it.
+  publish:
+    needs: [desktop, linux]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Check something was built
+        run: |
+          mkdir -p dist
+          ls -la dist
+          [ -n "$(ls -A dist)" ] || { echo "::error::every build failed; nothing to release"; exit 1; }
+          {
+            echo "### Release $GITHUB_REF_NAME"
+            echo
+            for f in dist/*; do echo "- \`$(basename "$f")\`"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: dist/*
+          generate_release_notes: true
